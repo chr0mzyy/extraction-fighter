@@ -10,6 +10,7 @@ func _ready() -> void:
 	_build_vertical_routes()
 	_build_cover_and_corridors()
 	_build_route_markings()
+	_build_ai_tactical_points()
 	_build_launch_pads()
 	_build_kill_volume()
 
@@ -95,11 +96,13 @@ func _build_launch_pads() -> void:
 	pad_one.name = "LaunchPadSouth"
 	pad_one.position = Vector3(-11, 0.15, 23)
 	pad_one.rotation.y = 0.0
+	pad_one.add_to_group("bot_vertical_route")
 	add_child(pad_one)
 	var pad_two := LaunchPad.new()
 	pad_two.name = "LaunchPadNorth"
 	pad_two.position = Vector3(11, 0.15, -16)
 	pad_two.rotation.y = PI
+	pad_two.add_to_group("bot_vertical_route")
 	add_child(pad_two)
 	var pad_three := LaunchPad.new()
 	pad_three.name = "LaunchPadWestHigh"
@@ -107,6 +110,7 @@ func _build_launch_pads() -> void:
 	pad_three.vertical_speed = 11.5
 	pad_three.forward_speed = 8.5
 	pad_three.rotation.y = -PI * 0.5
+	pad_three.add_to_group("bot_vertical_route")
 	add_child(pad_three)
 
 
@@ -126,6 +130,41 @@ func _build_route_markings() -> void:
 		paving.position = route[0]
 		paving.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(paving)
+
+
+func _build_ai_tactical_points() -> void:
+	# Lightweight authored hints keep tactical movement robust without a navigation bake.
+	# Cover points are paired across obstacles so the bot can pick the side hidden from
+	# the player's current angle instead of treating cover as a fixed destination.
+	var cover_points: Array[Vector3] = [
+		Vector3(-12, 0.1, -15.2), Vector3(-12, 0.1, -10.8),
+		Vector3(12, 0.1, -14.2), Vector3(12, 0.1, -9.8),
+		Vector3(-18.9, 0.1, 11.0), Vector3(-17.1, 0.1, 20.5),
+		Vector3(17.1, 0.1, -15.0), Vector3(18.9, 0.1, -4.5),
+		Vector3(-3, 0.1, -15.0), Vector3(4, 0.1, -8.2),
+		Vector3(-13, 0.1, 22.0), Vector3(12, 0.1, 16.0),
+		Vector3(-20, 3.45, -5.8), Vector3(20, 5.25, 8.0),
+		Vector3(-8, 6.1, -19.3), Vector3(8, 6.1, -19.3),
+	]
+	for index in range(cover_points.size()):
+		_add_tactical_marker("CoverPoint%02d" % index, cover_points[index], "bot_cover_point")
+
+	var flank_points: Array[Vector3] = [
+		Vector3(-24, 0.1, 19), Vector3(24, 0.1, 19),
+		Vector3(-24, 0.1, -17), Vector3(24, 0.1, -17),
+		Vector3(-20, 3.45, 1), Vector3(20, 5.25, 3),
+		Vector3(-16, 6.1, -20), Vector3(16, 6.1, -20),
+	]
+	for index in range(flank_points.size()):
+		_add_tactical_marker("FlankPoint%02d" % index, flank_points[index], "bot_flank_point")
+
+
+func _add_tactical_marker(marker_name: String, marker_position: Vector3, group_name: StringName) -> void:
+	var marker := Marker3D.new()
+	marker.name = marker_name
+	marker.position = marker_position
+	marker.add_to_group(group_name)
+	add_child(marker)
 
 
 func _build_kill_volume() -> void:

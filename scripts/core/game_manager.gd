@@ -24,6 +24,10 @@ func _ready() -> void:
 	score_changed.emit(player_kills, bot_kills)
 	if "--self-test" in OS.get_cmdline_user_args():
 		_run_self_test.call_deferred()
+	elif "--ai-soak-test" in OS.get_cmdline_user_args():
+		_run_ai_soak_test.call_deferred()
+	elif "--hud-layout-test" in OS.get_cmdline_user_args():
+		_run_hud_layout_test.call_deferred()
 	elif "--capture-frame" in OS.get_cmdline_user_args():
 		_capture_validation_frame.call_deferred()
 	elif "--capture-tpp" in OS.get_cmdline_user_args():
@@ -33,10 +37,10 @@ func _ready() -> void:
 func _on_actor_died(actor: Node, info: DamageInfo) -> void:
 	if actor == bot:
 		player_kills += 1
-		kill_feed.emit("BOT DOWN  +1")
+		kill_feed.emit("ELIMINATED BOT")
 	else:
 		bot_kills += 1
-		kill_feed.emit("PLAYER DOWN  —  BOT +1")
+		kill_feed.emit("YOU DIED")
 	score_changed.emit(player_kills, bot_kills)
 	_respawn_actor(actor, info)
 
@@ -48,6 +52,7 @@ func _respawn_actor(actor: Node, _info: DamageInfo) -> void:
 
 
 func _run_self_test() -> void:
+	print("SELF_TEST_START")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	var failures: Array[String] = []
@@ -61,12 +66,20 @@ func _run_self_test() -> void:
 		failures.append("Health components did not initialize to 100")
 	if $Arena.get_child_count() < 35:
 		failures.append("Arena geometry did not generate")
+	if get_tree().get_nodes_in_group("bot_cover_point").size() < 12 or get_tree().get_nodes_in_group("bot_flank_point").size() < 6:
+		failures.append("Bot tactical arena hints did not generate")
+	if get_tree().get_nodes_in_group("bot_vertical_route").size() < 3:
+		failures.append("Bot vertical route hints did not generate")
+	if bot.movement == null:
+		failures.append("Bot movement component did not initialize")
+	failures.append_array(hud.get_layout_validation_errors())
 	if get_tree().get_nodes_in_group("player").size() != 1 or get_tree().get_nodes_in_group("bot").size() != 1:
 		failures.append("Character groups are invalid")
 	for action in ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "dash", "toggle_camera", "weapon_1", "weapon_2", "primary_attack", "secondary_attack", "heavy_attack", "reload", "menu_toggle", "debug_toggle"]:
 		if not InputMap.has_action(action):
 			failures.append("Missing input action: " + action)
 
+	print("SELF_TEST_SECTION: locomotion")
 	# Real player physics: compare walk/sprint movement, then trigger jump and dash.
 	player.global_position = Vector3(-25, 0.15, 24)
 	player.rotation = Vector3.ZERO
@@ -189,6 +202,7 @@ func _run_self_test() -> void:
 	if player.velocity.y <= 0.0 or player.movement.normal_jump_available:
 		failures.append("Buffered jump did not trigger immediately after landing")
 
+	print("SELF_TEST_SECTION: crouch_slide")
 	# Physical crouch transitions, blocked stand-up, slide, and slide jump.
 	player.movement.reset()
 	player.double_jump_skill.reset()
@@ -272,6 +286,7 @@ func _run_self_test() -> void:
 	player.set_physics_process(false)
 	player.movement.reset()
 
+	print("SELF_TEST_SECTION: combat")
 	# Skills: activation, anti-repeat, persistent cooldown, and reset contracts.
 	player.dash_skill.reset()
 	if not player.dash_skill.try_activate(Vector3.FORWARD) or not player.dash_skill.is_active():
@@ -415,11 +430,295 @@ func _run_self_test() -> void:
 	if (player.weapons[1] as SniperWeapon).ammo != (player.weapons[1] as SniperWeapon).magazine_size:
 		failures.append("Player sniper ammo did not reset on respawn")
 	if failures.is_empty():
-		print("SELF_TEST_OK: movement 0.1.1, runtime, arena, combat, skills, death, score and respawn passed")
+		print("SELF_TEST_OK: movement, runtime, arena, combat, skills, HUD, death, score and respawn passed")
 		get_tree().quit(0)
 	else:
 		for failure in failures:
 			push_error("SELF_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_ai_soak_test() -> void:
+	print("AI_SOAK_START")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var failures: Array[String] = []
+	player.set_physics_process(false)
+	bot.set_physics_process(false)
+	player.health.max_health = 5000.0
+	player.health.reset()
+	bot.random.seed = 12012
+
+	# Perception is geometry-gated, remembers only the last visible location, and
+	# restores a reaction delay when the player reappears.
+	bot.global_position = Vector3(-9.2, 0.15, 13.0)
+	player.global_position = Vector3(-10.8, 0.15, 13.0)
+	bot.set_target(player)
+	await get_tree().physics_frame
+	bot.sight_check_remaining = 0.0
+	bot._update_perception(0.1)
+	if not bot.has_line_of_sight:
+		failures.append("Bot failed to see an unobstructed nearby player")
+	var last_visible_position := bot.last_known_player_position
+	player.global_position = Vector3(-5.0, 0.15, 13.0)
+	await get_tree().physics_frame
+	bot.sight_check_remaining = 0.0
+	bot._update_perception(0.1)
+	if bot.has_line_of_sight:
+		failures.append("Bot retained line of sight through the keep wall")
+	if bot.last_known_player_position.distance_to(last_visible_position) > 0.05:
+		failures.append("Bot updated exact player knowledge while line of sight was blocked")
+	player.global_position = last_visible_position
+	await get_tree().physics_frame
+	bot.sight_check_remaining = 0.0
+	bot._update_perception(0.1)
+	if bot.aim_reaction_remaining < bot.aim_reaction_delay - 0.02:
+		failures.append("Bot reacquired the player without reaction delay")
+
+	# Range hysteresis selects the expected weapon without per-frame switching.
+	bot.weapon_switch_remaining = 0.0
+	bot._choose_weapon_for_distance(bot.sniper_range + 5.0)
+	if bot.current_weapon_index != 1:
+		failures.append("Bot did not prefer sniper at range")
+	bot.weapon_switch_remaining = 0.0
+	bot._choose_weapon_for_distance(bot.melee_range - 1.0)
+	if bot.current_weapon_index != 0:
+		failures.append("Bot did not switch to katana nearby")
+	if bot.weapon_switch_remaining <= 0.0:
+		failures.append("Bot weapon switching did not apply hysteresis cooldown")
+	bot.health.current_health = bot.retreat_health_threshold - 1.0
+	bot.ai_state = BotController.STATE_APPROACH
+	bot.state_lock_remaining = 0.0
+	bot.has_line_of_sight = true
+	bot._evaluate_state()
+	if bot.ai_state != BotController.STATE_RETREAT:
+		failures.append("Bot did not retreat below its health threshold")
+	bot.health.reset()
+	bot.ai_state = BotController.STATE_SEARCH
+	bot._set_state(BotController.STATE_FLANK, 1.0)
+	if bot.ai_state != BotController.STATE_FLANK or bot.tactical_target.distance_to(bot.global_position) < 2.0:
+		failures.append("Bot did not select an alternate flank destination")
+	bot.global_position = Vector3(0.0, 0.15, 0.0)
+	player.global_position = Vector3(0.0, 5.5, -10.0)
+	bot.last_known_player_position = player.global_position
+	bot.has_line_of_sight = true
+	bot.recent_damage_timer = 0.0
+	bot.state_lock_remaining = 0.0
+	bot._evaluate_state()
+	var nearest_vertical_hint := INF
+	for route_node: Node in get_tree().get_nodes_in_group("bot_vertical_route"):
+		nearest_vertical_hint = minf(nearest_vertical_hint, bot.tactical_target.distance_to((route_node as Node3D).global_position))
+	if bot.ai_state != BotController.STATE_FLANK or nearest_vertical_hint > 0.1:
+		failures.append("Bot did not choose a launch-pad route for elevated pressure")
+
+	# Let the full controller fight from an open long sightline.
+	bot.health.reset()
+	bot.movement.reset_state()
+	bot.global_position = Vector3(20.0, 0.15, 25.0)
+	player.global_position = Vector3(-20.0, 0.15, 25.0)
+	bot.velocity = Vector3.ZERO
+	bot.set_target(player)
+	bot.weapon_switch_remaining = 0.0
+	bot.decision_remaining = 0.0
+	bot.state_lock_remaining = 0.0
+	bot.debug_sniper_shots = 0
+	bot.debug_reload_count = 0
+	bot.flank_probability = 0.0
+	bot.equip_weapon(1)
+	bot.ai_state = BotController.STATE_SEARCH
+	bot._set_state(BotController.STATE_RANGED, 0.5)
+	bot.decision_remaining = 999.0
+	bot.set_physics_process(true)
+	for frame in range(480):
+		await get_tree().physics_frame
+	if bot.debug_sniper_shots <= 0:
+		var aim_to_player := (player.global_position + Vector3.UP * 1.08 - bot.get_aim_origin()).normalized()
+		failures.append("Bot did not aim and fire the sniper during ranged soak (%s, distance %.1f, aim dot %.3f, ammo %d)" % [str(bot.get_debug_snapshot()), bot.global_position.distance_to(player.global_position), bot.aim_direction.dot(aim_to_player), (bot.weapons[1] as SniperWeapon).ammo])
+	if bot.debug_sniper_shots >= 5 and bot.debug_reload_count <= 0:
+		failures.append("Bot fired through a full magazine without reloading")
+
+	# Close-range soak verifies katana selection, orbiting pressure, and attacks.
+	bot.global_position = Vector3(0.0, 0.15, 0.0)
+	player.global_position = Vector3(0.0, 0.15, -2.2)
+	bot.velocity = Vector3.ZERO
+	bot.health.reset()
+	bot.set_target(player)
+	bot.weapon_switch_remaining = 0.0
+	bot.decision_remaining = 0.0
+	bot.state_lock_remaining = 0.0
+	var melee_before := bot.debug_melee_swings
+	for frame in range(240):
+		await get_tree().physics_frame
+	if bot.current_weapon_index != 0:
+		failures.append("Bot did not retain katana in close combat")
+	if bot.debug_melee_swings <= melee_before:
+		failures.append("Bot did not attack during melee soak")
+	bot.action_remaining = 0.0
+	bot.block_remaining = 0.0
+	bot.block_probability = 1.0
+	bot.risk_tolerance = 1.0
+	bot.global_position = Vector3(0.0, 0.15, 0.0)
+	player.global_position = Vector3(0.0, 0.15, -2.0)
+	bot.last_known_player_position = player.global_position
+	var blocks_before := bot.debug_block_count
+	bot._execute_melee_combat()
+	if bot.debug_block_count <= blocks_before or not (bot.current_weapon as KatanaWeapon).is_blocking:
+		failures.append("Bot did not enter its block/perfect-deflect response")
+	(bot.current_weapon as KatanaWeapon).secondary_released()
+	bot.block_remaining = 0.0
+
+	# Force representative contextual mobility opportunities while using the same
+	# physics executor as live AI.
+	bot.global_position = Vector3(-20.0, 0.15, 22.0)
+	bot.velocity = Vector3.ZERO
+	player.global_position = Vector3(20.0, 0.15, 22.0)
+	bot.set_target(player)
+	bot.movement.reset_state()
+	for frame in range(4):
+		await get_tree().physics_frame
+	var dash_before := bot.debug_dash_count
+	bot.dash_skill.reset()
+	bot.pending_dodge_direction = Vector3.RIGHT
+	bot.pending_dodge_remaining = 0.4
+	for frame in range(4):
+		await get_tree().physics_frame
+	if bot.debug_dash_count <= dash_before:
+		failures.append("Bot contextual dodge dash did not activate")
+
+	bot.global_position = Vector3(-20.0, 0.15, 22.0)
+	bot.velocity = Vector3.ZERO
+	bot.movement.reset_state()
+	for frame in range(4):
+		await get_tree().physics_frame
+	var jump_before := bot.debug_jump_count
+	bot.bhop_chain_remaining = 2
+	for frame in range(150):
+		await get_tree().physics_frame
+	if bot.debug_jump_count <= jump_before or bot.debug_bhop_count <= 0:
+		failures.append("Bot bunny-hop traversal did not activate")
+
+	bot.global_position = Vector3(-20.0, 0.15, 22.0)
+	bot.velocity = Vector3.ZERO
+	bot.movement.reset_state()
+	for frame in range(5):
+		await get_tree().physics_frame
+	bot.velocity = Vector3(0.0, 0.0, -9.2)
+	bot.pending_slide_remaining = 0.8
+	var slide_before := bot.debug_slide_count
+	for frame in range(8):
+		await get_tree().physics_frame
+	if bot.debug_slide_count <= slide_before:
+		failures.append("Bot contextual slide did not activate")
+
+	# Drive into a boundary long enough to require recovery, then ensure the bot
+	# exits that recovery rather than permanently pressing the wall.
+	bot.global_position = Vector3(0.0, 0.15, 27.7)
+	bot.velocity = Vector3.ZERO
+	player.global_position = Vector3(0.0, 0.15, 35.0)
+	bot.set_target(player)
+	bot.has_line_of_sight = false
+	bot.time_since_player_seen = 999.0
+	bot.search_target = Vector3(0.0, 0.15, 40.0)
+	bot.ai_state = BotController.STATE_SEARCH
+	bot.decision_remaining = 999.0
+	bot.state_lock_remaining = 0.0
+	var recoveries_before := bot.stuck_recovery_count
+	for frame in range(180):
+		await get_tree().physics_frame
+	if bot.stuck_recovery_count <= recoveries_before:
+		failures.append("Bot stuck detector did not enter recovery at a blocked boundary")
+	if bot.ai_state == BotController.STATE_STUCK and bot.state_time > 1.3:
+		failures.append("Bot remained in stuck recovery permanently")
+
+	# A controlled accuracy phase proves the complete bot-to-player kill path. Live
+	# defaults remain imperfect; the override only removes randomness from this check.
+	player.health.max_health = 100.0
+	player.health.reset()
+	player.global_position = Vector3(-5.0, 0.15, 26.5)
+	bot.global_position = Vector3(5.0, 0.15, 26.5)
+	bot.velocity = Vector3.ZERO
+	bot.health.reset()
+	bot.movement.reset_state()
+	bot.equip_weapon(1)
+	var kill_test_sniper := bot.current_weapon as SniperWeapon
+	kill_test_sniper.reset_weapon()
+	bot.set_target(player)
+	bot.set_physics_process(false)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	bot.aim_direction = (player.global_position + Vector3.UP * 0.92 - bot.get_aim_origin()).normalized()
+	var kills_before := bot_kills
+	kill_test_sniper.secondary_pressed()
+	kill_test_sniper.request_primary()
+	kill_test_sniper.fire_cooldown_remaining = 0.0
+	kill_test_sniper.request_primary()
+	kill_test_sniper.secondary_released()
+	await get_tree().physics_frame
+	if bot_kills <= kills_before:
+		failures.append("Bot did not complete the player damage/death path (HP %.1f)" % player.health.current_health)
+
+	if failures.is_empty():
+		print("AI_SOAK_OK: perception, reaction, weapon choice, ranged/melee combat, mobility, stuck recovery and bot kill path passed")
+		get_tree().quit(0)
+	else:
+		for failure in failures:
+			push_error("AI_SOAK_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_hud_layout_test() -> void:
+	print("HUD_LAYOUT_START")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var failures: Array[String] = []
+	for test_size in [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)]:
+		get_window().size = test_size
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var layout_errors := hud.get_layout_validation_errors()
+		for layout_error in layout_errors:
+			failures.append("%dx%d: %s" % [test_size.x, test_size.y, layout_error])
+
+	player.health.current_health = 24.0
+	player.dash_skill.cooldown_remaining = 2.1
+	player.double_jump_skill.cooldown_remaining = 1.6
+	player.equip_weapon(1)
+	var hud_sniper := player.current_weapon as SniperWeapon
+	hud_sniper.ammo = 3
+	hud_sniper.is_reloading = true
+	hud_sniper.reload_remaining = 1.2
+	await get_tree().process_frame
+	if not hud.health_warning_label.visible or hud.health_value_label.text != "024":
+		failures.append("Low-health HUD state did not become readable")
+	if hud.ammo_label.text != "3 / 4" or not hud.reload_label.text.contains("RELOADING"):
+		failures.append("Sniper ammo/reload HUD state did not update")
+	if not hud.dash_state_label.text.contains("2.1") or not hud.jump_state_label.text.contains("1.6"):
+		failures.append("Skill cooldown HUD state did not update")
+	hud._show_hitmarker(true)
+	if not hud.hitmarker.visible or not hud.headshot_label.visible:
+		failures.append("Headshot marker did not instantiate")
+	hud._on_player_feedback(&"damage_taken", {})
+	await get_tree().process_frame
+	if hud.damage_edges.is_empty() or hud.damage_edges[0].color.a <= 0.0:
+		failures.append("Damage edge feedback did not animate")
+	hud._on_kill_feed("ELIMINATED BOT")
+	if hud.status_label.text != "ELIMINATED BOT":
+		failures.append("Kill notification did not update")
+	player.set_camera_mode(false)
+	await get_tree().process_frame
+	if not hud.camera_label.text.begins_with("TPP"):
+		failures.append("Camera mode indicator did not update")
+	hud.debug_visible = true
+	hud.debug_panel.visible = true
+	await get_tree().process_frame
+	if not hud.debug_label.text.contains("BOT LOS"):
+		failures.append("F3 telemetry remained mixed or unavailable")
+	if failures.is_empty():
+		print("HUD_LAYOUT_OK: anchored layouts and health, weapon, skill, damage, hit, kill, camera and debug states passed")
+		get_tree().quit(0)
+	else:
+		for failure in failures:
+			push_error("HUD_LAYOUT_FAILURE: " + failure)
 		get_tree().quit(1)
 
 
