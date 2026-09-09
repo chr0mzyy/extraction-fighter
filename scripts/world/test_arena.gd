@@ -50,8 +50,8 @@ func _build_vertical_routes() -> void:
 	# Northern balcony creates the longest sightline and a protected lower route.
 	_add_box("NorthBalcony", Vector3(0, 5.7, -22), Vector3(30, 0.75, 7), "platform")
 	_add_box("NorthBalconyBack", Vector3(0, 7.5, -25.2), Vector3(31, 4.2, 0.8), "stone")
-	_add_box("NorthRampWest", Vector3(-18.2, 2.8, -18.2), Vector3(4, 0.55, 13), "stone_light", Vector3(-0.43, 0, 0))
-	_add_box("NorthRampEast", Vector3(18.2, 2.8, -18.2), Vector3(4, 0.55, 13), "stone_light", Vector3(-0.43, 0, 0))
+	_add_box("NorthRampWest", Vector3(-18.2, 2.8, -18.2), Vector3(4, 0.55, 13), "stone_light", Vector3(0.43, 0, 0))
+	_add_box("NorthRampEast", Vector3(18.2, 2.8, -18.2), Vector3(4, 0.55, 13), "stone_light", Vector3(0.43, 0, 0))
 
 	# Broken central bridge and stepping gap for jump/dash tests.
 	_add_box("CenterBridgeWest", Vector3(-5.4, 2.45, 1), Vector3(8.2, 0.6, 4), "stone_light")
