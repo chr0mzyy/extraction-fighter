@@ -1,6 +1,7 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/weapons/sniper.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/visuals/weapon_placeholder.gd" id="visual"]
 
 [sub_resource type="StandardMaterial3D" id="BodyMaterial"]
 albedo_color = Color(0.12, 0.13, 0.16, 1)
@@ -48,3 +49,6 @@ position = Vector3(0, 0.13, -0.38)
 rotation = Vector3(1.5708, 0, 0)
 mesh = SubResource("ScopeMesh")
 
+[node name="PlaceholderModel" type="Node3D" parent="."]
+script = ExtResource("visual")
+model = 1

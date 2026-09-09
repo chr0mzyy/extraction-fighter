@@ -13,14 +13,15 @@ func _ready() -> void:
 	_build_ai_tactical_points()
 	_build_launch_pads()
 	_build_kill_volume()
+	_build_visual_details()
 
 
 func _create_materials() -> void:
-	materials["stone"] = _material(Color(0.22, 0.25, 0.29), 0.92)
-	materials["floor"] = _material(Color(0.32, 0.35, 0.38), 0.95)
+	materials["stone"] = _material(Color(0.25, 0.28, 0.30), 0.92)
+	materials["floor"] = _material(Color(0.34, 0.36, 0.36), 0.95)
 	materials["stone_light"] = _material(Color(0.48, 0.46, 0.40), 0.88)
 	materials["platform"] = _material(Color(0.35, 0.40, 0.43), 0.82)
-	materials["cover"] = _material(Color(0.40, 0.29, 0.18), 0.9)
+	materials["cover"] = _material(Color(0.34, 0.22, 0.13), 0.9)
 	materials["accent"] = _material(Color(0.30, 0.27, 0.25), 0.86)
 	materials["edge"] = _material(Color(0.62, 0.55, 0.37), 0.9)
 
@@ -30,6 +31,29 @@ func _material(color: Color, roughness: float) -> StandardMaterial3D:
 	result.albedo_color = color
 	result.roughness = roughness
 	return result
+
+
+func _build_visual_details() -> void:
+	# Decorative meshes only: existing cover and traversal collision stays authored.
+	var iron := PlaceholderParts.material(Color(0.12, 0.15, 0.17), 0.55)
+	var banner := PlaceholderParts.material(Color(0.25, 0.10, 0.085))
+	for x: float in [-23.0, -11.0, 11.0, 23.0]:
+		PlaceholderParts.box(self, Vector3(x, 4.8, -28.32), Vector3(1.5, 3.1, 0.08), banner)
+		PlaceholderParts.box(self, Vector3(x, 4.8, -28.25), Vector3(0.12, 2.1, 0.03), materials["edge"])
+		PlaceholderParts.box(self, Vector3(x, 6.4, -28.32), Vector3(1.9, 0.12, 0.15), iron)
+	for child: Node in get_children():
+		if not child is StaticBody3D:
+			continue
+		var body := child as StaticBody3D
+		if String(body.name).contains("Cover"):
+			var collision := body.get_child(body.get_child_count() - 1) as CollisionShape3D
+			if collision != null and collision.shape is BoxShape3D:
+				var dimensions := (collision.shape as BoxShape3D).size
+				for side: float in [-1.0, 1.0]:
+					PlaceholderParts.box(body, Vector3(side * dimensions.x * 0.32, 0, 0), Vector3(0.09, dimensions.y + 0.02, dimensions.z + 0.03), iron)
+		elif String(body.name).begins_with("Pillar"):
+			PlaceholderParts.cylinder(body, Vector3(0, -1.64, 0), 1.17, 0.25, iron)
+			PlaceholderParts.cylinder(body, Vector3(0, 1.64, 0), 1.17, 0.25, materials["edge"])
 
 
 func _build_floor_and_bounds() -> void:

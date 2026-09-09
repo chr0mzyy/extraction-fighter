@@ -1,6 +1,7 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/weapons/knight_sword.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/visuals/weapon_placeholder.gd" id="visual"]
 [sub_resource type="StandardMaterial3D" id="BladeMaterial"]
 albedo_color = Color(0.68, 0.7, 0.72, 1)
 metallic = 0.78
@@ -33,3 +34,7 @@ mesh = SubResource("GuardMesh")
 position = Vector3(0, 0, 0.18)
 rotation = Vector3(1.5708, 0, 0)
 mesh = SubResource("HandleMesh")
+
+[node name="PlaceholderModel" type="Node3D" parent="."]
+script = ExtResource("visual")
+model = 3

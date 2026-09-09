@@ -41,6 +41,14 @@ func _ready() -> void:
 	rim.mesh = rim_mesh
 	rim.position.y = 0.16
 	add_child(rim)
+	# A small unshadowed light makes the rune visible on nearby stone in compatibility mode.
+	var glow := OmniLight3D.new()
+	glow.position.y = 0.55
+	glow.light_color = Color(0.12, 0.7, 0.85)
+	glow.light_energy = 0.7
+	glow.omni_range = 3.3
+	glow.shadow_enabled = false
+	add_child(glow)
 	for side in [-1.0, 1.0]:
 		var arrow := MeshInstance3D.new()
 		var arrow_mesh := BoxMesh.new()

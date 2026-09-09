@@ -1,6 +1,7 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/characters/bot_controller.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/visuals/humanoid_placeholder.gd" id="visual"]
 [ext_resource type="Script" path="res://scripts/components/health_component.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/components/hurtbox_3d.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/skills/dash_skill.gd" id="4"]
@@ -39,6 +40,8 @@ position = Vector3(0, 0.92, 0)
 shape = SubResource("BodyShape")
 
 [node name="VisualBody" type="MeshInstance3D" parent="."]
+script = ExtResource("visual")
+accent = Color(0.64, 0.12, 0.10, 1)
 position = Vector3(0, 0.92, 0)
 mesh = SubResource("BotMesh")
 

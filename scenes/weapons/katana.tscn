@@ -1,6 +1,7 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/weapons/katana.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/visuals/weapon_placeholder.gd" id="visual"]
 
 [sub_resource type="StandardMaterial3D" id="BladeMaterial"]
 albedo_color = Color(0.7, 0.78, 0.86, 1)
@@ -30,3 +31,6 @@ position = Vector3(0, 0, 0.09)
 rotation = Vector3(1.5708, 0, 0)
 mesh = SubResource("HandleMesh")
 
+[node name="PlaceholderModel" type="Node3D" parent="."]
+script = ExtResource("visual")
+model = 0
