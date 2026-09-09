@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/service_glock.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"service_glock"
+display_name = "Service Glock"
+flavor_text = "Plain, quick, and always within reach."
+description = "Fast-handling semi-automatic sidearm with clean movement accuracy."
+item_type = 0
+rarity = 1
+gameplay_scene = ExtResource("2")
+weapon_family = &"pistol"
+damage = 20.0
+fire_rate = 6.25
+magazine_size = 17
+reload_time = 1.35
+headshot_damage = 30.0
+range_label = "Close–Medium"
+special_description = "Fast Handling"
+durability_max = 95

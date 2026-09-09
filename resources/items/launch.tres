@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/skills/launch.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"launch"
+display_name = "Launch"
+flavor_text = "Take the high ground in a single breath."
+description = "Apply a strong upward and forward self-launch."
+item_type = 1
+rarity = 2
+gameplay_scene = ExtResource("2")
+power_cost = 85
+cooldown = 10.0
+activation_method = "Q or E — equipped skill slot"

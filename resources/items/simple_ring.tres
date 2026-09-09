@@ -4,6 +4,8 @@
 script = ExtResource("1")
 id = &"simple_ring"
 display_name = "Simple Ring"
+flavor_text = "Unadorned, but faithfully kept."
 description = "A modest band for the first ring slot."
 item_type = 2
 gear_slot = 6
+modifier_text = "Minor Utility"

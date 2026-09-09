@@ -20,6 +20,7 @@ var equipped_gear: Dictionary = {}
 var main_inventory: Array[String] = []
 var last_load_used_defaults: bool = false
 var last_error: String = ""
+var catalog_migrated_last_load: bool = false
 
 
 func _ready() -> void:
@@ -47,6 +48,7 @@ func reset_to_defaults(save_after: bool = true) -> void:
 	main_inventory.resize(INVENTORY_SIZE)
 	main_inventory.fill("")
 	last_load_used_defaults = true
+	catalog_migrated_last_load = false
 	last_error = ""
 	profile_changed.emit()
 	loadout_changed.emit()
@@ -197,6 +199,7 @@ func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 		last_error = "Save data has an invalid shape"
 		return false
 	owned_item_ids = incoming_owned
+	catalog_migrated_last_load = _ensure_development_catalog_owned()
 	weapon_slots = incoming_weapons
 	skill_slots = incoming_skills
 	main_inventory = incoming_inventory
@@ -244,6 +247,8 @@ func load_profile(path: String = SAVE_PATH, persist_fallback: bool = true) -> bo
 		if persist_fallback:
 			save_profile(path)
 		return false
+	if catalog_migrated_last_load and persist_fallback:
+		save_profile(path)
 	return true
 
 
@@ -279,3 +284,13 @@ func _string_array(value: Variant) -> Array[String]:
 		for entry: Variant in value:
 			result.append(String(entry))
 	return result
+
+
+func _ensure_development_catalog_owned() -> bool:
+	var changed := false
+	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
+		var item_id := String(definition.id)
+		if not owned_item_ids.has(item_id):
+			owned_item_ids.append(item_id)
+			changed = true
+	return changed

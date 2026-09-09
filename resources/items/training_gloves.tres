@@ -4,7 +4,9 @@
 script = ExtResource("1")
 id = &"training_gloves"
 display_name = "Training Gloves"
+flavor_text = "A sure grip begins here."
 description = "Worn gloves with reinforced knuckles."
 item_type = 2
 gear_slot = 3
 armor_value = 1
+modifier_text = "+1 Armor"

@@ -4,7 +4,9 @@
 script = ExtResource("1")
 id = &"training_boots"
 display_name = "Training Boots"
+flavor_text = "Run the route until it becomes instinct."
 description = "Light boots suited to rapid traversal."
 item_type = 2
 gear_slot = 4
 armor_value = 1
+modifier_text = "+1 Armor"

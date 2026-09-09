@@ -39,6 +39,8 @@ func _ready() -> void:
 		_capture_validation_frame.bind(true).call_deferred()
 	elif "--loadout-integration-test" in OS.get_cmdline_user_args():
 		_run_loadout_integration_test.call_deferred()
+	elif "--content-arena-test" in OS.get_cmdline_user_args():
+		_run_content_arena_test.call_deferred()
 	elif "--pause-flow-test" in OS.get_cmdline_user_args():
 		_run_pause_flow_test.call_deferred()
 	elif "--scene-flow-test" in OS.get_cmdline_user_args():
@@ -221,6 +223,106 @@ func _run_loadout_integration_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("LOADOUT_INTEGRATION_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_content_arena_test() -> void:
+	print("CONTENT_ARENA_TEST_START")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var failures: Array[String] = []
+	if player.weapon_definition_ids != ["war_nodachi", "arcane_wand"] or player.skill_definition_ids != ["wallrun", "smoke_veil"]:
+		failures.append("Arena did not consume expanded content IDs")
+	if player.weapons.size() != 2 or not player.weapons[0] is WarNodachiWeapon or not player.weapons[1] is ArcaneWandWeapon:
+		failures.append("Expanded weapon scenes did not instantiate in slot order")
+	if player.equipped_skills.size() != 2 or not player.equipped_skills[0] is WallrunSkill or not player.equipped_skills[1] is SmokeVeilSkill:
+		failures.append("Expanded skill scenes did not instantiate in slot order")
+	if PlayerProfile.get_skill_power() != 140:
+		failures.append("Wallrun + Smoke Veil arena loadout should total 140 Power")
+	if player.dash_skill != null or player.double_jump_skill != null:
+		failures.append("Unequipped base movement skills leaked into expanded loadout")
+	if player.weapons.size() == 2:
+		player.equip_weapon(0)
+		var nodachi := player.current_weapon as WarNodachiWeapon
+		var speed_before := player.velocity.length()
+		nodachi.request_primary()
+		if nodachi.recovery_remaining <= 0.0 or player.velocity.length() <= speed_before:
+			failures.append("War Nodachi did not begin a lunging attack")
+		player.equip_weapon(1)
+		var wand := player.current_weapon as ArcaneWandWeapon
+		wand.request_primary()
+		if wand.fire_cooldown_remaining <= 0.0:
+			failures.append("Arcane Wand did not enter shot cooldown")
+		var projectile_found := false
+		for child: Node in get_children():
+			if child is MagicProjectile:
+				projectile_found = true
+				break
+		if not projectile_found:
+			failures.append("Arcane Wand did not spawn its projectile")
+	var wallrun := player.equipped_skills[0] as WallrunSkill
+	var smoke := player.equipped_skills[1] as SmokeVeilSkill
+	if not wallrun.request_activate(player) or wallrun.cooldown_remaining <= 0.0:
+		failures.append("Wallrun did not activate through SkillBase")
+	if not smoke.request_activate(player) or get_tree().get_nodes_in_group("smoke_veil").is_empty():
+		failures.append("Smoke Veil did not spawn a LOS-blocking area")
+	var runtime_weapon_ids: Array[String] = ["falcon_burst", "ironclad_rifle", "service_glock", "twin_glock"]
+	for item_id: String in runtime_weapon_ids:
+		var definition := PlayerProfile.get_definition(item_id)
+		var weapon := definition.gameplay_scene.instantiate() as WeaponBase
+		player.weapon_mount.add_child(weapon)
+		weapon.setup(player)
+		weapon.equip()
+		var ammo_before := int(weapon.get("ammo"))
+		weapon.request_primary()
+		if int(weapon.get("ammo")) >= ammo_before:
+			failures.append("Expanded firearm did not fire: " + item_id)
+		weapon.unequip()
+		weapon.queue_free()
+	var launch_definition := PlayerProfile.get_definition("launch")
+	var launch_skill := launch_definition.gameplay_scene.instantiate() as SkillBase
+	player.skill_mount.add_child(launch_skill)
+	launch_skill.setup(player, launch_definition, 0)
+	var launch_before := player.velocity.y
+	if not launch_skill.request_activate(player) or player.velocity.y <= launch_before:
+		failures.append("Launch skill did not apply upward velocity")
+	launch_skill.queue_free()
+	var invis_definition := PlayerProfile.get_definition("invisibility")
+	var invis_skill := invis_definition.gameplay_scene.instantiate() as SkillBase
+	player.skill_mount.add_child(invis_skill)
+	invis_skill.setup(player, invis_definition, 0)
+	if not invis_skill.request_activate(player) or not player.is_invisible:
+		failures.append("Invisibility did not hide its owner")
+	invis_skill.on_owner_attack(player)
+	if player.is_invisible:
+		failures.append("Attacking did not end Invisibility")
+	invis_skill.queue_free()
+	player.global_position += Vector3.UP * 3.0
+	await get_tree().physics_frame
+	var air_definition := PlayerProfile.get_definition("air_dash")
+	var air_skill := air_definition.gameplay_scene.instantiate() as SkillBase
+	player.skill_mount.add_child(air_skill)
+	air_skill.setup(player, air_definition, 0)
+	if not air_skill.request_activate(player) or air_skill.cooldown_remaining <= 0.0:
+		failures.append("Air Dash did not activate while airborne")
+	air_skill.queue_free()
+	var slam_definition := PlayerProfile.get_definition("ground_slam")
+	var slam_skill := slam_definition.gameplay_scene.instantiate() as GroundSlamSkill
+	player.skill_mount.add_child(slam_skill)
+	slam_skill.setup(player, slam_definition, 0)
+	if not slam_skill.request_activate(player) or not slam_skill.slamming or player.velocity.y > -slam_skill.slam_speed:
+		failures.append("Ground Slam did not begin its downward impact state")
+	slam_skill.queue_free()
+	hud._update_weapon_panel()
+	hud._update_skills()
+	if hud.skill_name_labels[0].text != "WALLRUN" or hud.skill_name_labels[1].text != "SMOKE VEIL":
+		failures.append("Dynamic arena HUD did not show expanded skills")
+	if failures.is_empty():
+		print("CONTENT_ARENA_TEST_OK: expanded weapons, skills, power, HUD and runtime effects instantiated from profile")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("CONTENT_ARENA_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
 
 

@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/twin_glock.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"twin_glock"
+display_name = "Twin Glocks"
+flavor_text = "Twice the thunder, half the restraint."
+description = "Akimbo pistols with high close-range output and generous movement spread."
+item_type = 0
+rarity = 2
+gameplay_scene = ExtResource("2")
+weapon_family = &"akimbo_pistols"
+damage = 15.0
+fire_rate = 9.52
+magazine_size = 34
+reload_time = 2.25
+headshot_damage = 22.0
+range_label = "Close"
+special_description = "Akimbo — no ADS"
+durability_max = 100

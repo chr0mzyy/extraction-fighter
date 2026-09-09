@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"copper_necklace"
+display_name = "Copper Necklace"
+flavor_text = "Warm metal against a cold hall."
+description = "Simple common utility jewelry."
+item_type = 2
+rarity = 0
+gear_slot = 5
+modifier_text = "Minor Utility"

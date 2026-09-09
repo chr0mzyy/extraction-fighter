@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/skills/air_dash.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"air_dash"
+display_name = "Air Dash"
+flavor_text = "The wind yields once."
+description = "Burst through the air while retaining part of your momentum."
+item_type = 1
+rarity = 2
+gameplay_scene = ExtResource("2")
+power_cost = 80
+cooldown = 8.0
+activation_method = "Q or E while airborne"

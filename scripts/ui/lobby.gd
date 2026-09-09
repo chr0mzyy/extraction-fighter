@@ -19,6 +19,7 @@ var selected_gear_key: String = ""
 var stash_filter: int = -1
 var details_label: Label
 var feedback_label: Label
+var item_tooltip: ItemTooltip
 
 const RESTART_TEST_PATH := "user://extraction_fighter_restart_test.json"
 
@@ -34,6 +35,8 @@ func _ready() -> void:
 		PlayerProfile.reset_to_defaults(false)
 		if "--loadout-integration-test" in args:
 			_configure_integration_loadout()
+		elif "--content-arena-test" in args:
+			_configure_content_loadout()
 		_route_to_arena.call_deferred()
 		return
 	_show_main()
@@ -45,18 +48,25 @@ func _ready() -> void:
 		_run_profile_restart_read.call_deferred()
 	elif "--lobby-layout-test" in args:
 		_run_lobby_layout_test.call_deferred()
+	elif "--content-self-test" in args:
+		_run_content_self_test.call_deferred()
+	elif "--tooltip-self-test" in args:
+		_run_tooltip_self_test.call_deferred()
 	elif "--capture-loadout" in args:
 		_show_loadout()
 		_capture_lobby.bind("loadout").call_deferred()
 	elif "--capture-stash" in args:
 		_show_stash()
 		_capture_lobby.bind("stash").call_deferred()
+	elif "--capture-tooltip" in args:
+		_show_loadout()
+		_capture_tooltip.call_deferred()
 	elif "--capture-lobby" in args:
 		_capture_lobby.bind("lobby").call_deferred()
 
 
 func _should_route_to_arena(args: PackedStringArray) -> bool:
-	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--loadout-integration-test", "--pause-flow-test"]:
+	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--loadout-integration-test", "--content-arena-test", "--pause-flow-test"]:
 		if flag in args:
 			return true
 	return false
@@ -110,7 +120,7 @@ func _build_shell() -> void:
 	top_margin.add_child(title_row)
 	var title := _label(title_row, "EXTRACTION FIGHTER", 25, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var milestone := _label(title_row, "MVP 0.2  /  LOADOUT PROTOCOL", 12, COLOR_ACCENT)
+	var milestone := _label(title_row, "MVP 0.2.1  /  CONTENT PROTOCOL", 12, COLOR_ACCENT)
 	milestone.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 	screen_host = Control.new()
@@ -127,8 +137,14 @@ func _build_shell() -> void:
 	footer_label.offset_bottom = -8
 	footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
+	item_tooltip = ItemTooltip.new()
+	item_tooltip.name = "ItemTooltip"
+	add_child(item_tooltip)
+
 
 func _clear_screen() -> void:
+	if item_tooltip != null:
+		item_tooltip.hide_item()
 	for child: Node in screen_host.get_children():
 		child.queue_free()
 	details_label = null
@@ -235,15 +251,16 @@ func _show_loadout() -> void:
 	equipped_margin.add_child(equipped)
 	_label(equipped, "WEAPONS", 12, COLOR_ACCENT)
 	for index: int in 2:
-		_add_slot_button(equipped, "[%d]  %s" % [index + 1, _definition_name(PlayerProfile.weapon_slots[index])], "weapon", index)
+		_add_slot_button(equipped, "[%d]  %s" % [index + 1, _definition_name(PlayerProfile.weapon_slots[index])], "weapon", index, PlayerProfile.get_definition(PlayerProfile.weapon_slots[index]))
 	_label(equipped, "SKILLS", 12, COLOR_ACCENT)
 	for index: int in 2:
 		var definition := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
-		_add_slot_button(equipped, "[%s]  %s  •  %d" % ["Q" if index == 0 else "E", definition.display_name, definition.power_cost], "skill", index)
+		_add_slot_button(equipped, "[%s]  %s  •  %d" % ["Q" if index == 0 else "E", definition.display_name, definition.power_cost], "skill", index, definition)
 	_label(equipped, "GEAR", 12, COLOR_ACCENT)
 	for key: String in PlayerProfile.GEAR_KEYS:
 		var slot_title := key.capitalize().replace(" 1", " I").replace(" 2", " II")
-		_add_gear_slot_button(equipped, "%s  •  %s" % [slot_title, _definition_name(String(PlayerProfile.equipped_gear.get(key, "")))], key)
+		var gear_definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
+		_add_gear_slot_button(equipped, "%s  •  %s" % [slot_title, _definition_name(String(PlayerProfile.equipped_gear.get(key, "")))], key, gear_definition)
 
 	var choices_panel := _panel(columns)
 	choices_panel.name = "ChoicesPanel"
@@ -318,6 +335,7 @@ func _show_stash() -> void:
 		var item_button := _button(item_grid, "%s\n%s" % [definition.display_name, definition.get_type_name().to_upper()], false)
 		item_button.custom_minimum_size = Vector2(190, 64)
 		item_button.pressed.connect(_show_item_details.bind(definition))
+		_bind_tooltip(item_button, definition)
 	var inventory_panel := _panel(body, Vector2(390, 0))
 	inventory_panel.name = "InventoryPanel"
 	var inventory_margin := _margin(inventory_panel, 14, 12, 14, 12)
@@ -333,15 +351,18 @@ func _show_stash() -> void:
 	for index: int in PlayerProfile.INVENTORY_SIZE:
 		var item_id := PlayerProfile.main_inventory[index]
 		var slot := _button(inventory_grid, str(index + 1) if item_id.is_empty() else _definition_name(item_id).left(3), false)
+		slot.name = "InventorySlot%d" % index
 		slot.custom_minimum_size = Vector2(50, 50)
 		slot.disabled = item_id.is_empty()
+		if not item_id.is_empty():
+			_bind_tooltip(slot, PlayerProfile.get_definition(item_id))
 	details_label = _label(inventory_root, "Empty slots are ready for future dungeon loot.", 12, COLOR_MUTED)
 	details_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	details_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 
 func _show_customization() -> void:
-	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.2.0.")
+	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.2.1.")
 
 
 func _show_settings() -> void:
@@ -374,16 +395,18 @@ func _show_simple_screen(title: String, subtitle: String) -> void:
 	_label(content, subtitle, 13, COLOR_MUTED)
 
 
-func _add_slot_button(parent: Control, text: String, kind: String, slot: int) -> void:
+func _add_slot_button(parent: Control, text: String, kind: String, slot: int, definition: ItemDefinition = null) -> void:
 	var button := _button(parent, text, false)
 	button.custom_minimum_size.y = 42
 	button.pressed.connect(_select_loadout_target.bind(kind, slot, ""))
+	_bind_tooltip(button, definition)
 
 
-func _add_gear_slot_button(parent: Control, text: String, key: String) -> void:
+func _add_gear_slot_button(parent: Control, text: String, key: String, definition: ItemDefinition = null) -> void:
 	var button := _button(parent, text, false)
 	button.custom_minimum_size.y = 36
 	button.pressed.connect(_select_loadout_target.bind("gear", 0, key))
+	_bind_tooltip(button, definition)
 
 
 func _select_loadout_target(kind: String, slot: int, gear_key: String) -> void:
@@ -406,6 +429,9 @@ func _populate_loadout_choices(container: GridContainer) -> void:
 		var button := _button(container, "%s%s" % [definition.display_name, suffix], false)
 		button.custom_minimum_size = Vector2(220, 52)
 		button.pressed.connect(_equip_definition.bind(definition))
+		_bind_tooltip(button, definition)
+		if _is_definition_selected(definition):
+			button.add_theme_stylebox_override("normal", _style(Color(0.055, 0.18, 0.2), COLOR_ACCENT, 2, 4))
 
 
 func _equip_definition(definition: ItemDefinition) -> void:
@@ -432,6 +458,22 @@ func _show_item_details(definition: ItemDefinition) -> void:
 	elif definition.item_type == ItemDefinition.ItemType.GEAR:
 		lines.append("\nSLOT  %s" % definition.get_gear_slot_name())
 	details_label.text = "\n".join(lines)
+
+
+func _bind_tooltip(control: Control, definition: ItemDefinition) -> void:
+	if definition == null or item_tooltip == null:
+		return
+	control.mouse_entered.connect(item_tooltip.show_item.bind(definition))
+	control.mouse_exited.connect(item_tooltip.hide_item.bind(definition))
+
+
+func _is_definition_selected(definition: ItemDefinition) -> bool:
+	var item_id := String(definition.id)
+	match selected_kind:
+		"weapon": return PlayerProfile.weapon_slots[selected_slot] == item_id
+		"skill": return PlayerProfile.skill_slots[selected_slot] == item_id
+		"gear": return String(PlayerProfile.equipped_gear.get(selected_gear_key, "")) == item_id
+	return false
 
 
 func _definition_fits_selected_gear(definition: ItemDefinition) -> bool:
@@ -461,6 +503,13 @@ func _configure_integration_loadout() -> void:
 	PlayerProfile.equip_weapon(1, "knight_sword", false)
 	PlayerProfile.equip_skill(0, "grapple", false)
 	PlayerProfile.equip_skill(1, "blink", false)
+
+
+func _configure_content_loadout() -> void:
+	PlayerProfile.equip_weapon(0, "war_nodachi", false)
+	PlayerProfile.equip_weapon(1, "arcane_wand", false)
+	PlayerProfile.equip_skill(0, "wallrun", false)
+	PlayerProfile.equip_skill(1, "smoke_veil", false)
 
 
 func _set_stash_filter(filter_value: int) -> void:
@@ -552,9 +601,9 @@ func _run_profile_self_test() -> void:
 		failures.append("Default loadout or 130 Power calculation failed")
 	if PlayerProfile.main_inventory.size() != 24:
 		failures.append("Main inventory does not contain 24 persistent slots")
-	if PlayerProfile.owned_item_ids.size() != 16:
-		failures.append("Default stash does not contain all 16 starting items")
-	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.WEAPON).size() != 4 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.SKILL).size() != 4 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.GEAR).size() != 8:
+	if PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size():
+		failures.append("Default stash does not contain the complete development catalog")
+	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.WEAPON).size() != 10 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.SKILL).size() != 10 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.GEAR).size() != 27:
 		failures.append("Starting stash category counts are invalid")
 	if PlayerProfile.equip_gear("helmet", "simple_ring", false):
 		failures.append("Gear compatibility allowed a ring in the helmet slot")
@@ -604,6 +653,115 @@ func _run_profile_self_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("PROFILE_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_content_self_test() -> void:
+	print("CONTENT_TEST_START")
+	var failures: Array[String] = []
+	var snapshot := PlayerProfile.to_save_data()
+	PlayerProfile.reset_to_defaults(false)
+	var expected_weapons: Array[String] = ["ronin_katana", "war_nodachi", "huntsman_rifle", "vanguard_rifle", "falcon_burst", "ironclad_rifle", "knight_sword", "arcane_wand", "service_glock", "twin_glock"]
+	var expected_skills: Array[String] = ["dash", "double_jump", "grapple", "blink", "wallrun", "air_dash", "launch", "ground_slam", "invisibility", "smoke_veil"]
+	for item_id: String in expected_weapons:
+		var definition := PlayerProfile.get_definition(item_id)
+		if definition == null or definition.item_type != ItemDefinition.ItemType.WEAPON or definition.gameplay_scene == null:
+			failures.append("Missing weapon definition or scene: " + item_id)
+			continue
+		var instance := definition.gameplay_scene.instantiate()
+		if not instance is WeaponBase:
+			failures.append("Weapon scene does not instantiate WeaponBase: " + item_id)
+		instance.free()
+	for item_id: String in expected_skills:
+		var definition := PlayerProfile.get_definition(item_id)
+		if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or definition.gameplay_scene == null:
+			failures.append("Missing skill definition or scene: " + item_id)
+			continue
+		var instance := definition.gameplay_scene.instantiate()
+		if not instance is SkillBase:
+			failures.append("Skill scene does not instantiate SkillBase: " + item_id)
+		instance.free()
+	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.GEAR).size() != 27:
+		failures.append("Expected 27 development gear definitions")
+	PlayerProfile.equip_skill(0, "invisibility", false)
+	PlayerProfile.equip_skill(1, "air_dash", false)
+	if PlayerProfile.get_skill_power() != 200:
+		failures.append("Invisibility + Air Dash should total exactly 200 Power")
+	var before_rejected := PlayerProfile.skill_slots.duplicate()
+	if PlayerProfile.equip_skill(1, "blink", false) or PlayerProfile.skill_slots != before_rejected:
+		failures.append("230 Power loadout was not rejected atomically")
+	PlayerProfile.equip_skill(0, "wallrun", false)
+	PlayerProfile.equip_skill(1, "smoke_veil", false)
+	if PlayerProfile.get_skill_power() != 140:
+		failures.append("Wallrun + Smoke Veil should total 140 Power")
+	var old_save := PlayerProfile.to_save_data()
+	old_save["weapon_slots"] = ["ronin_katana", "huntsman_rifle"]
+	old_save["skill_slots"] = ["dash", "double_jump"]
+	old_save["owned_item_ids"] = ["ronin_katana", "huntsman_rifle", "dash", "double_jump", "training_helmet", "training_chest", "training_gloves", "training_boots", "simple_necklace", "simple_ring", "iron_ring", "basic_charm"]
+	if not PlayerProfile.apply_save_data(old_save, false) or not PlayerProfile.catalog_migrated_last_load or PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size():
+		failures.append("Legacy profile did not migrate to the development catalog")
+	if PlayerProfile.weapon_slots != ["ronin_katana", "huntsman_rifle"] or PlayerProfile.skill_slots != ["dash", "double_jump"]:
+		failures.append("Legacy profile migration did not preserve selected loadout")
+	PlayerProfile.apply_save_data(snapshot, false)
+	if failures.is_empty():
+		print("CONTENT_TEST_OK: 10 weapons, 10 skills, 27 gear items, Power rules, gameplay scenes and save migration passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("CONTENT_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_tooltip_self_test() -> void:
+	print("TOOLTIP_TEST_START")
+	var failures: Array[String] = []
+	var snapshot := PlayerProfile.to_save_data()
+	PlayerProfile.reset_to_defaults(false)
+	PlayerProfile.set_inventory_item(0, "war_nodachi", false)
+	_show_stash()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var inventory_slot := find_child("InventorySlot0", true, false) as Control
+	if inventory_slot == null or not inventory_slot.mouse_entered.has_connections() or not inventory_slot.mouse_exited.has_connections():
+		failures.append("Main inventory item is not connected to the reusable tooltip")
+	var katana := PlayerProfile.get_definition("ronin_katana")
+	item_tooltip.show_item(katana)
+	await get_tree().process_frame
+	if not item_tooltip.visible or item_tooltip.name_label.text != "RONIN KATANA" or item_tooltip.rarity_label.text != "RARE" or item_tooltip.flavor_label.text.is_empty():
+		failures.append("Weapon tooltip omitted identity, rarity or flavor")
+	if not item_tooltip.get_stats_text().contains("Damage") or item_tooltip.get_stats_text().contains("Magazine"):
+		failures.append("Melee tooltip relevant-field filtering failed")
+	item_tooltip.show_item(PlayerProfile.get_definition("huntsman_rifle"))
+	await get_tree().process_frame
+	if not item_tooltip.get_stats_text().contains("Magazine") or not item_tooltip.get_stats_text().contains("Headshot"):
+		failures.append("Ranged tooltip omitted magazine or headshot data")
+	item_tooltip.show_item(PlayerProfile.get_definition("grapple"))
+	await get_tree().process_frame
+	if not item_tooltip.get_stats_text().contains("Power") or not item_tooltip.get_stats_text().contains("Cooldown") or not item_tooltip.get_stats_text().contains("ACTIVATION"):
+		failures.append("Skill tooltip omitted Power, cooldown or activation")
+	item_tooltip.show_item(PlayerProfile.get_definition("void_crown"))
+	await get_tree().process_frame
+	if not item_tooltip.get_stats_text().contains("Slot") or not item_tooltip.get_stats_text().contains("Armor"):
+		failures.append("Gear tooltip omitted slot or armor")
+	if item_tooltip.preview_glyph == null or not item_tooltip.preview_glyph.visible:
+		failures.append("Generated placeholder preview is not visible")
+	for test_size: Vector2i in [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)]:
+		get_window().size = test_size
+		await get_tree().process_frame
+		var result_position := item_tooltip.reposition_for_test(Vector2(test_size) - Vector2(2, 2), Vector2(test_size))
+		var rect := Rect2(result_position, item_tooltip.size.max(item_tooltip.custom_minimum_size))
+		if rect.position.x < 0.0 or rect.position.y < 0.0 or rect.end.x > test_size.x or rect.end.y > test_size.y:
+			failures.append("Tooltip escaped %dx%d viewport" % [test_size.x, test_size.y])
+	item_tooltip.hide_item()
+	if item_tooltip.visible:
+		failures.append("Tooltip did not disappear")
+	PlayerProfile.apply_save_data(snapshot, false)
+	if failures.is_empty():
+		print("TOOLTIP_TEST_OK: reusable weapon/skill/gear previews, filtering, inventory hover, hide and viewport clamping passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("TOOLTIP_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
 
 
@@ -676,6 +834,17 @@ func _capture_lobby(screen_name: String) -> void:
 	var capture_path := "res://validation_%s.png" % screen_name
 	var error := image.save_png(capture_path)
 	print("LOBBY_CAPTURE_OK: " + capture_path if error == OK else "LOBBY_CAPTURE_FAILED")
+	get_tree().quit(0 if error == OK else 1)
+
+
+func _capture_tooltip() -> void:
+	item_tooltip.show_item(PlayerProfile.get_definition("falcon_burst"))
+	for frame: int in 20:
+		await get_tree().process_frame
+	item_tooltip.reposition_for_test(Vector2(get_viewport_rect().size) - Vector2(16, 16), get_viewport_rect().size)
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://validation_tooltip.png")
+	print("TOOLTIP_CAPTURE_OK" if error == OK else "TOOLTIP_CAPTURE_FAILED")
 	get_tree().quit(0 if error == OK else 1)
 
 

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"void_ring"
+display_name = "Void Ring"
+flavor_text = "A circle with no inside."
+description = "Mythic ring with improved utility."
+item_type = 2
+rarity = 5
+gear_slot = 6
+armor_value = 2
+modifier_text = "+2 Armor · Improved Utility"

@@ -4,6 +4,8 @@
 script = ExtResource("1")
 id = &"simple_necklace"
 display_name = "Simple Necklace"
+flavor_text = "A small weight against the heart."
 description = "A plain iron-link keepsake."
 item_type = 2
 gear_slot = 5
+modifier_text = "Minor Utility"

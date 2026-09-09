@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"old_boots"
+display_name = "Old Boots"
+flavor_text = "They know the road home."
+description = "Scuffed common arena boots."
+item_type = 2
+rarity = 0
+gear_slot = 4
+armor_value = 1
+modifier_text = "+1 Armor · Firm Footing"

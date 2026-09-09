@@ -1,0 +1,4 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/skills/smoke_veil_skill.gd" id="1"]
+[node name="SmokeVeil" type="Node"]
+script = ExtResource("1")

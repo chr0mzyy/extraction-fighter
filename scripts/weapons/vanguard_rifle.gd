@@ -34,7 +34,7 @@ func _process(delta: float) -> void:
 			is_reloading = false
 			ammo = magazine_size
 			state_changed.emit()
-	if primary_held and equipped:
+	if automatic_fire and primary_held and equipped:
 		request_primary()
 
 

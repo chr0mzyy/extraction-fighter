@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/ironclad_rifle.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"ironclad_rifle"
+display_name = "Ironclad Rifle"
+flavor_text = "Every shot rings like a closing gate."
+description = "Heavy semi-automatic battle rifle with punishing recoil."
+item_type = 0
+rarity = 2
+gameplay_scene = ExtResource("2")
+weapon_family = &"battle_rifle"
+damage = 36.0
+fire_rate = 2.78
+magazine_size = 14
+reload_time = 2.25
+headshot_damage = 54.0
+range_label = "Long"
+special_description = "Heavy Recoil"
+durability_max = 140

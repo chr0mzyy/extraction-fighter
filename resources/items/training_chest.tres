@@ -4,7 +4,9 @@
 script = ExtResource("1")
 id = &"training_chest"
 display_name = "Training Chest"
+flavor_text = "Padded for mistakes worth surviving."
 description = "A padded practice cuirass."
 item_type = 2
 gear_slot = 2
 armor_value = 3
+modifier_text = "+3 Armor"

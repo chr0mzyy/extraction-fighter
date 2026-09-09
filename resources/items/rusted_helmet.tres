@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"rusted_helmet"
+display_name = "Rusted Helmet"
+flavor_text = "It has survived more owners than battles."
+description = "Worn head protection."
+item_type = 2
+rarity = 0
+gear_slot = 1
+armor_value = 2
+modifier_text = "+2 Armor"

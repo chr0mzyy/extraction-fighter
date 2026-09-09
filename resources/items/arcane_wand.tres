@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/arcane_wand.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"arcane_wand"
+display_name = "Arcane Wand"
+flavor_text = "Its blue flame remembers another sky."
+description = "Launches visible arcane bolts that reward target leading."
+item_type = 0
+rarity = 2
+gameplay_scene = ExtResource("2")
+weapon_family = &"magic"
+damage = 31.0
+fire_rate = 2.08
+attack_speed_label = "Moderate"
+range_label = "Medium"
+special_description = "Projectile — no ammunition"
+durability_max = 90

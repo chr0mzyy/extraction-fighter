@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"knight_plate"
+display_name = "Knight Plate"
+flavor_text = "Hammered to turn a killing stroke."
+description = "Solid plate for the center line."
+item_type = 2
+rarity = 2
+gear_slot = 2
+armor_value = 9
+modifier_text = "+9 Armor"

@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/falcon_burst.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"falcon_burst"
+display_name = "Falcon Burst"
+flavor_text = "Three measured breaths. One clean opening."
+description = "Accurate three-round burst rifle for precise mid-range pressure."
+item_type = 0
+rarity = 2
+gameplay_scene = ExtResource("2")
+weapon_family = &"burst_rifle"
+damage = 19.0
+fire_rate = 6.25
+magazine_size = 24
+reload_time = 1.9
+headshot_damage = 31.0
+range_label = "Medium–Long"
+special_description = "Three-Round Burst"
+durability_max = 105

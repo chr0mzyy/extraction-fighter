@@ -4,7 +4,9 @@
 script = ExtResource("1")
 id = &"training_helmet"
 display_name = "Training Helmet"
+flavor_text = "Dented safely, one lesson at a time."
 description = "Basic head protection for arena drills."
 item_type = 2
 gear_slot = 1
 armor_value = 2
+modifier_text = "+2 Armor"

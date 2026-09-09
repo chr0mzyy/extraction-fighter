@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"wooden_charm"
+display_name = "Wooden Charm"
+flavor_text = "Carved beside a dying campfire."
+description = "A common charm for uncertain battles."
+item_type = 2
+rarity = 0
+gear_slot = 7
+modifier_text = "Minor Resolve"

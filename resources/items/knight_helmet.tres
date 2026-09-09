@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"knight_helmet"
+display_name = "Knight Helmet"
+flavor_text = "The visor keeps fear private."
+description = "Reliable knightly head protection."
+item_type = 2
+rarity = 2
+gear_slot = 1
+armor_value = 5
+modifier_text = "+5 Armor"

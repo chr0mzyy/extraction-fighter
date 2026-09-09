@@ -7,8 +7,11 @@
 script = ExtResource("1")
 id = &"dash"
 display_name = "Dash"
+flavor_text = "Commit before doubt can catch you."
 description = "Explode forward while preserving combat momentum."
 item_type = 1
 rarity = 0
 gameplay_scene = ExtResource("2")
 power_cost = 60
+cooldown = 6.0
+activation_method = "Q or E — equipped skill slot"

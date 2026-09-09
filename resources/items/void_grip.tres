@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"void_grip"
+display_name = "Void Grip"
+flavor_text = "The fingers move before intention."
+description = "Mythic gloves with superior base handling."
+item_type = 2
+rarity = 5
+gear_slot = 3
+armor_value = 6
+modifier_text = "+6 Armor · Improved Handling"

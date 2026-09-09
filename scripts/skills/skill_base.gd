@@ -38,6 +38,10 @@ func request_release(_actor: CharacterBody3D) -> void:
 	pass
 
 
+func on_owner_attack(_actor: CharacterBody3D) -> void:
+	pass
+
+
 func can_activate() -> bool:
 	return equipped and cooldown_remaining <= 0.0
 

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"ranger_boots"
+display_name = "Ranger Boots"
+flavor_text = "Quiet soles for uncertain ground."
+description = "Rare boots tuned for mobile fighters."
+item_type = 2
+rarity = 2
+gear_slot = 4
+armor_value = 3
+modifier_text = "+3 Armor · Minor Mobility"

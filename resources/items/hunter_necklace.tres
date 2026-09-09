@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"hunter_necklace"
+display_name = "Hunter Necklace"
+flavor_text = "A tooth for every trail survived."
+description = "Rare necklace favored by trackers."
+item_type = 2
+rarity = 2
+gear_slot = 5
+modifier_text = "Minor Awareness"

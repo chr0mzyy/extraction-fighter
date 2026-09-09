@@ -4,6 +4,8 @@
 script = ExtResource("1")
 id = &"basic_charm"
 display_name = "Basic Charm"
+flavor_text = "A ward with room for stronger stories."
 description = "A small ward awaiting future affixes."
 item_type = 2
 gear_slot = 7
+modifier_text = "Minor Resolve"

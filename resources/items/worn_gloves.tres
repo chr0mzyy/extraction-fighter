@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"worn_gloves"
+display_name = "Worn Gloves"
+flavor_text = "The leather remembers every grip."
+description = "Common fighting gloves."
+item_type = 2
+rarity = 0
+gear_slot = 3
+armor_value = 1
+modifier_text = "+1 Armor · Steady Grip"

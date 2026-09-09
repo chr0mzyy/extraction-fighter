@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"voidstep_boots"
+display_name = "Voidstep Boots"
+flavor_text = "Their footprints end without warning."
+description = "Mythic boots with exceptional base mobility."
+item_type = 2
+rarity = 5
+gear_slot = 4
+armor_value = 6
+modifier_text = "+6 Armor · Improved Mobility"

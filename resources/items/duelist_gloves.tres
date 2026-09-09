@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"duelist_gloves"
+display_name = "Duelist Gloves"
+flavor_text = "Cut for speed, stitched for control."
+description = "Rare gloves with improved handling."
+item_type = 2
+rarity = 2
+gear_slot = 3
+armor_value = 3
+modifier_text = "+3 Armor · Minor Handling"

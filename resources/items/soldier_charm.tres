@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"soldier_charm"
+display_name = "Soldier Charm"
+flavor_text = "Held by those who stand after the charge."
+description = "Rare charm with a modest defensive utility."
+item_type = 2
+rarity = 2
+gear_slot = 7
+armor_value = 1
+modifier_text = "+1 Armor · Steady Resolve"

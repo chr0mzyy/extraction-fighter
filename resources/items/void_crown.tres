@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"void_crown"
+display_name = "Void Crown"
+flavor_text = "No king remembers forging it."
+description = "Mythic headgear with dense otherworldly plating."
+item_type = 2
+rarity = 5
+gear_slot = 1
+armor_value = 9
+modifier_text = "+9 Armor"

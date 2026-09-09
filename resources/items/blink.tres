@@ -7,8 +7,11 @@
 script = ExtResource("1")
 id = &"blink"
 display_name = "Blink"
+flavor_text = "Step through the space between heartbeats."
 description = "Teleport a short distance without passing through solid cover."
 item_type = 1
 rarity = 2
 gameplay_scene = ExtResource("2")
 power_cost = 110
+cooldown = 11.0
+activation_method = "Q or E — equipped skill slot"

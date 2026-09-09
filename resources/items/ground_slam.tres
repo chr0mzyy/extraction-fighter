@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/skills/ground_slam.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"ground_slam"
+display_name = "Ground Slam"
+flavor_text = "Gravity collects its debt all at once."
+description = "Plunge downward and damage nearby enemies on impact."
+item_type = 1
+rarity = 2
+gameplay_scene = ExtResource("2")
+power_cost = 90
+cooldown = 11.0
+activation_method = "Q or E while airborne"

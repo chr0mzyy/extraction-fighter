@@ -251,6 +251,12 @@ func _can_see_target() -> bool:
 		return false
 	var origin := get_aim_origin()
 	var destination := target.global_position + Vector3.UP * 1.12
+	var visibility_variant: Variant = target.get("visibility_factor")
+	if visibility_variant is float and float(visibility_variant) < 0.5 and global_position.distance_to(target.global_position) > 4.0:
+		return false
+	for smoke_node: Node in get_tree().get_nodes_in_group("smoke_veil"):
+		if smoke_node.has_method("blocks_segment") and bool(smoke_node.blocks_segment(origin, destination)):
+			return false
 	var query := PhysicsRayQueryParameters3D.create(origin, destination, 1, get_aim_exclusions())
 	query.collide_with_areas = false
 	query.collide_with_bodies = true

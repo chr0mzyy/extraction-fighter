@@ -4,7 +4,10 @@
 script = ExtResource("1")
 id = &"iron_ring"
 display_name = "Iron Ring"
+flavor_text = "Heavy enough to remember."
 description = "A weighty arena-forged band."
 item_type = 2
+rarity = 2
 gear_slot = 6
 armor_value = 1
+modifier_text = "+1 Armor"

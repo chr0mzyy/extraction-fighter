@@ -37,6 +37,8 @@ var is_cursor_free: bool = false
 var spawn_transform: Transform3D
 var stagger_remaining: float = 0.0
 var camera_kick: float = 0.0
+var is_invisible: bool = false
+var visibility_factor: float = 1.0
 
 
 func _ready() -> void:
@@ -84,6 +86,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("weapon_2"):
 		equip_weapon(1)
 	elif event.is_action_pressed("primary_attack") and current_weapon != null:
+		_notify_skills_of_attack()
 		current_weapon.request_primary()
 		current_weapon.set_primary_held(true)
 	elif event.is_action_released("primary_attack") and current_weapon != null:
@@ -93,6 +96,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_released("secondary_attack") and current_weapon != null:
 		current_weapon.secondary_released()
 	elif event.is_action_pressed("heavy_attack") and current_weapon != null:
+		_notify_skills_of_attack()
 		current_weapon.request_heavy()
 	elif event.is_action_pressed("reload") and current_weapon != null:
 		current_weapon.request_reload()
@@ -147,7 +151,7 @@ func set_camera_mode(first_person: bool) -> void:
 	is_first_person = first_person
 	first_person_camera.current = first_person
 	third_person_camera.current = not first_person
-	visual_body.visible = not first_person and not is_dead
+	visual_body.visible = not first_person and not is_dead and not is_invisible
 	feedback.emit(&"camera_switched", {"mode": get_camera_mode_name()})
 
 
@@ -213,6 +217,23 @@ func apply_launch(launch_velocity: Vector3) -> void:
 	feedback.emit(&"launch", {})
 
 
+func apply_weapon_lunge(strength: float) -> void:
+	var forward := -global_basis.z
+	forward.y = 0.0
+	velocity += forward.normalized() * strength
+
+
+func on_weapon_hit_confirmed(headshot: bool) -> void:
+	_on_weapon_hit(headshot)
+
+
+func set_invisibility(active: bool) -> void:
+	is_invisible = active
+	visibility_factor = 0.15 if active else 1.0
+	visual_body.visible = not is_first_person and not is_dead and not active
+	feedback.emit(&"invisibility" if active else &"invisibility_end", {})
+
+
 func force_kill() -> void:
 	health.kill(null, &"fall")
 
@@ -273,6 +294,7 @@ func respawn() -> void:
 	velocity = Vector3.ZERO
 	is_dead = false
 	stagger_remaining = 0.0
+	set_invisibility(false)
 	collision_layer = 2
 	collision_mask = 1
 	for skill: SkillBase in equipped_skills:
@@ -351,6 +373,11 @@ func _activate_skill_slot(index: int) -> void:
 func _release_skill_slot(index: int) -> void:
 	if index >= 0 and index < equipped_skills.size():
 		equipped_skills[index].request_release(self)
+
+
+func _notify_skills_of_attack() -> void:
+	for skill: SkillBase in equipped_skills:
+		skill.on_owner_attack(self)
 
 
 func _instantiate_profile_loadout() -> void:

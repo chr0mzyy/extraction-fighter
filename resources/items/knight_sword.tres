@@ -7,8 +7,16 @@
 script = ExtResource("1")
 id = &"knight_sword"
 display_name = "Knight Sword"
+flavor_text = "Old steel, still sharp enough."
 description = "A deliberate heavy blade with a dependable guard."
 item_type = 0
-rarity = 0
+rarity = 2
 gameplay_scene = ExtResource("2")
 weapon_family = &"sword"
+damage = 34.0
+heavy_damage = 55.0
+attack_speed_label = "Measured"
+block_reduction = 0.8
+range_label = "Short"
+special_description = "Fortified Guard"
+durability_max = 125
