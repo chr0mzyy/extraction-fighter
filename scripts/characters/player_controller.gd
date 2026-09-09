@@ -4,14 +4,6 @@ extends CharacterBody3D
 signal actor_died(actor: Node, info: DamageInfo)
 signal feedback(event_name: StringName, data: Dictionary)
 
-@export_group("Movement")
-@export var walk_speed: float = 6.0
-@export var sprint_speed: float = 10.0
-@export var jump_velocity: float = 6.5
-@export var gravity: float = 18.0
-@export var ground_acceleration: float = 48.0
-@export var ground_deceleration: float = 55.0
-@export var air_acceleration: float = 15.0
 @export_group("Camera")
 @export var mouse_sensitivity: float = 0.0022
 @export var first_person_fov: float = 90.0
@@ -19,6 +11,7 @@ signal feedback(event_name: StringName, data: Dictionary)
 @export var ads_fov: float = 45.0
 
 @onready var health: HealthComponent = $HealthComponent
+@onready var body_collision: CollisionShape3D = $CollisionShape3D
 @onready var head_hurtbox: Hurtbox3D = $HeadHurtbox
 @onready var visual_body: MeshInstance3D = $VisualBody
 @onready var pitch_pivot: Node3D = $PitchPivot
@@ -28,6 +21,7 @@ signal feedback(event_name: StringName, data: Dictionary)
 @onready var weapon_mount: Node3D = $PitchPivot/WeaponMount
 @onready var dash_skill: DashSkill = $DashSkill
 @onready var double_jump_skill: DoubleJumpSkill = $DoubleJumpSkill
+@onready var movement: PlayerMovementController = $MovementController
 
 var weapons: Array[WeaponBase] = []
 var current_weapon: WeaponBase
@@ -36,7 +30,6 @@ var is_first_person: bool = true
 var is_dead: bool = false
 var is_cursor_free: bool = false
 var spawn_transform: Transform3D
-var was_on_floor: bool = false
 var stagger_remaining: float = 0.0
 var camera_kick: float = 0.0
 
@@ -53,6 +46,8 @@ func _ready() -> void:
 			weapon.hit_confirmed.connect(_on_weapon_hit)
 			weapon.unequip()
 	health.died.connect(_on_health_died)
+	movement.setup(self, body_collision, visual_body, pitch_pivot, head_hurtbox, dash_skill, double_jump_skill)
+	movement.movement_event.connect(_on_movement_event)
 	spring_arm.add_excluded_object(get_rid())
 	spring_arm.add_excluded_object(head_hurtbox.get_rid())
 	equip_weapon(0)
@@ -110,56 +105,11 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	dash_skill.tick(delta)
-	double_jump_skill.tick(delta)
 	stagger_remaining = maxf(0.0, stagger_remaining - delta)
 	if is_dead:
 		velocity = Vector3.ZERO
 		return
-
-	var grounded_before_move := is_on_floor()
-	var input_vector := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var input_direction := (global_basis.x * input_vector.x + global_basis.z * input_vector.y)
-	input_direction.y = 0.0
-	input_direction = input_direction.normalized()
-
-	if Input.is_action_just_pressed("dash") and stagger_remaining <= 0.0:
-		var chosen_direction := input_direction if input_direction.length_squared() > 0.01 else -global_basis.z
-		chosen_direction.y = 0.0
-		if dash_skill.try_activate(chosen_direction):
-			feedback.emit(&"dash", {})
-
-	if Input.is_action_just_pressed("jump") and stagger_remaining <= 0.0:
-		if grounded_before_move:
-			velocity.y = jump_velocity
-		elif double_jump_skill.try_activate():
-			velocity.y = double_jump_skill.jump_velocity
-			feedback.emit(&"double_jump", {})
-
-	if not grounded_before_move:
-		velocity.y -= gravity * delta
-	elif velocity.y < 0.0:
-		velocity.y = -0.2
-
-	if dash_skill.is_active():
-		velocity.x = dash_skill.dash_direction.x * dash_skill.dash_speed
-		velocity.z = dash_skill.dash_direction.z * dash_skill.dash_speed
-	else:
-		var target_speed := sprint_speed if Input.is_action_pressed("sprint") else walk_speed
-		if stagger_remaining > 0.0:
-			target_speed *= 0.25
-		var target_horizontal := input_direction * target_speed
-		var acceleration := ground_acceleration if grounded_before_move else air_acceleration
-		if grounded_before_move and input_direction.length_squared() < 0.01:
-			acceleration = ground_deceleration
-		velocity.x = move_toward(velocity.x, target_horizontal.x, acceleration * delta)
-		velocity.z = move_toward(velocity.z, target_horizontal.z, acceleration * delta)
-
-	move_and_slide()
-	var grounded_after_move := is_on_floor()
-	if grounded_after_move and not was_on_floor:
-		double_jump_skill.on_landed()
-	was_on_floor = grounded_after_move
+	movement.physics_step(delta, stagger_remaining)
 
 
 func equip_weapon(index: int) -> void:
@@ -190,7 +140,7 @@ func get_aim_origin() -> Vector3:
 
 
 func get_melee_origin() -> Vector3:
-	return global_position + Vector3.UP * 1.15
+	return global_position + Vector3.UP * minf(1.15, pitch_pivot.position.y - 0.2)
 
 
 func get_aim_direction() -> Vector3:
@@ -203,7 +153,7 @@ func get_aim_exclusions() -> Array[RID]:
 
 
 func is_headshot_position(hit_position: Vector3) -> bool:
-	return hit_position.y - global_position.y >= 1.38
+	return hit_position.y - global_position.y >= head_hurtbox.position.y - 0.24
 
 
 func get_block_weapon() -> KatanaWeapon:
@@ -246,6 +196,7 @@ func apply_launch(launch_velocity: Vector3) -> void:
 	velocity.x = lerpf(velocity.x, launch_velocity.x, 0.65)
 	velocity.z = lerpf(velocity.z, launch_velocity.z, 0.65)
 	velocity.y = maxf(velocity.y, launch_velocity.y)
+	movement.on_external_launch()
 	feedback.emit(&"launch", {})
 
 
@@ -280,12 +231,17 @@ func _on_weapon_hit(headshot: bool) -> void:
 	feedback.emit(&"headshot" if headshot else &"hitmarker", {})
 
 
+func _on_movement_event(event_name: StringName) -> void:
+	feedback.emit(event_name, {})
+
+
 func _on_health_died(info: DamageInfo) -> void:
 	is_dead = true
 	velocity = Vector3.ZERO
 	collision_layer = 0
 	collision_mask = 0
 	visual_body.visible = false
+	movement.on_death()
 	if current_weapon != null:
 		current_weapon.secondary_released()
 	feedback.emit(&"death", {})
@@ -301,6 +257,7 @@ func respawn() -> void:
 	collision_mask = 1
 	dash_skill.reset()
 	double_jump_skill.reset()
+	movement.reset()
 	for weapon in weapons:
 		weapon.reset_weapon()
 	health.reset()

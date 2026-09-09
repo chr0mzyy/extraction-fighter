@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/skills/double_jump_skill.gd" id="5"]
 [ext_resource type="PackedScene" path="res://scenes/weapons/katana.tscn" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/weapons/sniper.tscn" id="7"]
+[ext_resource type="Script" path="res://scripts/characters/player_movement_controller.gd" id="8"]
 
 [sub_resource type="CapsuleShape3D" id="BodyShape"]
 radius = 0.42
@@ -90,3 +91,5 @@ script = ExtResource("4")
 [node name="DoubleJumpSkill" type="Node" parent="."]
 script = ExtResource("5")
 
+[node name="MovementController" type="Node" parent="."]
+script = ExtResource("8")

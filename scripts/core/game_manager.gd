@@ -63,7 +63,7 @@ func _run_self_test() -> void:
 		failures.append("Arena geometry did not generate")
 	if get_tree().get_nodes_in_group("player").size() != 1 or get_tree().get_nodes_in_group("bot").size() != 1:
 		failures.append("Character groups are invalid")
-	for action in ["move_forward", "move_back", "move_left", "move_right", "sprint", "jump", "dash", "toggle_camera", "weapon_1", "weapon_2", "primary_attack", "secondary_attack", "heavy_attack", "reload", "menu_toggle", "debug_toggle"]:
+	for action in ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "dash", "toggle_camera", "weapon_1", "weapon_2", "primary_attack", "secondary_attack", "heavy_attack", "reload", "menu_toggle", "debug_toggle"]:
 		if not InputMap.has_action(action):
 			failures.append("Missing input action: " + action)
 
@@ -108,6 +108,142 @@ func _run_self_test() -> void:
 	Input.action_release("dash")
 	if Vector2(player.velocity.x, player.velocity.z).length() < 20.0:
 		failures.append("Dash input did not create expected collision-safe velocity")
+
+	# Critical 0.1.1 contract: releasing W in the air preserves forward momentum.
+	player.movement.reset()
+	player.dash_skill.reset()
+	player.double_jump_skill.reset()
+	player.global_position = Vector3(-25, 0.05, 24)
+	player.velocity = Vector3.ZERO
+	for frame in range(4):
+		await get_tree().physics_frame
+	Input.action_press("move_forward")
+	Input.action_press("sprint")
+	for frame in range(30):
+		await get_tree().physics_frame
+	Input.action_press("jump")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Input.action_release("jump")
+	Input.action_release("move_forward")
+	Input.action_release("sprint")
+	var release_speed := player.movement.get_horizontal_speed()
+	for frame in range(12):
+		await get_tree().physics_frame
+	var preserved_air_speed := player.movement.get_horizontal_speed()
+	if release_speed < 7.0 or preserved_air_speed < release_speed * 0.98:
+		failures.append("Air momentum was not preserved after releasing W (%.2f -> %.2f)" % [release_speed, preserved_air_speed])
+
+	# Air strafing must curve velocity without an instant reversal or uncapped growth.
+	player.global_position = Vector3(-25, 8, 20)
+	player.velocity = Vector3(0, 0, -10)
+	await get_tree().physics_frame
+	Input.action_press("move_right")
+	for frame in range(16):
+		await get_tree().physics_frame
+	Input.action_release("move_right")
+	if player.velocity.x < 1.0 or player.velocity.z > -7.0:
+		failures.append("Air strafe did not curve while preserving forward travel (%s)" % str(player.velocity))
+	player.global_position = Vector3(-25, 12, 20)
+	player.velocity = Vector3(0, 0, -15.8)
+	Input.action_press("move_right")
+	for frame in range(45):
+		await get_tree().physics_frame
+	Input.action_release("move_right")
+	if player.movement.get_horizontal_speed() > player.movement.bhop_speed_cap + 0.05:
+		failures.append("Air-strafe speed exceeded bunny-hop cap (%.2f)" % player.movement.get_horizontal_speed())
+
+	# Coyote jump is a normal jump and leaves the double jump available.
+	player.global_position = Vector3(-25, 6, 20)
+	player.velocity = Vector3(0, -1, -6)
+	player.movement.was_on_floor = false
+	player.movement.normal_jump_available = true
+	player.movement.coyote_remaining = player.movement.coyote_time
+	player.double_jump_skill.reset()
+	Input.action_press("jump")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Input.action_release("jump")
+	if player.velocity.y <= 0.0 or player.double_jump_skill.used_this_airborne_sequence:
+		failures.append("Coyote jump failed or incorrectly consumed double jump")
+	var speed_before_double_jump := player.movement.get_horizontal_speed()
+	Input.action_press("jump")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Input.action_release("jump")
+	if not player.double_jump_skill.used_this_airborne_sequence or absf(player.movement.get_horizontal_speed() - speed_before_double_jump) > 0.1:
+		failures.append("Double jump did not preserve horizontal momentum")
+
+	# Jump buffer must fire a normal jump as soon as a descending player lands.
+	player.movement.normal_jump_available = false
+	player.movement.coyote_remaining = 0.0
+	player.double_jump_skill.used_this_airborne_sequence = true
+	player.global_position = Vector3(-25, 0.18, 20)
+	player.velocity = Vector3(0, -2.5, -5)
+	Input.action_press("jump")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Input.action_release("jump")
+	for frame in range(7):
+		await get_tree().physics_frame
+	if player.velocity.y <= 0.0 or player.movement.normal_jump_available:
+		failures.append("Buffered jump did not trigger immediately after landing")
+
+	# Physical crouch transitions, blocked stand-up, slide, and slide jump.
+	player.movement.reset()
+	player.double_jump_skill.reset()
+	player.global_position = Vector3(-25, 0.05, 24)
+	player.velocity = Vector3.ZERO
+	for frame in range(5):
+		await get_tree().physics_frame
+	Input.action_press("crouch")
+	for frame in range(12):
+		await get_tree().physics_frame
+	if not player.movement.is_crouching or player.movement.body_shape.height > player.movement.crouch_height + 0.03:
+		failures.append("Crouch did not reduce the physical capsule height")
+	if player.pitch_pivot.position.y > player.movement.standing_camera_height - 0.35:
+		failures.append("Crouch did not lower the shared FPP/TPP camera pivot")
+	var ceiling := StaticBody3D.new()
+	ceiling.collision_layer = 1
+	ceiling.collision_mask = 2
+	ceiling.position = Vector3(player.global_position.x, 1.38, player.global_position.z)
+	var ceiling_collision := CollisionShape3D.new()
+	var ceiling_shape := BoxShape3D.new()
+	ceiling_shape.size = Vector3(3, 0.2, 3)
+	ceiling_collision.shape = ceiling_shape
+	ceiling.add_child(ceiling_collision)
+	add_child(ceiling)
+	await get_tree().physics_frame
+	Input.action_release("crouch")
+	for frame in range(8):
+		await get_tree().physics_frame
+	if player.movement.body_shape.height > player.movement.crouch_height + 0.05:
+		failures.append("Player stood up despite blocked ceiling clearance")
+	ceiling.queue_free()
+	await get_tree().physics_frame
+	for frame in range(12):
+		await get_tree().physics_frame
+	if player.movement.is_crouching:
+		failures.append("Player did not stand after ceiling clearance returned")
+
+	player.global_position = Vector3(-25, 0.05, 24)
+	player.velocity = Vector3.ZERO
+	for frame in range(3):
+		await get_tree().physics_frame
+	player.velocity = Vector3(0, 0, -10)
+	Input.action_press("crouch")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	if not player.movement.is_sliding:
+		failures.append("Fast grounded crouch did not start a slide")
+	Input.action_press("jump")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Input.action_release("jump")
+	Input.action_release("crouch")
+	if player.movement.is_sliding or player.velocity.y <= 0.0 or player.movement.get_horizontal_speed() < 7.0:
+		failures.append("Slide jump failed to preserve useful momentum (%s)" % str(player.velocity))
+
 	var preserved_velocity := Vector3(2, 3, 4)
 	player.velocity = preserved_velocity
 	player.set_camera_mode(false)
@@ -128,6 +264,7 @@ func _run_self_test() -> void:
 	if player.velocity.y < 10.0:
 		failures.append("Launch pad did not apply upward velocity")
 	player.set_physics_process(false)
+	player.movement.reset()
 
 	# Skills: activation, anti-repeat, persistent cooldown, and reset contracts.
 	player.dash_skill.reset()
@@ -272,7 +409,7 @@ func _run_self_test() -> void:
 	if (player.weapons[1] as SniperWeapon).ammo != (player.weapons[1] as SniperWeapon).magazine_size:
 		failures.append("Player sniper ammo did not reset on respawn")
 	if failures.is_empty():
-		print("SELF_TEST_OK: runtime, arena, melee, hitscan headshot, block, deflect reflection, skills, death, score and respawn passed")
+		print("SELF_TEST_OK: movement 0.1.1, runtime, arena, combat, skills, death, score and respawn passed")
 		get_tree().quit(0)
 	else:
 		for failure in failures:

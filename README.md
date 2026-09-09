@@ -1,4 +1,4 @@
-# Extraction Fighter — MVP 0.1
+# Extraction Fighter — MVP 0.1.1
 
 A local single-player Godot 4.7.2 combat playground built to test whether fast movement, katana defense, movement sniping, and instant first/third-person switching are fun together.
 
@@ -14,6 +14,7 @@ Open this folder in Godot 4.7.2 and run the project (`F6`/`F5`), or run:
 
 - `WASD`: move
 - `Shift`: sprint
+- `Ctrl`: crouch / momentum slide
 - `Space`: jump / airborne double jump
 - `Q`: collision-safe dash
 - `V`: instant FPP/TPP toggle
@@ -27,3 +28,5 @@ Open this folder in Godot 4.7.2 and run the project (`F6`/`F5`), or run:
 - `F3`: debug overlay
 
 The match is an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character.
+
+Movement uses momentum-preserving air control, air strafing, coyote time, jump buffering, capped bunny hopping, physical crouching, sliding, and slide jumping. Releasing movement input in the air does not brake horizontal velocity.

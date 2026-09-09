@@ -73,14 +73,24 @@ func _process(delta: float) -> void:
 
 	if debug_visible:
 		var bot_distance: float = player.global_position.distance_to(bot.global_position) if is_instance_valid(bot) else 0.0
-		debug_label.text = "FPS %d\nVelocity %.1f m/s\nGrounded %s\nWeapon %s\nCamera %s\nDash %.2f\nDouble jump %.2f\nBot state %s\nBot distance %.1f m" % [
+		var movement := player.movement as PlayerMovementController
+		debug_label.text = "FPS %d\nHorizontal %.2f m/s\nVelocity %s\nGrounded %s\nCrouching %s\nSliding %s\nAir control %s\nCoyote %.3f\nJump buffer %.3f\nBhop %.2f / %.2f\nMovement %s\nDash %.2f\nDouble jump %s\nWeapon %s\nCamera %s\nBot state %s\nBot distance %.1f m" % [
 			Engine.get_frames_per_second(),
-			player.velocity.length(),
+			movement.get_horizontal_speed(),
+			str(player.velocity),
 			str(player.is_on_floor()),
+			str(movement.is_crouching),
+			str(movement.is_sliding),
+			str(movement.air_control_active),
+			movement.coyote_remaining,
+			movement.jump_buffer_remaining,
+			movement.get_horizontal_speed(),
+			movement.bhop_speed_cap,
+			movement.movement_state,
+			player.dash_skill.cooldown_remaining,
+			"READY" if player.double_jump_skill.cooldown_remaining <= 0.0 and not player.double_jump_skill.used_this_airborne_sequence else "%.2f" % player.double_jump_skill.cooldown_remaining,
 			weapon_name,
 			player.get_camera_mode_name(),
-			player.dash_skill.cooldown_remaining,
-			player.double_jump_skill.cooldown_remaining,
 			bot.ai_state if is_instance_valid(bot) else "N/A",
 			bot_distance
 		]
@@ -116,6 +126,10 @@ func _on_player_feedback(event_name: StringName, _data: Dictionary) -> void:
 			_show_status("DOUBLE JUMP", Color(0.55, 0.82, 1.0), 0.4)
 		&"dash":
 			_show_status("DASH", Color(0.7, 0.65, 1.0), 0.3)
+		&"slide":
+			_show_status("SLIDE", Color(0.62, 0.8, 1.0), 0.25)
+		&"slide_jump":
+			_show_status("SLIDE JUMP", Color(0.72, 0.9, 1.0), 0.35)
 		&"empty":
 			_show_status("EMPTY — PRESS R", Color(1.0, 0.45, 0.35), 0.7)
 		&"death":
@@ -202,7 +216,7 @@ func _build_interface() -> void:
 	_make_crosshair_bar(Vector2(-10, -1), Vector2(7, 2))
 	_make_crosshair_bar(Vector2(4, -1), Vector2(7, 2))
 
-	debug_label = _make_label(Vector2(18, 118), Vector2(260, 250), 14)
+	debug_label = _make_label(Vector2(18, 108), Vector2(330, 430), 14)
 	debug_label.add_theme_color_override("font_color", Color(0.45, 1.0, 0.58))
 	debug_label.visible = false
 
@@ -212,7 +226,7 @@ func _build_interface() -> void:
 	controls.offset_right = 598
 	controls.offset_top = -40
 	controls.offset_bottom = -14
-	controls.text = "WASD Move  •  Shift Sprint  •  Space Jump  •  Q Dash  •  V Camera  •  1/2 Weapons  •  F3 Debug"
+	controls.text = "WASD Move  •  Shift Sprint  •  Ctrl Crouch/Slide  •  Space Jump  •  Q Dash  •  V Camera  •  1/2 Weapons  •  F3 Debug"
 	controls.add_theme_color_override("font_color", Color(0.58, 0.62, 0.7))
 
 
