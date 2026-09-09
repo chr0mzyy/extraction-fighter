@@ -9,16 +9,19 @@ func _ready() -> void:
 	_build_floor_and_bounds()
 	_build_vertical_routes()
 	_build_cover_and_corridors()
+	_build_route_markings()
 	_build_launch_pads()
 	_build_kill_volume()
 
 
 func _create_materials() -> void:
-	materials["stone"] = _material(Color(0.105, 0.115, 0.14), 0.92)
-	materials["stone_light"] = _material(Color(0.18, 0.19, 0.22), 0.88)
-	materials["platform"] = _material(Color(0.16, 0.12, 0.18), 0.82)
-	materials["cover"] = _material(Color(0.22, 0.16, 0.12), 0.9)
-	materials["accent"] = _material(Color(0.32, 0.09, 0.11), 0.76)
+	materials["stone"] = _material(Color(0.22, 0.25, 0.29), 0.92)
+	materials["floor"] = _material(Color(0.32, 0.35, 0.38), 0.95)
+	materials["stone_light"] = _material(Color(0.48, 0.46, 0.40), 0.88)
+	materials["platform"] = _material(Color(0.35, 0.40, 0.43), 0.82)
+	materials["cover"] = _material(Color(0.40, 0.29, 0.18), 0.9)
+	materials["accent"] = _material(Color(0.30, 0.27, 0.25), 0.86)
+	materials["edge"] = _material(Color(0.62, 0.55, 0.37), 0.9)
 
 
 func _material(color: Color, roughness: float) -> StandardMaterial3D:
@@ -29,7 +32,7 @@ func _material(color: Color, roughness: float) -> StandardMaterial3D:
 
 
 func _build_floor_and_bounds() -> void:
-	_add_box("ArenaFloor", Vector3(0, -0.5, 0), Vector3(58, 1, 58), "stone")
+	_add_box("ArenaFloor", Vector3(0, -0.5, 0), Vector3(58, 1, 58), "floor")
 	_add_box("NorthWall", Vector3(0, 3.5, -29), Vector3(60, 8, 1.2), "stone")
 	_add_box("SouthWall", Vector3(0, 3.5, 29), Vector3(60, 8, 1.2), "stone")
 	_add_box("WestWall", Vector3(-29, 3.5, 0), Vector3(1.2, 8, 60), "stone")
@@ -107,6 +110,24 @@ func _build_launch_pads() -> void:
 	add_child(pad_three)
 
 
+func _build_route_markings() -> void:
+	# Flush paving bands communicate the keep approach and outer flanks.
+	# Meshes only: no new collision seams for sliding or the bot.
+	for route in [
+		[Vector3(0, 0.012, 12), Vector3(3.2, 0.015, 10)],
+		[Vector3(-22, 0.012, 18), Vector3(2.8, 0.015, 12)],
+		[Vector3(22, 0.012, -15), Vector3(2.8, 0.015, 16)]
+	]:
+		var paving := MeshInstance3D.new()
+		var paving_mesh := BoxMesh.new()
+		paving_mesh.size = route[1]
+		paving_mesh.material = materials["stone_light"]
+		paving.mesh = paving_mesh
+		paving.position = route[0]
+		paving.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(paving)
+
+
 func _build_kill_volume() -> void:
 	var kill_volume := KillVolume.new()
 	kill_volume.name = "KillVolume"
@@ -132,6 +153,17 @@ func _add_box(node_name: String, position: Vector3, size: Vector3, material_key:
 	mesh.material = materials[material_key]
 	mesh_instance.mesh = mesh
 	body.add_child(mesh_instance)
+	# Thin, non-colliding stone coping distinguishes traversal edges and cover.
+	if material_key in ["platform", "stone_light", "cover"] and not node_name.contains("Crenel"):
+		for side in [-1.0, 1.0]:
+			var trim := MeshInstance3D.new()
+			var trim_mesh := BoxMesh.new()
+			trim_mesh.size = Vector3(0.1, 0.025, size.z)
+			trim_mesh.material = materials["edge"]
+			trim.mesh = trim_mesh
+			trim.position = Vector3(side * (size.x * 0.5 - 0.05), size.y * 0.5 + 0.015, 0)
+			trim.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			body.add_child(trim)
 	var collision := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = size

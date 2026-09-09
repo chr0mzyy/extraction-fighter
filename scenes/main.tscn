@@ -10,14 +10,14 @@
 background_mode = 1
 background_color = Color(0.018, 0.022, 0.035, 1)
 background_energy_multiplier = 0.72
-ambient_light_source = 3
-ambient_light_color = Color(0.19, 0.23, 0.34, 1)
-ambient_light_energy = 1.05
+ambient_light_source = 2
+ambient_light_color = Color(0.48, 0.53, 0.62, 1)
+ambient_light_energy = 0.7
 reflected_light_source = 2
 fog_enabled = true
 fog_light_color = Color(0.08, 0.105, 0.15, 1)
 fog_light_energy = 0.55
-fog_density = 0.008
+fog_density = 0.003
 fog_height = 2.0
 fog_height_density = 0.05
 
@@ -49,15 +49,15 @@ directional_shadow_max_distance = 80.0
 
 [node name="WarmFill" type="OmniLight3D" parent="."]
 position = Vector3(0, 7, 5)
-light_color = Color(0.85, 0.29, 0.18, 1)
-light_energy = 5.5
+light_color = Color(0.8, 0.62, 0.43, 1)
+light_energy = 3.0
 omni_range = 18.0
 shadow_enabled = false
 
 [node name="ColdFill" type="OmniLight3D" parent="."]
 position = Vector3(0, 9, -19)
-light_color = Color(0.16, 0.44, 0.9, 1)
-light_energy = 6.5
+light_color = Color(0.43, 0.59, 0.8, 1)
+light_energy = 3.5
 omni_range = 23.0
 shadow_enabled = false
 
