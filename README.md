@@ -1,37 +1,42 @@
-# Extraction Fighter — MVP 0.1.2
+# Extraction Fighter - MVP 0.2.0
 
-A local single-player Godot 4.7.2 combat playground built to test whether fast movement, katana defense, movement sniping, and instant first/third-person switching are fun together.
+A local single-player Godot 4.7.2 combat prototype with a persistent lobby, data-driven loadouts, and a fast player-versus-bot arena.
 
 ## Launch
 
-Open this folder in Godot 4.7.2 and run the project (`F6`/`F5`), or run:
+Open this folder in Godot 4.7.2 and run the project, or run:
 
 ```powershell
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --path .
 ```
 
-## Controls
+The project starts in the lobby. `PLAY > ARENA` deploys the currently selected two weapons and two skills. `LOADOUT` changes the build, `STASH` shows all permanently owned items and the 24-slot main inventory, and arena `Esc` opens Resume / Return to Lobby / Quit.
+
+## Arena controls
 
 - `WASD`: move
 - `Shift`: sprint
 - `Ctrl`: crouch / momentum slide
-- `Space`: jump / airborne double jump
-- `Q`: collision-safe dash
+- `Space`: jump; airborne double jump only when Double Jump is equipped
+- `Q`: skill slot 1
+- `E`: skill slot 2
 - `V`: instant FPP/TPP toggle
-- `1`: katana
-- `2`: sniper rifle
+- `1`: weapon slot 1
+- `2`: weapon slot 2
 - `LMB`: light attack / fire
-- `RMB`: block + perfect deflect / ADS
-- `F`: katana heavy attack
-- `R`: sniper reload
-- `Esc`: release/capture mouse
+- `RMB`: block / ADS
+- `F`: melee heavy attack
+- `R`: firearm reload
+- `Esc`: pause menu
 - `F3`: debug overlay
 
-The match is an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character.
+Double Jump is the intentional contextual exception to Q/E: it occupies a skill slot but activates with a second airborne `Space` press. Dash, Grapple, and Blink activate from whichever Q/E slot they occupy.
 
-Movement uses momentum-preserving air control, air strafing, coyote time, jump buffering, capped bunny hopping, physical crouching, sliding, and slide jumping. Releasing movement input in the air does not brake horizontal velocity.
+The default build is Ronin Katana, Huntsman Rifle, Dash, and Double Jump (130/200 Power). Vanguard Rifle, Knight Sword, Grapple, and Blink are also owned at first launch. Skill combinations above 200 Power are rejected.
 
-The bot uses visibility-gated short-term memory, reaction-delayed imperfect aim, range-hysteresis weapon selection, tactical cover/flank points, contextual advanced movement, low-health retreat logic, and displacement-based stuck recovery. The normal HUD remains compact while `F3` exposes the AI and movement telemetry used for tuning.
+The arena remains an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character. Existing momentum-preserving air control, bunny hopping, crouching, sliding, slide jumping, cameras, bot AI, combat, launch pads, scoring, and respawn behavior remain active.
+
+Profiles are stored as versioned JSON at `user://player_profile.json`. Missing, malformed, and unsupported profiles safely fall back to the default build.
 
 ## Validation
 
@@ -40,4 +45,11 @@ The bot uses visibility-gated short-term memory, reaction-delayed imperfect aim,
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --ai-soak-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --hud-layout-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-self-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --loadout-integration-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --lobby-layout-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --pause-flow-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --scene-flow-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-restart-write-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-restart-read-test
 ```

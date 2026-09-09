@@ -28,6 +28,11 @@ var dash_panel: PanelContainer
 var dash_state_label: Label
 var jump_panel: PanelContainer
 var jump_state_label: Label
+var skill_panels: Array[PanelContainer] = []
+var skill_name_labels: Array[Label] = []
+var skill_key_labels: Array[Label] = []
+var skill_state_labels: Array[Label] = []
+var skill_ready_states: Array[bool] = [true, true]
 var score_label: Label
 var camera_label: Label
 var status_label: Label
@@ -148,19 +153,19 @@ func _update_weapon_panel() -> void:
 	var weapon := player.current_weapon
 	var weapon_name := weapon.weapon_display_name.to_upper() if weapon != null else "UNARMED"
 	weapon_name_label.text = weapon_name
-	if weapon is SniperWeapon:
-		var sniper := weapon as SniperWeapon
-		ammo_label.text = "%d / %d" % [sniper.ammo, sniper.magazine_size]
-		reload_label.text = "RELOADING  %.1fs" % sniper.reload_remaining if sniper.is_reloading else "R  RELOAD"
-		reload_label.add_theme_color_override("font_color", COLOR_WARNING if sniper.ammo == 0 else COLOR_MUTED)
+	if weapon != null and weapon.uses_ammunition():
+		ammo_label.text = weapon.get_ammo_text()
+		var weapon_status := weapon.get_weapon_status()
+		reload_label.text = weapon_status if weapon_status.begins_with("RELOADING") else "R  RELOAD  /  RMB  ADS"
+		reload_label.add_theme_color_override("font_color", COLOR_WARNING if weapon.get_ammo_text().begins_with("0 ") else COLOR_MUTED)
 	else:
 		ammo_label.text = "MELEE"
-		reload_label.text = "RMB  BLOCK / DEFLECT"
+		reload_label.text = "RMB  BLOCK / DEFLECT" if weapon is KatanaWeapon and not weapon is KnightSwordWeapon else "RMB  BLOCK"
 		reload_label.add_theme_color_override("font_color", COLOR_MUTED)
 
 	var slot_one_active := player.current_weapon_index == 0
-	slot_one_label.text = "[1]  KATANA"
-	slot_two_label.text = "[2]  SNIPER"
+	slot_one_label.text = "[1]  %s" % _weapon_slot_name(0)
+	slot_two_label.text = "[2]  %s" % _weapon_slot_name(1)
 	slot_one_label.add_theme_color_override("font_color", COLOR_ACCENT if slot_one_active else COLOR_MUTED)
 	slot_two_label.add_theme_color_override("font_color", COLOR_ACCENT if not slot_one_active else COLOR_MUTED)
 	if last_weapon_index != player.current_weapon_index:
@@ -175,26 +180,23 @@ func _update_weapon_panel() -> void:
 
 
 func _update_skills() -> void:
-	var dash_cooldown := player.dash_skill.cooldown_remaining
-	var dash_ready := dash_cooldown <= 0.0
-	dash_state_label.text = "READY" if dash_ready else "%.1fs" % dash_cooldown
-	dash_state_label.add_theme_color_override("font_color", COLOR_READY if dash_ready else COLOR_TEXT)
-	if dash_ready != last_dash_ready:
-		last_dash_ready = dash_ready
-		dash_panel.add_theme_stylebox_override("panel", ready_skill_style if dash_ready else cooling_skill_style)
-
-	var jump_cooldown := player.double_jump_skill.cooldown_remaining
-	var jump_ready := jump_cooldown <= 0.0 and not player.double_jump_skill.used_this_airborne_sequence
-	if jump_ready:
-		jump_state_label.text = "READY"
-	elif jump_cooldown > 0.0:
-		jump_state_label.text = "%.1fs" % jump_cooldown
-	else:
-		jump_state_label.text = "SPENT"
-	jump_state_label.add_theme_color_override("font_color", COLOR_READY if jump_ready else COLOR_TEXT)
-	if jump_ready != last_jump_ready:
-		last_jump_ready = jump_ready
-		jump_panel.add_theme_stylebox_override("panel", ready_skill_style if jump_ready else cooling_skill_style)
+	for index: int in skill_panels.size():
+		var skill: SkillBase = player.equipped_skills[index] if index < player.equipped_skills.size() else null
+		if skill == null:
+			skill_name_labels[index].text = "EMPTY"
+			skill_key_labels[index].text = "Q" if index == 0 else "E"
+			skill_state_labels[index].text = "--"
+			skill_panels[index].add_theme_stylebox_override("panel", cooling_skill_style)
+			continue
+		var state_text := skill.get_status_text()
+		var ready := state_text == "READY"
+		skill_name_labels[index].text = skill.skill_display_name.to_upper()
+		skill_key_labels[index].text = skill.get_input_hint()
+		skill_state_labels[index].text = state_text
+		skill_state_labels[index].add_theme_color_override("font_color", COLOR_READY if ready else COLOR_TEXT)
+		if ready != skill_ready_states[index]:
+			skill_ready_states[index] = ready
+			skill_panels[index].add_theme_stylebox_override("panel", ready_skill_style if ready else cooling_skill_style)
 
 
 func _update_header() -> void:
@@ -211,7 +213,9 @@ func _update_debug_overlay() -> void:
 	var movement := player.movement as PlayerMovementController
 	var bot_distance := player.global_position.distance_to(bot.global_position) if is_instance_valid(bot) else 0.0
 	var bot_data: Dictionary = bot.get_debug_snapshot() if is_instance_valid(bot) else {}
-	debug_label.text = "DEVELOPER TELEMETRY\n\nFPS             %d\nPLAYER SPEED    %.2f m/s\nPLAYER VELOCITY %s\nMOVEMENT        %s\nGROUNDED        %s\nCROUCH / SLIDE  %s / %s\nAIR CONTROL     %s\nCOYOTE / BUFFER %.3f / %.3f\nBHOP CAP        %.2f m/s\nDASH            %.2fs\nDOUBLE JUMP     %s\nCAMERA          %s\n\nBOT STATE       %s\nBOT MOVEMENT    %s\nBOT WEAPON      %s\nBOT DISTANCE    %.1f m\nBOT HP          %.0f\nBOT LOS         %s\nMEMORY LEFT     %.2fs\nSTUCK TIMER     %.2fs\nRECOVERIES      %d\nSHOTS / SWINGS  %d / %d\nRELOADS / BLOCKS %d / %d" % [
+	var skill_one: SkillBase = player.equipped_skills[0] if player.equipped_skills.size() > 0 else null
+	var skill_two: SkillBase = player.equipped_skills[1] if player.equipped_skills.size() > 1 else null
+	debug_label.text = "DEVELOPER TELEMETRY\n\nFPS             %d\nPLAYER SPEED    %.2f m/s\nPLAYER VELOCITY %s\nMOVEMENT        %s\nGROUNDED        %s\nCROUCH / SLIDE  %s / %s\nAIR CONTROL     %s\nCOYOTE / BUFFER %.3f / %.3f\nBHOP CAP        %.2f m/s\nSKILL 1         %s\nSKILL 2         %s\nCAMERA          %s\n\nBOT STATE       %s\nBOT MOVEMENT    %s\nBOT WEAPON      %s\nBOT DISTANCE    %.1f m\nBOT HP          %.0f\nBOT LOS         %s\nMEMORY LEFT     %.2fs\nSTUCK TIMER     %.2fs\nRECOVERIES      %d\nSHOTS / SWINGS  %d / %d\nRELOADS / BLOCKS %d / %d" % [
 		Engine.get_frames_per_second(),
 		movement.get_horizontal_speed(),
 		str(player.velocity),
@@ -223,8 +227,8 @@ func _update_debug_overlay() -> void:
 		movement.coyote_remaining,
 		movement.jump_buffer_remaining,
 		movement.bhop_speed_cap,
-		player.dash_skill.cooldown_remaining,
-		_cooldown_text(player.double_jump_skill.cooldown_remaining),
+		"%s / %s" % [skill_one.skill_display_name, skill_one.get_status_text()] if skill_one != null else "EMPTY",
+		"%s / %s" % [skill_two.skill_display_name, skill_two.get_status_text()] if skill_two != null else "EMPTY",
 		player.get_camera_mode_name(),
 		bot_data.get("state", "N/A"),
 		bot_data.get("movement", "N/A"),
@@ -291,6 +295,18 @@ func _on_player_feedback(event_name: StringName, _data: Dictionary) -> void:
 			_show_status("DOUBLE JUMP", Color(0.55, 0.82, 1.0), 0.38)
 		&"dash":
 			_show_status("DASH", Color(0.72, 0.66, 1.0), 0.28)
+		&"grapple":
+			_show_status("GRAPPLE LOCK", Color(0.38, 0.88, 0.92), 0.38)
+		&"grapple_miss":
+			_show_status("NO GRAPPLE TARGET", COLOR_MUTED, 0.34)
+		&"blink":
+			_show_status("BLINK", Color(0.69, 0.58, 1.0), 0.32)
+		&"grapple":
+			_show_status("GRAPPLE", Color(0.40, 0.88, 1.0), 0.42)
+		&"grapple_miss":
+			_show_status("NO GRAPPLE TARGET", COLOR_MUTED, 0.42)
+		&"blink":
+			_show_status("BLINK", Color(0.74, 0.58, 1.0), 0.34)
 		&"slide":
 			_show_status("SLIDE", Color(0.62, 0.80, 1.0), 0.24)
 		&"slide_jump":
@@ -451,8 +467,13 @@ func _build_skill_panel() -> void:
 	ui_root.add_child(skills)
 	dash_panel = _make_skill_card(skills, "Q", "DASH")
 	dash_state_label = dash_panel.get_node("Margin/VBox/State") as Label
-	jump_panel = _make_skill_card(skills, "SPACE x2", "DOUBLE JUMP")
+	jump_panel = _make_skill_card(skills, "E", "DOUBLE JUMP")
 	jump_state_label = jump_panel.get_node("Margin/VBox/State") as Label
+	skill_panels = [dash_panel, jump_panel]
+	skill_state_labels = [dash_state_label, jump_state_label]
+	for panel: PanelContainer in skill_panels:
+		skill_key_labels.append(panel.get_node("Margin/VBox/Heading/Key") as Label)
+		skill_name_labels.append(panel.get_node("Margin/VBox/Heading/Name") as Label)
 
 
 func _make_skill_card(parent: Control, key_text: String, skill_name: String) -> PanelContainer:
@@ -470,15 +491,24 @@ func _make_skill_card(parent: Control, key_text: String, skill_name: String) -> 
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(column)
 	var heading := HBoxContainer.new()
+	heading.name = "Heading"
 	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(heading)
 	var key_label := _make_label(heading, key_text, 11, COLOR_ACCENT)
+	key_label.name = "Key"
 	key_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var name_label := _make_label(heading, skill_name, 11, COLOR_MUTED)
+	name_label.name = "Name"
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var state_label := _make_label(column, "READY", 16, COLOR_READY)
 	state_label.name = "State"
 	return panel
+
+
+func _weapon_slot_name(index: int) -> String:
+	if index < 0 or index >= player.weapons.size():
+		return "EMPTY"
+	return player.weapons[index].weapon_display_name.to_upper()
 
 
 func _build_crosshair() -> void:

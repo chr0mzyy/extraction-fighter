@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/vanguard_rifle.tscn" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"vanguard_rifle"
+display_name = "Vanguard Rifle"
+description = "A controllable full-auto rifle that stays accurate on the move."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"assault_rifle"

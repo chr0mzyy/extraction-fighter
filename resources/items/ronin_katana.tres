@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/katana.tscn" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"ronin_katana"
+display_name = "Ronin Katana"
+description = "A fast dueling blade built around precise deflection."
+item_type = 0
+rarity = 1
+gameplay_scene = ExtResource("2")
+weapon_family = &"katana"

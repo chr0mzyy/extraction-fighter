@@ -1,24 +1,27 @@
-class_name SniperWeapon
+class_name VanguardRifleWeapon
 extends WeaponBase
 
-@export var magazine_size: int = 4
-@export var body_damage: float = 60.0
-@export var headshot_damage: float = 110.0
-@export var fire_delay: float = 0.9
-@export var reload_duration: float = 1.7
-@export var max_range: float = 250.0
-@export var hipfire_spread_degrees: float = 0.65
+@export var magazine_size: int = 30
+@export var body_damage: float = 18.0
+@export var headshot_damage: float = 27.0
+@export var fire_delay: float = 0.111
+@export var reload_duration: float = 2.0
+@export var max_range: float = 190.0
+@export var hipfire_spread_degrees: float = 0.9
+@export var ads_spread_degrees: float = 0.18
 
-var ammo: int = 4
+var ammo: int = 30
 var fire_cooldown_remaining: float = 0.0
 var reload_remaining: float = 0.0
 var is_reloading: bool = false
 var is_ads: bool = false
+var primary_held: bool = false
 var random := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
-	weapon_display_name = "Huntsman Rifle"
+	weapon_display_name = "Vanguard Rifle"
+	automatic_fire = true
 	ammo = magazine_size
 	random.randomize()
 
@@ -31,6 +34,8 @@ func _process(delta: float) -> void:
 			is_reloading = false
 			ammo = magazine_size
 			state_changed.emit()
+	if primary_held and equipped:
+		request_primary()
 
 
 func request_primary() -> void:
@@ -42,25 +47,21 @@ func request_primary() -> void:
 		return
 	ammo -= 1
 	fire_cooldown_remaining = fire_delay
-	fire_hitscan()
+	_fire_hitscan()
 	state_changed.emit()
 
 
-func fire_hitscan() -> void:
+func _fire_hitscan() -> void:
 	var origin := get_aim_origin()
 	var direction := get_aim_direction().normalized()
-	if not is_ads:
-		var spread := deg_to_rad(hipfire_spread_degrees)
-		var yaw_error := random.randf_range(-spread, spread)
-		var pitch_error := random.randf_range(-spread, spread)
-		var right := direction.cross(Vector3.UP).normalized()
-		if right.length_squared() < 0.01:
-			right = Vector3.RIGHT
-		direction = direction.rotated(Vector3.UP, yaw_error).rotated(right, pitch_error).normalized()
-
-	if wielder.has_method("on_sniper_fired"):
-		wielder.on_sniper_fired(is_ads)
-
+	var spread := deg_to_rad(ads_spread_degrees if is_ads else hipfire_spread_degrees)
+	var right := direction.cross(Vector3.UP).normalized()
+	if right.length_squared() < 0.01:
+		right = Vector3.RIGHT
+	direction = direction.rotated(Vector3.UP, random.randf_range(-spread, spread))
+	direction = direction.rotated(right, random.randf_range(-spread, spread)).normalized()
+	if wielder.has_method("on_rifle_fired"):
+		wielder.on_rifle_fired(is_ads)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * max_range, 1 | 2 | 4, get_query_exclusions())
 	query.collide_with_areas = true
 	query.collide_with_bodies = true
@@ -80,15 +81,7 @@ func fire_hitscan() -> void:
 	if target == null or target == wielder or not target.has_method("receive_damage"):
 		return
 	var damage := headshot_damage if was_headshot else body_damage
-	var info := DamageInfo.new(
-		damage,
-		wielder,
-		&"sniper",
-		was_headshot,
-		false,
-		hit.get("position", target.global_position),
-		direction * 2.5
-	)
+	var info := DamageInfo.new(damage, wielder, &"vanguard_rifle", was_headshot, false, hit.get("position", target.global_position), direction * 1.1)
 	var result: Dictionary = target.receive_damage(info)
 	if float(result.get("applied", 0.0)) > 0.0:
 		hit_confirmed.emit(was_headshot)
@@ -106,11 +99,16 @@ func secondary_released() -> void:
 		state_changed.emit()
 
 
+func set_primary_held(held: bool) -> void:
+	primary_held = held
+
+
 func request_reload() -> void:
 	if not equipped or is_reloading or ammo >= magazine_size:
 		return
 	is_reloading = true
 	is_ads = false
+	primary_held = false
 	reload_remaining = reload_duration
 	if is_instance_valid(wielder) and wielder.has_method("on_reload_started"):
 		wielder.on_reload_started()
@@ -118,6 +116,7 @@ func request_reload() -> void:
 
 
 func unequip() -> void:
+	primary_held = false
 	secondary_released()
 	super.unequip()
 
@@ -128,6 +127,7 @@ func reset_weapon() -> void:
 	reload_remaining = 0.0
 	is_reloading = false
 	is_ads = false
+	primary_held = false
 	state_changed.emit()
 
 
@@ -144,4 +144,4 @@ func get_ammo_text() -> String:
 
 
 func get_weapon_status() -> String:
-	return "RELOADING %.1fs" % reload_remaining if is_reloading else "READY"
+	return "RELOADING %.1fs" % reload_remaining if is_reloading else "AUTO"

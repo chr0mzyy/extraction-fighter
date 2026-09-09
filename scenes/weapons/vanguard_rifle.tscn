@@ -1,0 +1,36 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/vanguard_rifle.gd" id="1"]
+[sub_resource type="StandardMaterial3D" id="BodyMaterial"]
+albedo_color = Color(0.14, 0.17, 0.18, 1)
+metallic = 0.62
+roughness = 0.34
+[sub_resource type="StandardMaterial3D" id="AccentMaterial"]
+albedo_color = Color(0.24, 0.32, 0.28, 1)
+metallic = 0.32
+roughness = 0.5
+[sub_resource type="BoxMesh" id="BodyMesh"]
+material = SubResource("BodyMaterial")
+size = Vector3(0.17, 0.16, 0.78)
+[sub_resource type="CylinderMesh" id="BarrelMesh"]
+material = SubResource("BodyMaterial")
+top_radius = 0.032
+bottom_radius = 0.04
+height = 0.68
+radial_segments = 8
+[sub_resource type="BoxMesh" id="MagazineMesh"]
+material = SubResource("AccentMaterial")
+size = Vector3(0.12, 0.3, 0.18)
+[node name="VanguardRifle" type="Node3D"]
+script = ExtResource("1")
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, -0.28)
+mesh = SubResource("BodyMesh")
+[node name="Barrel" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.01, -0.92)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("BarrelMesh")
+[node name="Magazine" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.21, -0.23)
+rotation = Vector3(0.15, 0, 0)
+mesh = SubResource("MagazineMesh")

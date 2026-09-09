@@ -1,12 +1,8 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/characters/player_controller.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/components/health_component.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/components/hurtbox_3d.gd" id="3"]
-[ext_resource type="Script" path="res://scripts/skills/dash_skill.gd" id="4"]
-[ext_resource type="Script" path="res://scripts/skills/double_jump_skill.gd" id="5"]
-[ext_resource type="PackedScene" path="res://scenes/weapons/katana.tscn" id="6"]
-[ext_resource type="PackedScene" path="res://scenes/weapons/sniper.tscn" id="7"]
 [ext_resource type="Script" path="res://scripts/characters/player_movement_controller.gd" id="8"]
 
 [sub_resource type="CapsuleShape3D" id="BodyShape"]
@@ -81,15 +77,7 @@ near = 0.08
 position = Vector3(0.34, -0.29, -0.48)
 rotation = Vector3(0, -0.04, 0)
 
-[node name="Katana" parent="PitchPivot/WeaponMount" instance=ExtResource("6")]
-
-[node name="Sniper" parent="PitchPivot/WeaponMount" instance=ExtResource("7")]
-
-[node name="DashSkill" type="Node" parent="."]
-script = ExtResource("4")
-
-[node name="DoubleJumpSkill" type="Node" parent="."]
-script = ExtResource("5")
+[node name="SkillMount" type="Node" parent="."]
 
 [node name="MovementController" type="Node" parent="."]
 script = ExtResource("8")

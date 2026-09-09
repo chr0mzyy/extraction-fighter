@@ -71,8 +71,8 @@ func setup(
 		p_visual_body: MeshInstance3D,
 		p_pitch_pivot: Node3D,
 		p_head_hurtbox: Area3D,
-		p_dash_skill: DashSkill,
-		p_double_jump_skill: DoubleJumpSkill
+		p_dash_skill: DashSkill = null,
+		p_double_jump_skill: DoubleJumpSkill = null
 ) -> void:
 	actor = p_actor
 	body_collision = p_body_collision
@@ -88,11 +88,14 @@ func setup(
 	was_on_floor = actor.is_on_floor()
 
 
+func configure_skills(p_dash_skill: DashSkill, p_double_jump_skill: DoubleJumpSkill) -> void:
+	dash_skill = p_dash_skill
+	double_jump_skill = p_double_jump_skill
+
+
 func physics_step(delta: float, stagger_remaining: float = 0.0) -> void:
 	if actor == null:
 		return
-	dash_skill.tick(delta)
-	double_jump_skill.tick(delta)
 	jump_buffer_remaining = maxf(0.0, jump_buffer_remaining - delta)
 	landing_grace_remaining = maxf(0.0, landing_grace_remaining - delta)
 
@@ -125,22 +128,15 @@ func physics_step(delta: float, stagger_remaining: float = 0.0) -> void:
 			_perform_ground_jump(is_sliding)
 			jumped = true
 			grounded = false
-		elif jump_pressed and not grounded and not _is_near_landing() and double_jump_skill.try_activate():
+		elif jump_pressed and not grounded and not _is_near_landing() and double_jump_skill != null and double_jump_skill.try_activate():
 			actor.velocity.y = double_jump_skill.jump_velocity
 			jump_buffer_remaining = 0.0
 			movement_event.emit(&"double_jump")
 			jumped = true
 
-	if Input.is_action_just_pressed("dash") and stagger_remaining <= 0.0:
-		var dash_direction := wish_direction if wish_direction.length_squared() > 0.01 else -actor.global_basis.z
-		dash_direction.y = 0.0
-		if dash_skill.try_activate(dash_direction):
-			_prepare_dash_velocity(dash_direction.normalized())
-			movement_event.emit(&"dash")
-
 	_update_stance(delta, crouch_held or is_sliding)
 
-	if dash_skill.is_active():
+	if dash_skill != null and dash_skill.is_active():
 		_set_horizontal_velocity(dash_horizontal_velocity)
 		movement_state = "DASH"
 	elif is_sliding and grounded:
@@ -282,7 +278,8 @@ func _on_landed() -> void:
 	landing_grace_remaining = landing_friction_delay
 	coyote_remaining = coyote_time
 	normal_jump_available = true
-	double_jump_skill.on_landed()
+	if double_jump_skill != null:
+		double_jump_skill.on_landed()
 	movement_event.emit(&"landed")
 
 
@@ -295,6 +292,12 @@ func _prepare_dash_velocity(direction: Vector3) -> void:
 		dash_horizontal_velocity = dash_horizontal_velocity.normalized() * dash_momentum_speed_cap
 	if is_sliding:
 		_end_slide()
+
+
+func start_equipped_dash(skill: DashSkill) -> void:
+	dash_skill = skill
+	_prepare_dash_velocity(skill.dash_direction)
+	movement_event.emit(&"dash")
 
 
 func _update_stance(delta: float, wants_crouch: bool) -> void:

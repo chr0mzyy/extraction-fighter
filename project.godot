@@ -1,12 +1,16 @@
-; Extraction Fighter MVP 0.1.2 - Godot 4.7.2
+; Extraction Fighter MVP 0.2.0 - Godot 4.7.2
 config_version=5
 
 [application]
 
 config/name="Extraction Fighter"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/lobby.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
+
+[autoload]
+
+PlayerProfile="*res://scripts/core/player_profile.gd"
 
 [display]
 
@@ -47,9 +51,13 @@ jump={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":32,"unicode":32)]
 }
-dash={
+skill_slot_1={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":81,"unicode":113)]
+}
+skill_slot_2={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":69,"unicode":101)]
 }
 toggle_camera={
 "deadzone": 0.2,

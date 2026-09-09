@@ -3,6 +3,7 @@ extends CharacterBody3D
 
 signal actor_died(actor: Node, info: DamageInfo)
 signal feedback(event_name: StringName, data: Dictionary)
+signal pause_requested
 
 @export_group("Camera")
 @export var mouse_sensitivity: float = 0.0022
@@ -19,11 +20,15 @@ signal feedback(event_name: StringName, data: Dictionary)
 @onready var spring_arm: SpringArm3D = $PitchPivot/ThirdPersonSpringArm
 @onready var third_person_camera: Camera3D = $PitchPivot/ThirdPersonSpringArm/ThirdPersonCamera
 @onready var weapon_mount: Node3D = $PitchPivot/WeaponMount
-@onready var dash_skill: DashSkill = $DashSkill
-@onready var double_jump_skill: DoubleJumpSkill = $DoubleJumpSkill
+@onready var skill_mount: Node = $SkillMount
 @onready var movement: PlayerMovementController = $MovementController
 
 var weapons: Array[WeaponBase] = []
+var weapon_definition_ids: Array[String] = []
+var equipped_skills: Array[SkillBase] = []
+var skill_definition_ids: Array[String] = []
+var dash_skill: DashSkill
+var double_jump_skill: DoubleJumpSkill
 var current_weapon: WeaponBase
 var current_weapon_index: int = 0
 var is_first_person: bool = true
@@ -38,6 +43,7 @@ func _ready() -> void:
 	add_to_group("player")
 	spawn_transform = global_transform
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_instantiate_profile_loadout()
 	for child in weapon_mount.get_children():
 		if child is WeaponBase:
 			var weapon := child as WeaponBase
@@ -56,8 +62,7 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("menu_toggle"):
-		is_cursor_free = not is_cursor_free
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if is_cursor_free else Input.MOUSE_MODE_CAPTURED
+		pause_requested.emit()
 		get_viewport().set_input_as_handled()
 		return
 	if is_cursor_free:
@@ -80,6 +85,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		equip_weapon(1)
 	elif event.is_action_pressed("primary_attack") and current_weapon != null:
 		current_weapon.request_primary()
+		current_weapon.set_primary_held(true)
+	elif event.is_action_released("primary_attack") and current_weapon != null:
+		current_weapon.set_primary_held(false)
 	elif event.is_action_pressed("secondary_attack") and current_weapon != null:
 		current_weapon.secondary_pressed()
 	elif event.is_action_released("secondary_attack") and current_weapon != null:
@@ -97,7 +105,7 @@ func _process(delta: float) -> void:
 		camera_kick -= recovery
 	var desired_fpp_fov := first_person_fov
 	var desired_tpp_fov := third_person_fov
-	if current_weapon is SniperWeapon and (current_weapon as SniperWeapon).is_ads:
+	if current_weapon != null and current_weapon.is_aiming_down_sights():
 		desired_fpp_fov = ads_fov
 		desired_tpp_fov = ads_fov + 7.0
 	first_person_camera.fov = lerpf(first_person_camera.fov, desired_fpp_fov, minf(1.0, delta * 14.0))
@@ -109,6 +117,17 @@ func _physics_process(delta: float) -> void:
 	if is_dead:
 		velocity = Vector3.ZERO
 		return
+	if Input.is_action_just_pressed("skill_slot_1"):
+		_activate_skill_slot(0)
+	if Input.is_action_just_released("skill_slot_1"):
+		_release_skill_slot(0)
+	if Input.is_action_just_pressed("skill_slot_2"):
+		_activate_skill_slot(1)
+	if Input.is_action_just_released("skill_slot_2"):
+		_release_skill_slot(1)
+	for skill: SkillBase in equipped_skills:
+		skill.tick(delta)
+		skill.physics_tick(self, delta)
 	movement.physics_step(delta, stagger_remaining)
 
 
@@ -116,6 +135,7 @@ func equip_weapon(index: int) -> void:
 	if index < 0 or index >= weapons.size() or index == current_weapon_index and current_weapon != null:
 		return
 	if current_weapon != null:
+		current_weapon.set_primary_held(false)
 		current_weapon.unequip()
 	current_weapon_index = index
 	current_weapon = weapons[index]
@@ -156,16 +176,9 @@ func is_headshot_position(hit_position: Vector3) -> bool:
 	return hit_position.y - global_position.y >= head_hurtbox.position.y - 0.24
 
 
-func get_block_weapon() -> KatanaWeapon:
-	if current_weapon is KatanaWeapon:
-		return current_weapon as KatanaWeapon
-	return null
-
-
 func modify_incoming_damage(info: DamageInfo) -> Dictionary:
-	var katana := get_block_weapon()
-	if katana != null:
-		return katana.get_damage_response(info)
+	if current_weapon != null:
+		return current_weapon.get_damage_response(info)
 	return {}
 
 
@@ -209,6 +222,13 @@ func on_sniper_fired(ads: bool) -> void:
 	pitch_pivot.rotation.x = clampf(pitch_pivot.rotation.x - kick, deg_to_rad(-84.0), deg_to_rad(84.0))
 	camera_kick += kick
 	feedback.emit(&"sniper_fired", {"ads": ads})
+
+
+func on_rifle_fired(ads: bool) -> void:
+	var kick := 0.006 if ads else 0.01
+	pitch_pivot.rotation.x = clampf(pitch_pivot.rotation.x - kick, deg_to_rad(-84.0), deg_to_rad(84.0))
+	camera_kick += kick
+	feedback.emit(&"rifle_fired", {"ads": ads})
 
 
 func on_melee_swing(heavy: bool) -> void:
@@ -255,11 +275,109 @@ func respawn() -> void:
 	stagger_remaining = 0.0
 	collision_layer = 2
 	collision_mask = 1
-	dash_skill.reset()
-	double_jump_skill.reset()
+	for skill: SkillBase in equipped_skills:
+		skill.reset()
 	movement.reset()
 	for weapon in weapons:
 		weapon.reset_weapon()
 	health.reset()
 	set_camera_mode(is_first_person)
 	feedback.emit(&"respawn", {})
+
+
+func get_skill_move_direction() -> Vector3:
+	var input_vector := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var direction := global_basis.x * input_vector.x + global_basis.z * input_vector.y
+	direction.y = 0.0
+	if direction.length_squared() < 0.01:
+		direction = -global_basis.z
+		direction.y = 0.0
+	return direction.normalized()
+
+
+func start_equipped_dash(skill: DashSkill) -> void:
+	if stagger_remaining > 0.0:
+		skill.active_remaining = 0.0
+		skill.cooldown_remaining = 0.0
+		return
+	movement.start_equipped_dash(skill)
+
+
+func emit_skill_feedback(event_name: StringName, data: Dictionary) -> void:
+	feedback.emit(event_name, data)
+
+
+func perform_collision_safe_blink(distance: float) -> bool:
+	var input_vector := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var direction := global_basis.x * input_vector.x + global_basis.z * input_vector.y
+	if direction.length_squared() < 0.01:
+		direction = get_aim_direction()
+		direction.y = clampf(direction.y, -0.38, 0.48)
+	direction = direction.normalized()
+	var capsule := body_collision.shape as CapsuleShape3D
+	var center_offset := Vector3.UP * capsule.height * 0.5
+	var origin := global_position + center_offset
+	var target := origin + direction * distance
+	var ray := PhysicsRayQueryParameters3D.create(origin, target, 1, [get_rid()])
+	ray.collide_with_bodies = true
+	ray.collide_with_areas = false
+	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
+	if not hit.is_empty():
+		target = hit.get("position", target) - direction * (capsule.radius + 0.12)
+	var candidate := target - center_offset
+	var travel := candidate - global_position
+	while travel.length() > 0.7:
+		var shape_query := PhysicsShapeQueryParameters3D.new()
+		shape_query.shape = capsule
+		shape_query.transform = Transform3D(global_basis, candidate + center_offset)
+		shape_query.collision_mask = 1
+		shape_query.collide_with_bodies = true
+		shape_query.collide_with_areas = false
+		shape_query.exclude = [get_rid()]
+		shape_query.margin = 0.03
+		if get_world_3d().direct_space_state.intersect_shape(shape_query, 1).is_empty():
+			global_position = candidate
+			return true
+		candidate -= direction * 0.25
+		travel = candidate - global_position
+	return false
+
+
+func _activate_skill_slot(index: int) -> void:
+	if index >= 0 and index < equipped_skills.size():
+		equipped_skills[index].request_activate(self)
+
+
+func _release_skill_slot(index: int) -> void:
+	if index >= 0 and index < equipped_skills.size():
+		equipped_skills[index].request_release(self)
+
+
+func _instantiate_profile_loadout() -> void:
+	weapons.clear()
+	equipped_skills.clear()
+	weapon_definition_ids = PlayerProfile.weapon_slots.duplicate()
+	skill_definition_ids = PlayerProfile.skill_slots.duplicate()
+	for item_id: String in weapon_definition_ids:
+		var definition := PlayerProfile.get_definition(item_id)
+		if definition == null or definition.gameplay_scene == null:
+			continue
+		var weapon := definition.gameplay_scene.instantiate() as WeaponBase
+		if weapon == null:
+			continue
+		weapon_mount.add_child(weapon)
+		weapon.weapon_display_name = definition.display_name
+	for slot: int in skill_definition_ids.size():
+		var definition := PlayerProfile.get_definition(skill_definition_ids[slot])
+		if definition == null or definition.gameplay_scene == null:
+			continue
+		var skill := definition.gameplay_scene.instantiate() as SkillBase
+		if skill == null:
+			continue
+		skill_mount.add_child(skill)
+		skill.setup(self, definition, slot)
+		equipped_skills.append(skill)
+		if skill is DashSkill:
+			dash_skill = skill as DashSkill
+		elif skill is DoubleJumpSkill:
+			double_jump_skill = skill as DoubleJumpSkill

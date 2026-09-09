@@ -12,16 +12,21 @@ signal kill_feed(message: String)
 
 var player_kills: int = 0
 var bot_kills: int = 0
+var pause_layer: CanvasLayer
+var pause_panel: PanelContainer
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	player.spawn_transform = player.global_transform
 	bot.spawn_transform = bot.global_transform
 	bot.set_target(player)
 	player.actor_died.connect(_on_actor_died)
+	player.pause_requested.connect(_toggle_pause)
 	bot.actor_died.connect(_on_actor_died)
 	hud.bind(player, bot, self)
 	score_changed.emit(player_kills, bot_kills)
+	_build_pause_menu()
 	if "--self-test" in OS.get_cmdline_user_args():
 		_run_self_test.call_deferred()
 	elif "--ai-soak-test" in OS.get_cmdline_user_args():
@@ -32,6 +37,18 @@ func _ready() -> void:
 		_capture_validation_frame.call_deferred()
 	elif "--capture-tpp" in OS.get_cmdline_user_args():
 		_capture_validation_frame.bind(true).call_deferred()
+	elif "--loadout-integration-test" in OS.get_cmdline_user_args():
+		_run_loadout_integration_test.call_deferred()
+	elif "--pause-flow-test" in OS.get_cmdline_user_args():
+		_run_pause_flow_test.call_deferred()
+	elif "--scene-flow-test" in OS.get_cmdline_user_args():
+		_run_scene_flow_arena_leg.call_deferred()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if get_tree().paused and event.is_action_pressed("menu_toggle"):
+		_toggle_pause()
+		get_viewport().set_input_as_handled()
 
 
 func _on_actor_died(actor: Node, info: DamageInfo) -> void:
@@ -49,6 +66,191 @@ func _respawn_actor(actor: Node, _info: DamageInfo) -> void:
 	await get_tree().create_timer(respawn_delay).timeout
 	if is_instance_valid(actor) and actor.has_method("respawn"):
 		actor.respawn()
+
+
+func _build_pause_menu() -> void:
+	pause_layer = CanvasLayer.new()
+	pause_layer.layer = 80
+	pause_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(pause_layer)
+	var shade := ColorRect.new()
+	shade.color = Color(0.01, 0.015, 0.022, 0.82)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_layer.add_child(shade)
+	pause_panel = PanelContainer.new()
+	pause_panel.set_anchors_preset(Control.PRESET_CENTER)
+	pause_panel.offset_left = -190
+	pause_panel.offset_right = 190
+	pause_panel.offset_top = -190
+	pause_panel.offset_bottom = 190
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.035, 0.046, 0.061, 0.98)
+	style.border_color = Color(0.28, 0.58, 0.64)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(24)
+	pause_panel.add_theme_stylebox_override("panel", style)
+	pause_layer.add_child(pause_panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 12)
+	pause_panel.add_child(column)
+	var title := Label.new()
+	title.text = "ARENA PAUSED"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 25)
+	title.add_theme_color_override("font_color", Color(0.91, 0.93, 0.95))
+	column.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = "Your selected loadout remains saved"
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.add_theme_color_override("font_color", Color(0.54, 0.62, 0.68))
+	column.add_child(subtitle)
+	var spacer := Control.new()
+	spacer.custom_minimum_size.y = 18
+	column.add_child(spacer)
+	_add_pause_button(column, "RESUME", _toggle_pause)
+	_add_pause_button(column, "RETURN TO LOBBY", _return_to_lobby)
+	_add_pause_button(column, "QUIT", _quit_game)
+	pause_layer.visible = false
+
+
+func _add_pause_button(parent: Control, text: String, callback: Callable) -> void:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size.y = 48
+	button.add_theme_font_size_override("font_size", 15)
+	button.pressed.connect(callback)
+	parent.add_child(button)
+
+
+func _toggle_pause() -> void:
+	var should_pause := not get_tree().paused
+	get_tree().paused = should_pause
+	pause_layer.visible = should_pause
+	player.is_cursor_free = should_pause
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if should_pause else Input.MOUSE_MODE_CAPTURED
+
+
+func _return_to_lobby() -> void:
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
+
+
+func _quit_game() -> void:
+	get_tree().paused = false
+	get_tree().quit()
+
+
+func _run_loadout_integration_test() -> void:
+	print("LOADOUT_INTEGRATION_START")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var failures: Array[String] = []
+	if player.weapon_definition_ids != ["vanguard_rifle", "knight_sword"]:
+		failures.append("Arena did not consume the selected weapon slot IDs")
+	if player.skill_definition_ids != ["grapple", "blink"]:
+		failures.append("Arena did not consume the selected skill slot IDs")
+	if player.weapons.size() != 2 or not player.weapons[0] is VanguardRifleWeapon or not player.weapons[1] is KnightSwordWeapon:
+		failures.append("Alternate weapon scenes did not instantiate in slot order")
+	if player.equipped_skills.size() != 2 or not player.equipped_skills[0] is GrappleSkill or not player.equipped_skills[1] is BlinkSkill:
+		failures.append("Alternate skill scenes did not instantiate in slot order")
+	if player.dash_skill != null or player.double_jump_skill != null or player.movement.dash_skill != null or player.movement.double_jump_skill != null:
+		failures.append("Unequipped Dash or Double Jump remained active")
+	if PlayerProfile.get_skill_power() != 200:
+		failures.append("Alternate arena loadout did not retain 200 Power")
+	hud._update_weapon_panel()
+	hud._update_skills()
+	if hud.skill_name_labels.size() != 2 or hud.skill_name_labels[0].text != "GRAPPLE" or hud.skill_name_labels[1].text != "BLINK":
+		failures.append("Arena HUD did not replace Dash/Double Jump with selected skills (%s / %s)" % [hud.skill_name_labels[0].text, hud.skill_name_labels[1].text])
+	if not hud.slot_one_label.text.contains("VANGUARD RIFLE") or not hud.slot_two_label.text.contains("KNIGHT SWORD"):
+		failures.append("Arena HUD did not show the selected weapon slots (%s / %s)" % [hud.slot_one_label.text, hud.slot_two_label.text])
+	if player.weapons.size() == 2:
+		player.equip_weapon(0)
+		var rifle := player.current_weapon as VanguardRifleWeapon
+		var ammo_before := rifle.ammo
+		rifle.request_primary()
+		if rifle.ammo != ammo_before - 1:
+			failures.append("Vanguard Rifle did not fire from the selected slot")
+		if not rifle.automatic_fire or not is_equal_approx(rifle.fire_delay, 0.111):
+			failures.append("Vanguard Rifle is not configured for nine-round-per-second full auto")
+		rifle.ammo = 0
+		rifle.request_reload()
+		if not rifle.is_reloading:
+			failures.append("Vanguard Rifle did not enter reload state")
+		rifle.reload_remaining = 0.001
+		await get_tree().process_frame
+		await get_tree().process_frame
+		if rifle.ammo != rifle.magazine_size or rifle.is_reloading:
+			failures.append("Vanguard Rifle did not complete its reload")
+		player.equip_weapon(1)
+		var sword := player.current_weapon as KnightSwordWeapon
+		if not is_equal_approx(sword.light_damage, 34.0) or not is_equal_approx(sword.heavy_damage, 55.0):
+			failures.append("Knight Sword attack tuning did not initialize")
+		sword.secondary_pressed()
+		var response := sword.get_damage_response(DamageInfo.new(100.0, bot, &"test", false, false))
+		if not is_equal_approx(float(response.get("damage_multiplier", 1.0)), 0.2) or bool(response.get("reflect", false)):
+			failures.append("Knight Sword block identity is invalid")
+		sword.secondary_released()
+	var grapple := player.equipped_skills[0] as GrappleSkill
+	Input.action_press("skill_slot_1")
+	await get_tree().physics_frame
+	Input.action_release("skill_slot_1")
+	await get_tree().physics_frame
+	if grapple.cooldown_remaining <= 0.0:
+		failures.append("Q did not activate Grapple against arena geometry")
+	player.respawn()
+	player.global_position = Vector3(-20.0, 0.15, 22.0)
+	player.rotation = Vector3.ZERO
+	player.pitch_pivot.rotation = Vector3.ZERO
+	var blink_start := player.global_position
+	var blink := player.equipped_skills[1] as BlinkSkill
+	Input.action_press("skill_slot_2")
+	await get_tree().physics_frame
+	Input.action_release("skill_slot_2")
+	await get_tree().physics_frame
+	if blink.cooldown_remaining <= 0.0 or player.global_position.distance_to(blink_start) < 0.7:
+		failures.append("E did not activate collision-safe Blink (cooldown %.2f, travel %.2f)" % [blink.cooldown_remaining, player.global_position.distance_to(blink_start)])
+	player.respawn()
+	if grapple.cooldown_remaining > 0.0 or blink.cooldown_remaining > 0.0:
+		failures.append("Respawn did not reset equipped skill cooldowns")
+	if failures.is_empty():
+		print("LOADOUT_INTEGRATION_OK: exact weapons/skills, no unequipped movement skills, rifle, sword, Blink and Grapple passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("LOADOUT_INTEGRATION_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_pause_flow_test() -> void:
+	print("PAUSE_FLOW_START")
+	await get_tree().process_frame
+	var failures: Array[String] = []
+	_toggle_pause()
+	if not get_tree().paused or not pause_layer.visible or not player.is_cursor_free:
+		failures.append("Arena pause did not expose the free-cursor menu")
+	_toggle_pause()
+	if get_tree().paused or pause_layer.visible or player.is_cursor_free:
+		failures.append("Arena resume did not restore gameplay input")
+	if not ResourceLoader.exists("res://scenes/lobby.tscn"):
+		failures.append("Return-to-lobby destination is missing")
+	if failures.is_empty():
+		print("PAUSE_FLOW_OK: pause, resume, cursor capture and lobby destination passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("PAUSE_FLOW_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_scene_flow_arena_leg() -> void:
+	await get_tree().process_frame
+	if player.weapon_definition_ids != ["ronin_katana", "huntsman_rifle"] or player.skill_definition_ids != ["dash", "double_jump"]:
+		PlayerProfile.set_meta("scene_flow_failure", "Arena did not instantiate the profile during scene transition")
+	PlayerProfile.set_meta("scene_flow_stage", "returned")
+	_return_to_lobby()
 
 
 func _run_self_test() -> void:
@@ -75,7 +277,7 @@ func _run_self_test() -> void:
 	failures.append_array(hud.get_layout_validation_errors())
 	if get_tree().get_nodes_in_group("player").size() != 1 or get_tree().get_nodes_in_group("bot").size() != 1:
 		failures.append("Character groups are invalid")
-	for action in ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "dash", "toggle_camera", "weapon_1", "weapon_2", "primary_attack", "secondary_attack", "heavy_attack", "reload", "menu_toggle", "debug_toggle"]:
+	for action in ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "skill_slot_1", "skill_slot_2", "toggle_camera", "weapon_1", "weapon_2", "primary_attack", "secondary_attack", "heavy_attack", "reload", "menu_toggle", "debug_toggle"]:
 		if not InputMap.has_action(action):
 			failures.append("Missing input action: " + action)
 
@@ -115,10 +317,10 @@ func _run_self_test() -> void:
 	player.global_position = movement_start
 	player.velocity = Vector3.ZERO
 	player.dash_skill.reset()
-	Input.action_press("dash")
+	Input.action_press("skill_slot_1")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
-	Input.action_release("dash")
+	Input.action_release("skill_slot_1")
 	if Vector2(player.velocity.x, player.velocity.z).length() < 20.0:
 		failures.append("Dash input did not create expected collision-safe velocity")
 

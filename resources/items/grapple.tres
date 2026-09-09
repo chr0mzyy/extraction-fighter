@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/skills/grapple_skill.tscn" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"grapple"
+display_name = "Grapple"
+description = "Latch onto world geometry and pull into a fast aerial route."
+item_type = 1
+rarity = 1
+gameplay_scene = ExtResource("2")
+power_cost = 90

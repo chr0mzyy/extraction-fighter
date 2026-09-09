@@ -1,0 +1,281 @@
+extends Node
+
+signal profile_changed
+signal loadout_changed
+signal validation_failed(message: String)
+
+const SAVE_VERSION := 1
+const SAVE_PATH := "user://player_profile.json"
+const INVENTORY_SIZE := 24
+const POWER_LIMIT := 200
+const GEAR_KEYS: Array[String] = [
+	"helmet", "chest", "gloves", "boots", "necklace", "ring_1", "ring_2", "charm"
+]
+
+var item_index: Dictionary = {}
+var owned_item_ids: Array[String] = []
+var weapon_slots: Array[String] = ["", ""]
+var skill_slots: Array[String] = ["", ""]
+var equipped_gear: Dictionary = {}
+var main_inventory: Array[String] = []
+var last_load_used_defaults: bool = false
+var last_error: String = ""
+
+
+func _ready() -> void:
+	item_index = ItemDatabase.build_index()
+	load_profile()
+
+
+func reset_to_defaults(save_after: bool = true) -> void:
+	owned_item_ids.clear()
+	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
+		owned_item_ids.append(String(definition.id))
+	weapon_slots = ["ronin_katana", "huntsman_rifle"]
+	skill_slots = ["dash", "double_jump"]
+	equipped_gear = {
+		"helmet": "training_helmet",
+		"chest": "training_chest",
+		"gloves": "training_gloves",
+		"boots": "training_boots",
+		"necklace": "simple_necklace",
+		"ring_1": "simple_ring",
+		"ring_2": "iron_ring",
+		"charm": "basic_charm",
+	}
+	main_inventory.clear()
+	main_inventory.resize(INVENTORY_SIZE)
+	main_inventory.fill("")
+	last_load_used_defaults = true
+	last_error = ""
+	profile_changed.emit()
+	loadout_changed.emit()
+	if save_after:
+		save_profile()
+
+
+func get_definition(item_id: String) -> ItemDefinition:
+	return item_index.get(item_id) as ItemDefinition
+
+
+func get_owned_definitions(type_filter: int = -1) -> Array[ItemDefinition]:
+	var result: Array[ItemDefinition] = []
+	for item_id: String in owned_item_ids:
+		var definition := get_definition(item_id)
+		if definition != null and (type_filter < 0 or definition.item_type == type_filter):
+			result.append(definition)
+	return result
+
+
+func get_skill_power() -> int:
+	var total := 0
+	for item_id: String in skill_slots:
+		var definition := get_definition(item_id)
+		if definition != null and definition.item_type == ItemDefinition.ItemType.SKILL:
+			total += definition.power_cost
+	return total
+
+
+func can_afford_skill_costs(costs: Array[int]) -> bool:
+	var total := 0
+	for cost: int in costs:
+		total += maxi(0, cost)
+	return total <= POWER_LIMIT
+
+
+func equip_weapon(slot: int, item_id: String, save_after: bool = true) -> bool:
+	if slot < 0 or slot >= weapon_slots.size():
+		return _fail("Invalid weapon slot")
+	var definition := get_definition(item_id)
+	if definition == null or definition.item_type != ItemDefinition.ItemType.WEAPON or not owned_item_ids.has(item_id):
+		return _fail("That weapon is not owned")
+	var other_slot := 1 - slot
+	if weapon_slots[other_slot] == item_id:
+		return _fail("A weapon cannot occupy both slots")
+	weapon_slots[slot] = item_id
+	_commit_loadout_change(save_after)
+	return true
+
+
+func equip_skill(slot: int, item_id: String, save_after: bool = true) -> bool:
+	if slot < 0 or slot >= skill_slots.size():
+		return _fail("Invalid skill slot")
+	var definition := get_definition(item_id)
+	if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or not owned_item_ids.has(item_id):
+		return _fail("That skill is not owned")
+	var candidate := skill_slots.duplicate()
+	candidate[slot] = item_id
+	if candidate[1 - slot] == item_id:
+		return _fail("A skill cannot occupy both slots")
+	var costs: Array[int] = []
+	for candidate_id: String in candidate:
+		var candidate_definition := get_definition(candidate_id)
+		if candidate_definition != null:
+			costs.append(candidate_definition.power_cost)
+	if not can_afford_skill_costs(costs):
+		return _fail("POWER LIMIT EXCEEDED")
+	skill_slots = candidate
+	_commit_loadout_change(save_after)
+	return true
+
+
+func equip_gear(slot_key: String, item_id: String, save_after: bool = true) -> bool:
+	if not GEAR_KEYS.has(slot_key):
+		return _fail("Invalid gear slot")
+	var definition := get_definition(item_id)
+	if definition == null or definition.item_type != ItemDefinition.ItemType.GEAR or not owned_item_ids.has(item_id):
+		return _fail("That gear item is not owned")
+	if not _gear_fits(slot_key, definition.gear_slot):
+		return _fail("That item does not fit this gear slot")
+	equipped_gear[slot_key] = item_id
+	_commit_loadout_change(save_after)
+	return true
+
+
+func set_inventory_item(slot: int, item_id: String, save_after: bool = true) -> bool:
+	if slot < 0 or slot >= main_inventory.size():
+		return _fail("Invalid inventory slot")
+	if not item_id.is_empty() and get_definition(item_id) == null:
+		return _fail("Unknown inventory item")
+	main_inventory[slot] = item_id
+	profile_changed.emit()
+	if save_after:
+		save_profile()
+	return true
+
+
+func validate_loadout() -> Dictionary:
+	var errors: Array[String] = []
+	if weapon_slots.size() != 2:
+		errors.append("Loadout requires two weapon slots")
+	else:
+		for item_id: String in weapon_slots:
+			var definition := get_definition(item_id)
+			if definition == null or definition.item_type != ItemDefinition.ItemType.WEAPON or not owned_item_ids.has(item_id):
+				errors.append("Both weapon slots must contain valid weapons")
+		if weapon_slots[0] == weapon_slots[1]:
+			errors.append("Weapon slots must be different")
+	if skill_slots.size() != 2:
+		errors.append("Loadout requires two skill slots")
+	else:
+		for item_id: String in skill_slots:
+			var definition := get_definition(item_id)
+			if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or not owned_item_ids.has(item_id):
+				errors.append("Both skill slots must contain valid skills")
+		if skill_slots[0] == skill_slots[1]:
+			errors.append("Skill slots must be different")
+	if get_skill_power() > POWER_LIMIT:
+		errors.append("Skill Power exceeds %d" % POWER_LIMIT)
+	for slot_key: String in GEAR_KEYS:
+		var definition := get_definition(String(equipped_gear.get(slot_key, "")))
+		if definition != null and (definition.item_type != ItemDefinition.ItemType.GEAR or not _gear_fits(slot_key, definition.gear_slot) or not owned_item_ids.has(String(definition.id))):
+			errors.append("Invalid gear in %s" % slot_key.capitalize())
+	return {"valid": errors.is_empty(), "errors": errors, "power": get_skill_power()}
+
+
+func to_save_data() -> Dictionary:
+	return {
+		"save_version": SAVE_VERSION,
+		"owned_item_ids": owned_item_ids.duplicate(),
+		"weapon_slots": weapon_slots.duplicate(),
+		"skill_slots": skill_slots.duplicate(),
+		"equipped_gear": equipped_gear.duplicate(true),
+		"main_inventory": main_inventory.duplicate(),
+	}
+
+
+func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
+	if int(data.get("save_version", -1)) != SAVE_VERSION:
+		last_error = "Unsupported save version"
+		return false
+	var incoming_owned := _string_array(data.get("owned_item_ids", []))
+	var incoming_weapons := _string_array(data.get("weapon_slots", []))
+	var incoming_skills := _string_array(data.get("skill_slots", []))
+	var incoming_inventory := _string_array(data.get("main_inventory", []))
+	var incoming_gear: Variant = data.get("equipped_gear", {})
+	if incoming_weapons.size() != 2 or incoming_skills.size() != 2 or incoming_inventory.size() != INVENTORY_SIZE or not incoming_gear is Dictionary:
+		last_error = "Save data has an invalid shape"
+		return false
+	owned_item_ids = incoming_owned
+	weapon_slots = incoming_weapons
+	skill_slots = incoming_skills
+	main_inventory = incoming_inventory
+	equipped_gear = (incoming_gear as Dictionary).duplicate(true)
+	var validation := validate_loadout()
+	if not bool(validation.valid):
+		last_error = "; ".join(validation.errors)
+		return false
+	last_error = ""
+	last_load_used_defaults = false
+	if emit_signals:
+		profile_changed.emit()
+		loadout_changed.emit()
+	return true
+
+
+func save_profile(path: String = SAVE_PATH) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		last_error = "Unable to open profile for writing"
+		return false
+	file.store_string(JSON.stringify(to_save_data(), "  "))
+	last_error = ""
+	return true
+
+
+func load_profile(path: String = SAVE_PATH, persist_fallback: bool = true) -> bool:
+	if not FileAccess.file_exists(path):
+		reset_to_defaults(false)
+		last_load_used_defaults = true
+		if persist_fallback:
+			save_profile(path)
+		return true
+	var file := FileAccess.open(path, FileAccess.READ)
+	var parsed: Variant = null
+	if file != null:
+		var json := JSON.new()
+		if json.parse(file.get_as_text()) == OK:
+			parsed = json.data
+	if not parsed is Dictionary or not apply_save_data(parsed as Dictionary):
+		var failure := last_error if not last_error.is_empty() else "Profile JSON is corrupt"
+		reset_to_defaults(false)
+		last_load_used_defaults = true
+		last_error = failure
+		if persist_fallback:
+			save_profile(path)
+		return false
+	return true
+
+
+func _commit_loadout_change(save_after: bool) -> void:
+	last_error = ""
+	profile_changed.emit()
+	loadout_changed.emit()
+	if save_after:
+		save_profile()
+
+
+func _fail(message: String) -> bool:
+	last_error = message
+	validation_failed.emit(message)
+	return false
+
+
+func _gear_fits(slot_key: String, slot_type: ItemDefinition.GearSlot) -> bool:
+	match slot_key:
+		"helmet": return slot_type == ItemDefinition.GearSlot.HELMET
+		"chest": return slot_type == ItemDefinition.GearSlot.CHEST
+		"gloves": return slot_type == ItemDefinition.GearSlot.GLOVES
+		"boots": return slot_type == ItemDefinition.GearSlot.BOOTS
+		"necklace": return slot_type == ItemDefinition.GearSlot.NECKLACE
+		"ring_1", "ring_2": return slot_type == ItemDefinition.GearSlot.RING
+		"charm": return slot_type == ItemDefinition.GearSlot.CHARM
+	return false
+
+
+func _string_array(value: Variant) -> Array[String]:
+	var result: Array[String] = []
+	if value is Array:
+		for entry: Variant in value:
+			result.append(String(entry))
+	return result

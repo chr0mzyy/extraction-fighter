@@ -5,6 +5,7 @@ signal hit_confirmed(headshot: bool)
 signal state_changed
 
 @export var weapon_display_name: String = "Weapon"
+@export var automatic_fire: bool = false
 
 var wielder: CharacterBody3D
 var equipped: bool = false
@@ -46,8 +47,32 @@ func request_reload() -> void:
 	pass
 
 
+func set_primary_held(_held: bool) -> void:
+	pass
+
+
 func reset_weapon() -> void:
 	pass
+
+
+func get_damage_response(_info: DamageInfo) -> Dictionary:
+	return {}
+
+
+func is_aiming_down_sights() -> bool:
+	return false
+
+
+func uses_ammunition() -> bool:
+	return false
+
+
+func get_ammo_text() -> String:
+	return ""
+
+
+func get_weapon_status() -> String:
+	return "READY"
 
 
 func get_aim_origin() -> Vector3:
@@ -66,4 +91,3 @@ func get_query_exclusions() -> Array[RID]:
 	if is_instance_valid(wielder) and wielder.has_method("get_aim_exclusions"):
 		return wielder.get_aim_exclusions()
 	return []
-

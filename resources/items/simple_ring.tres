@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[resource]
+script = ExtResource("1")
+id = &"simple_ring"
+display_name = "Simple Ring"
+description = "A modest band for the first ring slot."
+item_type = 2
+gear_slot = 6

@@ -1,0 +1,35 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/knight_sword.gd" id="1"]
+[sub_resource type="StandardMaterial3D" id="BladeMaterial"]
+albedo_color = Color(0.68, 0.7, 0.72, 1)
+metallic = 0.78
+roughness = 0.23
+[sub_resource type="StandardMaterial3D" id="GuardMaterial"]
+albedo_color = Color(0.24, 0.17, 0.09, 1)
+metallic = 0.48
+roughness = 0.38
+[sub_resource type="BoxMesh" id="BladeMesh"]
+material = SubResource("BladeMaterial")
+size = Vector3(0.11, 0.055, 1.42)
+[sub_resource type="BoxMesh" id="GuardMesh"]
+material = SubResource("GuardMaterial")
+size = Vector3(0.44, 0.07, 0.09)
+[sub_resource type="CylinderMesh" id="HandleMesh"]
+material = SubResource("GuardMaterial")
+top_radius = 0.065
+bottom_radius = 0.065
+height = 0.42
+radial_segments = 8
+[node name="KnightSword" type="Node3D"]
+script = ExtResource("1")
+[node name="Blade" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, -0.83)
+mesh = SubResource("BladeMesh")
+[node name="Guard" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, -0.08)
+mesh = SubResource("GuardMesh")
+[node name="Handle" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, 0.18)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("HandleMesh")

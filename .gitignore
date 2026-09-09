@@ -3,4 +3,4 @@
 /android/
 *.tmp
 *.log
-/validation_capture*.png
+/validation_*.png*

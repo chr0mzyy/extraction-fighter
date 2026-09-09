@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/skills/double_jump_skill.tscn" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"double_jump"
+display_name = "Double Jump"
+description = "Gain one extra airborne jump. Activates with a second SPACE press."
+item_type = 1
+rarity = 0
+gameplay_scene = ExtResource("2")
+power_cost = 70

@@ -1,15 +1,9 @@
 class_name DoubleJumpSkill
-extends Node
+extends SkillBase
 
 @export var jump_velocity: float = 6.5
-@export var cooldown: float = 4.0
 
-var cooldown_remaining: float = 0.0
 var used_this_airborne_sequence: bool = false
-
-
-func tick(delta: float) -> void:
-	cooldown_remaining = maxf(0.0, cooldown_remaining - delta)
 
 
 func try_activate() -> bool:
@@ -25,5 +19,22 @@ func on_landed() -> void:
 
 
 func reset() -> void:
-	cooldown_remaining = 0.0
+	super.reset()
 	used_this_airborne_sequence = false
+
+
+func get_input_hint() -> String:
+	return "SPACE x2"
+
+
+func get_status_text() -> String:
+	if cooldown_remaining > 0.0:
+		return "%.1fs" % cooldown_remaining
+	return "SPENT" if used_this_airborne_sequence else "READY"
+
+
+func _init() -> void:
+	skill_id = &"double_jump"
+	skill_display_name = "Double Jump"
+	power_cost = 70
+	cooldown = 4.0
