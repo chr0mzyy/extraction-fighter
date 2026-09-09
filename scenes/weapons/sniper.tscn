@@ -1,0 +1,50 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/sniper.gd" id="1"]
+
+[sub_resource type="StandardMaterial3D" id="BodyMaterial"]
+albedo_color = Color(0.12, 0.13, 0.16, 1)
+metallic = 0.72
+roughness = 0.3
+
+[sub_resource type="StandardMaterial3D" id="AccentMaterial"]
+albedo_color = Color(0.28, 0.07, 0.085, 1)
+metallic = 0.35
+roughness = 0.42
+
+[sub_resource type="BoxMesh" id="BodyMesh"]
+material = SubResource("BodyMaterial")
+size = Vector3(0.16, 0.14, 0.86)
+
+[sub_resource type="CylinderMesh" id="BarrelMesh"]
+material = SubResource("BodyMaterial")
+top_radius = 0.035
+bottom_radius = 0.045
+height = 1.05
+radial_segments = 8
+
+[sub_resource type="CylinderMesh" id="ScopeMesh"]
+material = SubResource("AccentMaterial")
+top_radius = 0.075
+bottom_radius = 0.075
+height = 0.42
+radial_segments = 8
+
+[node name="Sniper" type="Node3D"]
+script = ExtResource("1")
+weapon_display_name = "Sniper Rifle"
+
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, -0.32)
+mesh = SubResource("BodyMesh")
+
+[node name="Barrel" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.01, -1.1)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("BarrelMesh")
+
+[node name="Scope" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.13, -0.38)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("ScopeMesh")
+

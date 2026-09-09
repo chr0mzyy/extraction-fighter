@@ -1,0 +1,71 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/characters/bot_controller.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/components/health_component.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/components/hurtbox_3d.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/skills/dash_skill.gd" id="4"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/katana.tscn" id="5"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/sniper.tscn" id="6"]
+
+[sub_resource type="CapsuleShape3D" id="BodyShape"]
+radius = 0.44
+height = 1.84
+
+[sub_resource type="StandardMaterial3D" id="BotMaterial"]
+albedo_color = Color(0.52, 0.08, 0.09, 1)
+metallic = 0.18
+roughness = 0.65
+
+[sub_resource type="CapsuleMesh" id="BotMesh"]
+material = SubResource("BotMaterial")
+radius = 0.44
+height = 1.84
+radial_segments = 10
+rings = 5
+
+[sub_resource type="SphereShape3D" id="HeadShape"]
+radius = 0.29
+
+[node name="Bot" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 1
+floor_snap_length = 0.3
+floor_max_angle = 0.872665
+script = ExtResource("1")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.92, 0)
+shape = SubResource("BodyShape")
+
+[node name="VisualBody" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.92, 0)
+mesh = SubResource("BotMesh")
+
+[node name="HeadHurtbox" type="Area3D" parent="."]
+position = Vector3(0, 1.62, 0)
+collision_layer = 4
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("3")
+headshot = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="HeadHurtbox"]
+shape = SubResource("HeadShape")
+
+[node name="HealthComponent" type="Node" parent="."]
+script = ExtResource("2")
+
+[node name="AimPivot" type="Node3D" parent="."]
+position = Vector3(0, 1.42, 0)
+
+[node name="WeaponMount" type="Node3D" parent="AimPivot"]
+position = Vector3(0.38, -0.28, -0.5)
+
+[node name="Katana" parent="AimPivot/WeaponMount" instance=ExtResource("5")]
+
+[node name="Sniper" parent="AimPivot/WeaponMount" instance=ExtResource("6")]
+
+[node name="DashSkill" type="Node" parent="."]
+script = ExtResource("4")
+

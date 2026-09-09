@@ -1,28 +1,104 @@
-; Engine configuration file.
-; It's best edited using the editor UI and not directly,
-; since the parameters that go here are not all obvious.
-;
-; Format:
-;   [section] ; section goes between []
-;   param=value ; assign values to parameters
-
+; Extraction Fighter MVP 0.1 - Godot 4.7.2
 config_version=5
 
 [application]
 
-config/name="ExtractionFighter"
+config/name="Extraction Fighter"
+run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
 [display]
 
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1280
+window/size/window_height_override=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[input]
+
+move_forward={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":87,"unicode":119)]
+}
+move_back={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":83,"unicode":115)]
+}
+move_left={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":65,"unicode":97)]
+}
+move_right={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":68,"unicode":100)]
+}
+sprint={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194325)]
+}
+jump={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":32,"unicode":32)]
+}
+dash={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":81,"unicode":113)]
+}
+toggle_camera={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":86,"unicode":118)]
+}
+weapon_1={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":49,"unicode":49)]
+}
+weapon_2={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":50,"unicode":50)]
+}
+primary_attack={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"button_index":1)]
+}
+secondary_attack={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"button_index":2)]
+}
+heavy_attack={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":70,"unicode":102)]
+}
+reload={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":82,"unicode":114)]
+}
+menu_toggle={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194305)]
+}
+debug_toggle={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194334)]
+}
+
+[layer_names]
+
+3d_physics/layer_1="World"
+3d_physics/layer_2="Characters"
+3d_physics/layer_3="Hitboxes"
+3d_physics/layer_4="Triggers"
+
 [physics]
 
+3d/default_gravity=18.0
 3d/physics_engine="Jolt Physics"
 
 [rendering]
 
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
 rendering_device/driver.windows="d3d12"
+textures/default_filters/use_nearest_mipmap_filter=false
