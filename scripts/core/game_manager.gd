@@ -236,6 +236,12 @@ func _run_self_test() -> void:
 	await get_tree().physics_frame
 	if not player.movement.is_sliding:
 		failures.append("Fast grounded crouch did not start a slide")
+	for frame in range(72):
+		await get_tree().physics_frame
+	if not player.movement.is_sliding:
+		failures.append("Sprint-entry slide ended before the 1.2 second target")
+	if player.movement.get_horizontal_speed() >= 10.9:
+		failures.append("Extended slide did not naturally lose horizontal speed")
 	Input.action_press("jump")
 	await get_tree().physics_frame
 	await get_tree().physics_frame

@@ -33,9 +33,9 @@ signal movement_event(event_name: StringName)
 @export_group("Slide")
 @export var slide_min_speed: float = 8.0
 @export var slide_initial_boost: float = 1.0
-@export var slide_friction: float = 5.2
+@export var slide_friction: float = 2.5
 @export var slide_steering: float = 1.7
-@export var slide_duration_cap: float = 1.35
+@export var slide_duration_cap: float = 1.4
 
 @export_group("Dash Integration")
 @export var dash_momentum_speed_cap: float = 30.0
