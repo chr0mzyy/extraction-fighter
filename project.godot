@@ -95,6 +95,10 @@ debug_toggle={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194334)]
 }
+interact={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":88,"unicode":120)]
+}
 
 [layer_names]
 

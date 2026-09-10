@@ -45,7 +45,7 @@ func _process(delta: float) -> void:
 
 
 func request_primary() -> void:
-	if not equipped or recovery_remaining > 0.0 or is_blocking or not is_instance_valid(wielder):
+	if not equipped or recovery_remaining > 0.0 or is_blocking or not is_instance_valid(wielder) or not can_operate():
 		return
 	recovery_remaining = light_recovery / effects.get_rate_multiplier()
 	effects.on_shot_fired()
@@ -60,7 +60,7 @@ func request_primary() -> void:
 
 
 func request_heavy() -> void:
-	if not equipped or recovery_remaining > 0.0 or is_blocking or not is_instance_valid(wielder):
+	if not equipped or recovery_remaining > 0.0 or is_blocking or not is_instance_valid(wielder) or not can_operate():
 		return
 	recovery_remaining = heavy_recovery / effects.get_rate_multiplier()
 	effects.on_shot_fired()
@@ -81,7 +81,7 @@ func request_heavy() -> void:
 
 
 func secondary_pressed() -> void:
-	if not equipped or not is_instance_valid(wielder):
+	if not equipped or not is_instance_valid(wielder) or not can_operate():
 		return
 	if not is_blocking:
 		is_blocking = true
@@ -99,7 +99,7 @@ func secondary_released() -> void:
 
 
 func get_damage_response(info: DamageInfo) -> Dictionary:
-	if not equipped or not is_blocking:
+	if not equipped or not is_blocking or is_broken():
 		return {}
 	if deflect_remaining > 0.0:
 		effects.on_block(true)

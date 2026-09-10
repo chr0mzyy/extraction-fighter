@@ -109,6 +109,8 @@ func _update_content(definition: ItemDefinition, instance: ItemInstance) -> void
 	type_label.text = _type_line(definition)
 	flavor_label.text = '"%s"' % (definition.flavor_text if not definition.flavor_text.is_empty() else definition.description)
 	stats_label.text = _build_stats(definition, instance)
+	var low_durability := instance != null and instance.max_durability > 0.0 and instance.current_durability / instance.max_durability <= 0.2
+	stats_label.add_theme_color_override("font_color", Color(1.0, 0.34, 0.25) if low_durability else Color(0.88, 0.9, 0.91))
 	preview_texture.texture = definition.preview_icon
 	preview_texture.visible = definition.preview_icon != null
 	preview_glyph.visible = definition.preview_icon == null
@@ -139,7 +141,7 @@ func _build_stats(definition: ItemDefinition, instance: ItemInstance = null) -> 
 		if definition.block_reduction > 0.0: lines.append("Block  %d%%" % roundi(definition.block_reduction * 100.0))
 		_add_number(lines, "Deflect Window", definition.deflect_window, "s")
 		if not definition.range_label.is_empty(): lines.append("Range  %s" % definition.range_label)
-		if definition.durability_max > 0: lines.append("Durability  %d" % definition.durability_max)
+		_append_durability(lines, definition, instance)
 		if not definition.special_description.is_empty(): lines.append("\n%s\n%s" % ["UNIQUE" if definition.rarity == ItemDefinition.Rarity.MYTHIC else "SPECIAL", definition.special_description])
 	elif definition.item_type == ItemDefinition.ItemType.SKILL:
 		lines.append("Power  %d" % definition.power_cost)
@@ -151,10 +153,23 @@ func _build_stats(definition: ItemDefinition, instance: ItemInstance = null) -> 
 		if definition.armor_value > 0: lines.append("Armor  %d" % definition.armor_value)
 		if not definition.modifier_text.is_empty(): lines.append("Modifier  %s" % definition.modifier_text)
 		if not definition.description.is_empty(): lines.append("\n%s" % definition.description)
+		_append_durability(lines, definition, instance)
 	var affix_lines := _affix_lines(definition, instance)
 	if not affix_lines.is_empty():
 		lines.append("\nAFFIXES\n" + "\n\n".join(affix_lines))
 	return "\n".join(lines)
+
+
+func _append_durability(lines: Array[String], definition: ItemDefinition, instance: ItemInstance) -> void:
+	var maximum := ItemInstance.get_default_max_durability(definition)
+	if maximum <= 0.0:
+		return
+	var current := instance.current_durability if instance != null else maximum
+	lines.append("Durability  %d / %d" % [ceili(current), ceili(maximum)])
+	if current <= 0.0:
+		lines.append("BROKEN - REPAIR REQUIRED")
+	elif current / maximum <= 0.2:
+		lines.append("LOW DURABILITY")
 
 
 func _affix_lines(definition: ItemDefinition, instance: ItemInstance) -> Array[String]:

@@ -17,7 +17,7 @@ func _ready() -> void:
 
 
 func get_damage_response(info: DamageInfo) -> Dictionary:
-	if not equipped or not is_blocking:
+	if not equipped or not is_blocking or is_broken():
 		return {}
 	if deflect_remaining > 0.0 and info.is_melee and item_definition != null and item_definition.special_effect_id == &"oathbreaker":
 		effects.on_block(true)

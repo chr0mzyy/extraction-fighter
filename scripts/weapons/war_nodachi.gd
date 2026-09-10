@@ -20,19 +20,19 @@ func _ready() -> void:
 
 
 func request_primary() -> void:
-	if equipped and recovery_remaining <= 0.0 and not is_blocking and is_instance_valid(wielder):
+	if equipped and recovery_remaining <= 0.0 and not is_blocking and is_instance_valid(wielder) and can_operate():
 		_lunge(light_lunge)
 	super.request_primary()
 
 
 func request_heavy() -> void:
-	if equipped and recovery_remaining <= 0.0 and not is_blocking and is_instance_valid(wielder):
+	if equipped and recovery_remaining <= 0.0 and not is_blocking and is_instance_valid(wielder) and can_operate():
 		_lunge(heavy_lunge)
 	super.request_heavy()
 
 
 func get_damage_response(info: DamageInfo) -> Dictionary:
-	if not equipped or not is_blocking:
+	if not equipped or not is_blocking or is_broken():
 		return {}
 	return {"damage_multiplier": blocked_damage_multiplier}
 

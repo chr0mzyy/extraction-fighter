@@ -2,6 +2,9 @@ class_name ItemDatabase
 extends RefCounted
 
 const DEFINITIONS: Array[ItemDefinition] = [
+	preload("res://resources/items/extraction_key.tres"),
+	preload("res://resources/items/armory_scrap.tres"),
+	preload("res://resources/items/field_tonic.tres"),
 	preload("res://resources/items/rusty_katana.tres"),
 	preload("res://resources/items/ronin_katana.tres"),
 	preload("res://resources/items/phantom_katana.tres"),

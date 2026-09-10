@@ -31,6 +31,12 @@ func _ready() -> void:
 	if "--scene-flow-test" in args:
 		_handle_scene_flow_test()
 		return
+	if "--dungeon-scene-flow-test" in args:
+		_handle_dungeon_scene_flow_test()
+		return
+	if _should_route_to_dungeon(args):
+		_route_to_dungeon.call_deferred()
+		return
 	if _should_route_to_arena(args):
 		PlayerProfile.reset_to_defaults(false)
 		if "--loadout-integration-test" in args:
@@ -74,8 +80,19 @@ func _should_route_to_arena(args: PackedStringArray) -> bool:
 	return false
 
 
+func _should_route_to_dungeon(args: PackedStringArray) -> bool:
+	for flag in ["--dungeon-self-test", "--extraction-flow-test", "--durability-self-test", "--dungeon-soak-test"]:
+		if flag in args:
+			return true
+	return false
+
+
 func _route_to_arena() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _route_to_dungeon() -> void:
+	get_tree().change_scene_to_file("res://scenes/dungeon/armory_dungeon.tscn")
 
 
 func _handle_scene_flow_test() -> void:
@@ -93,6 +110,16 @@ func _handle_scene_flow_test() -> void:
 	PlayerProfile.reset_to_defaults(false)
 	PlayerProfile.set_meta("scene_flow_stage", "arena")
 	_route_to_arena.call_deferred()
+
+
+func _handle_dungeon_scene_flow_test() -> void:
+	if String(PlayerProfile.get_meta("dungeon_flow_stage", "")) == "returned":
+		PlayerProfile.remove_meta("dungeon_flow_stage")
+		print("DUNGEON_SCENE_FLOW_OK: Lobby -> Armory -> Lobby retained persistent profile state")
+		get_tree().quit(0)
+		return
+	PlayerProfile.set_meta("dungeon_flow_stage", "deployed")
+	_route_to_dungeon.call_deferred()
 
 
 func _build_shell() -> void:
@@ -217,8 +244,8 @@ func _show_play() -> void:
 	content.add_child(cards)
 	var arena := _activity_card(cards, "ARENA", "Continuous deathmatch testing\nSelected loadout enabled", true)
 	arena.pressed.connect(_launch_arena)
-	var dungeon := _activity_card(cards, "DUNGEON", "COMING SOON\nProcedural extraction mode", false)
-	dungeon.disabled = true
+	var dungeon := _activity_card(cards, "THE ARMORY", "15 minute extraction run\nLoot is lost on death", true)
+	dungeon.pressed.connect(_launch_dungeon)
 	_add_back_button(content)
 
 
@@ -307,7 +334,13 @@ func _show_stash() -> void:
 	root.add_child(header)
 	var title := _label(header, "STASH", 24, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(header, "%d OWNED ITEMS" % PlayerProfile.owned_item_ids.size(), 13, COLOR_MUTED)
+	_label(header, "%d GOLD" % PlayerProfile.gold, 13, COLOR_READY)
+	var repair_cost := PlayerProfile.get_equipped_repair_cost()
+	var repair := _button(header, "REPAIR EQUIPPED  •  %d" % repair_cost, false)
+	repair.custom_minimum_size = Vector2(205, 38)
+	repair.disabled = repair_cost <= 0
+	repair.pressed.connect(_repair_equipped)
+	_label(header, "%d ITEM INSTANCES" % PlayerProfile.owned_item_instances.size(), 13, COLOR_MUTED)
 	var header_back := _button(header, "BACK", false)
 	header_back.custom_minimum_size = Vector2(120, 38)
 	header_back.pressed.connect(_show_main)
@@ -333,11 +366,13 @@ func _show_stash() -> void:
 	item_grid.add_theme_constant_override("h_separation", 8)
 	item_grid.add_theme_constant_override("v_separation", 8)
 	stash_scroll.add_child(item_grid)
-	for definition: ItemDefinition in PlayerProfile.get_owned_definitions(stash_filter):
-		var item_button := _button(item_grid, "%s\n%s" % [definition.display_name, definition.get_type_name().to_upper()], false)
+	for instance: ItemInstance in PlayerProfile.get_owned_instances(stash_filter):
+		var definition := PlayerProfile.get_definition(String(instance.definition_id))
+		var condition := "  BROKEN" if instance.is_broken() else ("  %d%%" % roundi(instance.current_durability / instance.max_durability * 100.0) if instance.max_durability > 0.0 else "")
+		var item_button := _button(item_grid, "%s%s\n%s" % [definition.display_name, condition, definition.get_type_name().to_upper()], false)
 		item_button.custom_minimum_size = Vector2(190, 64)
 		item_button.pressed.connect(_show_item_details.bind(definition))
-		_bind_tooltip(item_button, definition, PlayerProfile.get_instance_for_definition(String(definition.id)))
+		_bind_tooltip(item_button, definition, instance)
 	var inventory_panel := _panel(body, Vector2(390, 0))
 	inventory_panel.name = "InventoryPanel"
 	var inventory_margin := _margin(inventory_panel, 14, 12, 14, 12)
@@ -365,6 +400,13 @@ func _show_stash() -> void:
 
 func _show_customization() -> void:
 	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.2.1.")
+
+
+func _repair_equipped() -> void:
+	var success := PlayerProfile.repair_all_equipped()
+	_show_stash()
+	footer_label.text = "EQUIPPED ITEMS REPAIRED" if success else PlayerProfile.last_error.to_upper()
+	footer_label.add_theme_color_override("font_color", COLOR_READY if success else COLOR_WARNING)
 
 
 func _show_settings() -> void:
@@ -424,16 +466,36 @@ func _populate_loadout_choices(container: GridContainer) -> void:
 		type_filter = ItemDefinition.ItemType.SKILL
 	elif selected_kind == "gear":
 		type_filter = ItemDefinition.ItemType.GEAR
-	for definition: ItemDefinition in PlayerProfile.get_owned_definitions(type_filter):
-		if selected_kind == "gear" and not _definition_fits_selected_gear(definition):
-			continue
-		var suffix := "  •  %d POWER" % definition.power_cost if definition.item_type == ItemDefinition.ItemType.SKILL else ""
-		var button := _button(container, "%s%s" % [definition.display_name, suffix], false)
-		button.custom_minimum_size = Vector2(220, 52)
-		button.pressed.connect(_equip_definition.bind(definition))
-		_bind_tooltip(button, definition, PlayerProfile.get_instance_for_definition(String(definition.id)))
-		if _is_definition_selected(definition):
-			button.add_theme_stylebox_override("normal", _style(Color(0.055, 0.18, 0.2), COLOR_ACCENT, 2, 4))
+	if selected_kind == "skill":
+		for definition: ItemDefinition in PlayerProfile.get_owned_definitions(type_filter):
+			_add_loadout_choice(container, definition, null)
+	else:
+		for instance: ItemInstance in PlayerProfile.get_owned_instances(type_filter):
+			var definition := PlayerProfile.get_definition(String(instance.definition_id))
+			if selected_kind == "gear" and not _definition_fits_selected_gear(definition):
+				continue
+			_add_loadout_choice(container, definition, instance)
+
+
+func _add_loadout_choice(container: GridContainer, definition: ItemDefinition, instance: ItemInstance) -> void:
+	var suffix := "  •  %d POWER" % definition.power_cost if definition.item_type == ItemDefinition.ItemType.SKILL else ""
+	if instance != null and instance.max_durability > 0.0:
+		suffix += "  •  %s" % ("BROKEN" if instance.is_broken() else "%d/%d" % [ceili(instance.current_durability), ceili(instance.max_durability)])
+	var button := _button(container, "%s%s" % [definition.display_name, suffix], false)
+	button.custom_minimum_size = Vector2(220, 52)
+	button.pressed.connect(_equip_instance.bind(definition, instance))
+	_bind_tooltip(button, definition, instance)
+	var selected := _is_definition_selected(definition) if instance == null else _is_instance_selected(instance)
+	if selected:
+		button.add_theme_stylebox_override("normal", _style(Color(0.055, 0.18, 0.2), COLOR_ACCENT, 2, 4))
+
+
+func _is_instance_selected(instance: ItemInstance) -> bool:
+	if selected_kind == "weapon":
+		return PlayerProfile.weapon_instance_slots[selected_slot] == instance.instance_id
+	if selected_kind == "gear":
+		return String(PlayerProfile.equipped_gear_instances.get(selected_gear_key, "")) == instance.instance_id
+	return false
 
 
 func _equip_definition(definition: ItemDefinition) -> void:
@@ -443,6 +505,18 @@ func _equip_definition(definition: ItemDefinition) -> void:
 		"weapon": success = PlayerProfile.equip_weapon(selected_slot, String(definition.id))
 		"skill": success = PlayerProfile.equip_skill(selected_slot, String(definition.id))
 		"gear": success = PlayerProfile.equip_gear(selected_gear_key, String(definition.id))
+	if success:
+		_show_loadout()
+	elif feedback_label != null:
+		feedback_label.text = PlayerProfile.last_error
+
+
+func _equip_instance(definition: ItemDefinition, instance: ItemInstance) -> void:
+	if instance == null:
+		_equip_definition(definition)
+		return
+	_show_item_details(definition)
+	var success := PlayerProfile.equip_weapon_instance(selected_slot, instance.instance_id) if selected_kind == "weapon" else PlayerProfile.equip_gear_instance(selected_gear_key, instance.instance_id)
 	if success:
 		_show_loadout()
 	elif feedback_label != null:
@@ -459,6 +533,10 @@ func _show_item_details(definition: ItemDefinition) -> void:
 		lines.append("\nFAMILY  %s" % String(definition.weapon_family).capitalize())
 	elif definition.item_type == ItemDefinition.ItemType.GEAR:
 		lines.append("\nSLOT  %s" % definition.get_gear_slot_name())
+	var instance := PlayerProfile.get_instance_for_definition(String(definition.id))
+	if instance != null and instance.max_durability > 0.0:
+		lines.append("\nDURABILITY  %d / %d" % [ceili(instance.current_durability), ceili(instance.max_durability)])
+		lines.append("REPAIR COST  %d GOLD" % DurabilityService.repair_cost(instance, definition))
 	details_label.text = "\n".join(lines)
 
 
@@ -498,6 +576,16 @@ func _launch_arena() -> void:
 		return
 	PlayerProfile.save_profile()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _launch_dungeon() -> void:
+	var validation := PlayerProfile.validate_loadout()
+	if not bool(validation.valid):
+		footer_label.text = "LOADOUT INVALID  •  " + "; ".join(validation.errors)
+		footer_label.add_theme_color_override("font_color", COLOR_WARNING)
+		return
+	PlayerProfile.save_profile()
+	get_tree().change_scene_to_file("res://scenes/dungeon/armory_dungeon.tscn")
 
 
 func _configure_integration_loadout() -> void:
@@ -603,7 +691,7 @@ func _run_profile_self_test() -> void:
 		failures.append("Default loadout or 130 Power calculation failed")
 	if PlayerProfile.main_inventory.size() != 24:
 		failures.append("Main inventory does not contain 24 persistent slots")
-	if PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size():
+	if PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size() - PlayerProfile.DEVELOPMENT_STASH_EXCLUDED.size():
 		failures.append("Default stash does not contain the complete development catalog")
 	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.WEAPON).size() != 30 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.SKILL).size() != 10 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.GEAR).size() != 27:
 		failures.append("Starting stash category counts are invalid")
@@ -700,7 +788,7 @@ func _run_content_self_test() -> void:
 	old_save["weapon_slots"] = ["ronin_katana", "huntsman_rifle"]
 	old_save["skill_slots"] = ["dash", "double_jump"]
 	old_save["owned_item_ids"] = ["ronin_katana", "huntsman_rifle", "dash", "double_jump", "training_helmet", "training_chest", "training_gloves", "training_boots", "simple_necklace", "simple_ring", "iron_ring", "basic_charm"]
-	if not PlayerProfile.apply_save_data(old_save, false) or not PlayerProfile.catalog_migrated_last_load or PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size():
+	if not PlayerProfile.apply_save_data(old_save, false) or not PlayerProfile.catalog_migrated_last_load or PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size() - PlayerProfile.DEVELOPMENT_STASH_EXCLUDED.size():
 		failures.append("Legacy profile did not migrate to the development catalog")
 	if PlayerProfile.weapon_slots != ["ronin_katana", "huntsman_rifle"] or PlayerProfile.skill_slots != ["dash", "double_jump"]:
 		failures.append("Legacy profile migration did not preserve selected loadout")
@@ -825,10 +913,10 @@ func _run_affix_self_test() -> void:
 	if round_trip.instance_id != roll_a.instance_id or round_trip.definition_id != roll_a.definition_id or round_trip.affix_ids != roll_a.affix_ids or round_trip.affix_tiers != roll_a.affix_tiers:
 		failures.append("ItemInstance serialization round trip failed")
 	var equipped_instance := PlayerProfile.get_weapon_instance(0)
-	equipped_instance.durability = 37.0
+	equipped_instance.current_durability = 37.0
 	var version_two_save := PlayerProfile.to_save_data()
-	if not PlayerProfile.apply_save_data(version_two_save, false) or PlayerProfile.get_weapon_instance(0) == null or not is_equal_approx(PlayerProfile.get_weapon_instance(0).durability, 37.0):
-		failures.append("Version 2 profile did not preserve equipped instance data")
+	if not PlayerProfile.apply_save_data(version_two_save, false) or PlayerProfile.get_weapon_instance(0) == null or not is_equal_approx(PlayerProfile.get_weapon_instance(0).current_durability, 37.0):
+		failures.append("Version 3 profile did not preserve equipped instance data")
 	var ricochet := AffixDatabase.get_definition(&"ricochet")
 	if not ricochet.is_compatible(rifle) or ricochet.is_compatible(PlayerProfile.get_definition("ronin_katana")):
 		failures.append("Gun-only affix compatibility is invalid")

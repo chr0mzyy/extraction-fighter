@@ -4,10 +4,11 @@ signal profile_changed
 signal loadout_changed
 signal validation_failed(message: String)
 
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 const SAVE_PATH := "user://player_profile.json"
 const INVENTORY_SIZE := 24
 const POWER_LIMIT := 200
+const DEVELOPMENT_STASH_EXCLUDED: Array[String] = ["extraction_key", "armory_scrap", "field_tonic"]
 const GEAR_KEYS: Array[String] = [
 	"helmet", "chest", "gloves", "boots", "necklace", "ring_1", "ring_2", "charm"
 ]
@@ -25,6 +26,7 @@ var main_inventory: Array[String] = []
 var last_load_used_defaults: bool = false
 var last_error: String = ""
 var catalog_migrated_last_load: bool = false
+var gold: int = 750
 
 
 func _ready() -> void:
@@ -37,6 +39,8 @@ func reset_to_defaults(save_after: bool = true) -> void:
 	owned_item_instances.clear()
 	instance_index.clear()
 	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
+		if String(definition.id) in DEVELOPMENT_STASH_EXCLUDED:
+			continue
 		owned_item_ids.append(String(definition.id))
 		var instance := ItemInstance.create(definition)
 		owned_item_instances.append(instance)
@@ -60,6 +64,7 @@ func reset_to_defaults(save_after: bool = true) -> void:
 	main_inventory.clear()
 	main_inventory.resize(INVENTORY_SIZE)
 	main_inventory.fill("")
+	gold = 750
 	last_load_used_defaults = true
 	catalog_migrated_last_load = false
 	last_error = ""
@@ -101,6 +106,15 @@ func get_owned_definitions(type_filter: int = -1) -> Array[ItemDefinition]:
 	return result
 
 
+func get_owned_instances(type_filter: int = -1) -> Array[ItemInstance]:
+	var result: Array[ItemInstance] = []
+	for instance: ItemInstance in owned_item_instances:
+		var definition := get_definition(String(instance.definition_id))
+		if definition != null and (type_filter < 0 or definition.item_type == type_filter):
+			result.append(instance)
+	return result
+
+
 func get_skill_power() -> int:
 	var total := 0
 	for item_id: String in skill_slots:
@@ -126,9 +140,23 @@ func equip_weapon(slot: int, item_id: String, save_after: bool = true) -> bool:
 	var other_slot := 1 - slot
 	if weapon_slots[other_slot] == item_id:
 		return _fail("A weapon cannot occupy both slots")
-	weapon_slots[slot] = item_id
 	var instance := get_instance_for_definition(item_id)
-	weapon_instance_slots[slot] = instance.instance_id if instance != null else ""
+	return equip_weapon_instance(slot, instance.instance_id if instance != null else "", save_after)
+
+
+func equip_weapon_instance(slot: int, instance_id: String, save_after: bool = true) -> bool:
+	if slot < 0 or slot >= weapon_slots.size():
+		return _fail("Invalid weapon slot")
+	var instance := get_instance(instance_id)
+	var definition := get_definition(String(instance.definition_id)) if instance != null else null
+	if instance == null or definition == null or definition.item_type != ItemDefinition.ItemType.WEAPON:
+		return _fail("That weapon instance is not owned")
+	if instance.is_broken():
+		return _fail("Repair this weapon before equipping it")
+	if weapon_instance_slots[1 - slot] == instance_id:
+		return _fail("A weapon cannot occupy both slots")
+	weapon_slots[slot] = String(instance.definition_id)
+	weapon_instance_slots[slot] = instance_id
 	_commit_loadout_change(save_after)
 	return true
 
@@ -163,9 +191,23 @@ func equip_gear(slot_key: String, item_id: String, save_after: bool = true) -> b
 		return _fail("That gear item is not owned")
 	if not _gear_fits(slot_key, definition.gear_slot):
 		return _fail("That item does not fit this gear slot")
-	equipped_gear[slot_key] = item_id
 	var instance := get_instance_for_definition(item_id)
-	equipped_gear_instances[slot_key] = instance.instance_id if instance != null else ""
+	return equip_gear_instance(slot_key, instance.instance_id if instance != null else "", save_after)
+
+
+func equip_gear_instance(slot_key: String, instance_id: String, save_after: bool = true) -> bool:
+	if not GEAR_KEYS.has(slot_key):
+		return _fail("Invalid gear slot")
+	var instance := get_instance(instance_id)
+	var definition := get_definition(String(instance.definition_id)) if instance != null else null
+	if instance == null or definition == null or definition.item_type != ItemDefinition.ItemType.GEAR:
+		return _fail("That gear instance is not owned")
+	if not _gear_fits(slot_key, definition.gear_slot):
+		return _fail("That item does not fit this gear slot")
+	if instance.is_broken():
+		return _fail("Repair this gear before equipping it")
+	equipped_gear[slot_key] = String(instance.definition_id)
+	equipped_gear_instances[slot_key] = instance_id
 	_commit_loadout_change(save_after)
 	return true
 
@@ -225,12 +267,13 @@ func to_save_data() -> Dictionary:
 		"equipped_gear": equipped_gear.duplicate(true),
 		"equipped_gear_instances": equipped_gear_instances.duplicate(true),
 		"main_inventory": main_inventory.duplicate(),
+		"gold": gold,
 	}
 
 
 func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 	var incoming_version := int(data.get("save_version", -1))
-	if incoming_version not in [1, SAVE_VERSION]:
+	if incoming_version not in [1, 2, SAVE_VERSION]:
 		last_error = "Unsupported save version"
 		return false
 	var incoming_owned := _string_array(data.get("owned_item_ids", []))
@@ -244,6 +287,7 @@ func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 	owned_item_ids = incoming_owned
 	catalog_migrated_last_load = _ensure_development_catalog_owned()
 	_rebuild_item_instances(data.get("owned_item_instances", []) if incoming_version >= 2 else [])
+	_remove_development_only_dungeon_items()
 	weapon_slots = incoming_weapons
 	weapon_instance_slots.clear()
 	if incoming_version >= 2:
@@ -256,6 +300,7 @@ func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 			weapon_instance_slots[slot] = instance.instance_id if instance != null else ""
 	skill_slots = incoming_skills
 	main_inventory = incoming_inventory
+	gold = maxi(0, int(data.get("gold", 750)))
 	equipped_gear = (incoming_gear as Dictionary).duplicate(true)
 	equipped_gear_instances = (data.get("equipped_gear_instances", {}) as Dictionary).duplicate(true) if data.get("equipped_gear_instances", {}) is Dictionary else {}
 	for key: String in GEAR_KEYS:
@@ -350,6 +395,8 @@ func _ensure_development_catalog_owned() -> bool:
 	var changed := false
 	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
 		var item_id := String(definition.id)
+		if item_id in DEVELOPMENT_STASH_EXCLUDED:
+			continue
 		if not owned_item_ids.has(item_id):
 			owned_item_ids.append(item_id)
 			changed = true
@@ -364,8 +411,13 @@ func _rebuild_item_instances(serialized: Variant) -> void:
 			if not entry is Dictionary:
 				continue
 			var instance := ItemInstance.from_dictionary(entry)
-			if get_definition(String(instance.definition_id)) == null or instance.instance_id.is_empty():
+			var definition := get_definition(String(instance.definition_id))
+			if definition == null or instance.instance_id.is_empty():
 				continue
+			var expected_max := ItemInstance.get_default_max_durability(definition)
+			if instance.max_durability <= 0.0 and expected_max > 0.0:
+				instance.max_durability = expected_max
+				instance.current_durability = expected_max
 			owned_item_instances.append(instance)
 			instance_index[instance.instance_id] = instance
 	for definition_id: String in owned_item_ids:
@@ -374,6 +426,106 @@ func _rebuild_item_instances(serialized: Variant) -> void:
 		var definition := get_definition(definition_id)
 		if definition == null:
 			continue
+		if definition_id in DEVELOPMENT_STASH_EXCLUDED:
+			continue
 		var instance := ItemInstance.create(definition)
 		owned_item_instances.append(instance)
 		instance_index[instance.instance_id] = instance
+
+
+func _remove_development_only_dungeon_items() -> void:
+	for definition_id: String in DEVELOPMENT_STASH_EXCLUDED:
+		var kept_real_instance := false
+		for index: int in range(owned_item_instances.size() - 1, -1, -1):
+			var instance := owned_item_instances[index]
+			if String(instance.definition_id) != definition_id:
+				continue
+			if instance.instance_id.begins_with("dev:"):
+				instance_index.erase(instance.instance_id)
+				owned_item_instances.remove_at(index)
+			else:
+				kept_real_instance = true
+		if not kept_real_instance:
+			owned_item_ids.erase(definition_id)
+
+
+func add_owned_instance(instance: ItemInstance, add_to_inventory: bool = false) -> bool:
+	if instance == null or get_definition(String(instance.definition_id)) == null:
+		return _fail("Cannot add an unknown item")
+	if instance.instance_id.is_empty():
+		instance.instance_id = "loot:%d:%d" % [Time.get_unix_time_from_system(), owned_item_instances.size()]
+	if instance_index.has(instance.instance_id):
+		return _fail("Duplicate item instance")
+	owned_item_instances.append(instance)
+	instance_index[instance.instance_id] = instance
+	var definition_id := String(instance.definition_id)
+	if not owned_item_ids.has(definition_id):
+		owned_item_ids.append(definition_id)
+	if add_to_inventory:
+		for slot: int in main_inventory.size():
+			if main_inventory[slot].is_empty():
+				main_inventory[slot] = instance.instance_id
+				break
+	profile_changed.emit()
+	return true
+
+
+func add_gold(amount: int) -> void:
+	gold = maxi(0, gold + amount)
+	profile_changed.emit()
+
+
+func repair_instance(instance_id: String, save_after: bool = true) -> bool:
+	var instance := get_instance(instance_id)
+	var definition := get_definition(String(instance.definition_id)) if instance != null else null
+	var cost := DurabilityService.repair_cost(instance, definition)
+	if instance == null or instance.max_durability <= 0.0:
+		return _fail("That item cannot be repaired")
+	if cost <= 0:
+		return _fail("That item is already fully repaired")
+	if gold < cost:
+		return _fail("Not enough gold")
+	gold -= cost
+	instance.repair_full()
+	profile_changed.emit()
+	if save_after:
+		save_profile()
+	return true
+
+
+func get_equipped_repair_cost() -> int:
+	var total := 0
+	for instance: ItemInstance in _get_unique_equipped_instances():
+		total += DurabilityService.repair_cost(instance, get_definition(String(instance.definition_id)))
+	return total
+
+
+func repair_all_equipped(save_after: bool = true) -> bool:
+	var cost := get_equipped_repair_cost()
+	if cost <= 0:
+		return _fail("Equipped items are already fully repaired")
+	if gold < cost:
+		return _fail("Not enough gold for repairs")
+	gold -= cost
+	for instance: ItemInstance in _get_unique_equipped_instances():
+		instance.repair_full()
+	profile_changed.emit()
+	if save_after:
+		save_profile()
+	return true
+
+
+func _get_unique_equipped_instances() -> Array[ItemInstance]:
+	var result: Array[ItemInstance] = []
+	var visited: Dictionary = {}
+	for instance_id: String in weapon_instance_slots:
+		var instance := get_instance(instance_id)
+		if instance != null and not visited.has(instance.instance_id):
+			visited[instance.instance_id] = true
+			result.append(instance)
+	for slot_key: String in GEAR_KEYS:
+		var instance := get_gear_instance(slot_key)
+		if instance != null and not visited.has(instance.instance_id):
+			visited[instance.instance_id] = true
+			result.append(instance)
+	return result

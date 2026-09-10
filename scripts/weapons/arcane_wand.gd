@@ -22,9 +22,10 @@ func _process(delta: float) -> void:
 
 
 func request_primary() -> void:
-	if not equipped or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder):
+	if not equipped or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder) or not can_operate():
 		return
 	fire_cooldown_remaining = shot_cooldown / effects.get_rate_multiplier()
+	spend_shot_durability()
 	effects.on_shot_fired()
 	var projectile := MagicProjectile.new()
 	get_tree().current_scene.add_child(projectile)

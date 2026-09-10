@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"extraction_key"
+display_name = "Extraction Key"
+flavor_text = "Cold iron cut for a door that should not exist."
+description = "Consumed to activate a hidden extraction point during an Armory run."
+item_type = 5
+rarity = 4
+sell_value = 0

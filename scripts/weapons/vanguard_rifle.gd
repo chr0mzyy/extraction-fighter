@@ -41,13 +41,14 @@ func _process(delta: float) -> void:
 
 
 func request_primary() -> void:
-	if not equipped or is_reloading or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder):
+	if not equipped or is_reloading or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder) or not can_operate():
 		return
 	if ammo <= 0:
 		if wielder.has_method("on_empty_weapon"):
 			wielder.on_empty_weapon()
 		return
 	ammo -= 1
+	spend_shot_durability()
 	fire_cooldown_remaining = fire_delay / effects.get_rate_multiplier()
 	effects.on_shot_fired()
 	_fire_hitscan()
@@ -114,7 +115,7 @@ func set_primary_held(held: bool) -> void:
 func request_reload() -> void:
 	if try_special_activation():
 		return
-	if not equipped or is_reloading or ammo >= magazine_size:
+	if not equipped or is_reloading or ammo >= magazine_size or not can_operate():
 		return
 	is_reloading = true
 	is_ads = false

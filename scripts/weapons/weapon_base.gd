@@ -12,6 +12,7 @@ var equipped: bool = false
 var item_definition: ItemDefinition
 var item_instance: ItemInstance
 var effects := WeaponEffectRuntime.new()
+var last_melee_wear_frame: int = -1
 
 
 func setup(actor: CharacterBody3D) -> void:
@@ -56,6 +57,8 @@ func secondary_released() -> void:
 
 
 func request_reload() -> void:
+	if not can_operate():
+		return
 	effects.request_special()
 
 
@@ -84,7 +87,45 @@ func get_ammo_text() -> String:
 
 
 func get_weapon_status() -> String:
+	if is_broken():
+		return "BROKEN"
 	return effect_status_or("READY")
+
+
+func can_operate() -> bool:
+	if not is_broken():
+		return true
+	if is_instance_valid(wielder) and wielder.has_method("emit_skill_feedback"):
+		wielder.emit_skill_feedback(&"broken_weapon", {"name": weapon_display_name})
+	return false
+
+
+func is_broken() -> bool:
+	return item_instance != null and item_instance.is_broken()
+
+
+func get_durability_text() -> String:
+	if item_instance == null or item_instance.max_durability <= 0.0:
+		return ""
+	return "%d / %d" % [ceili(item_instance.current_durability), ceili(item_instance.max_durability)]
+
+
+func spend_shot_durability() -> void:
+	if _durability_active() and item_instance != null:
+		DurabilityService.apply_weapon_use(item_instance, DurabilityService.SHOT_WEAR)
+
+
+func spend_melee_hit_durability() -> void:
+	var frame := Engine.get_physics_frames()
+	if frame == last_melee_wear_frame:
+		return
+	last_melee_wear_frame = frame
+	if _durability_active() and item_instance != null:
+		DurabilityService.apply_weapon_use(item_instance, DurabilityService.MELEE_HIT_WEAR)
+
+
+func _durability_active() -> bool:
+	return is_instance_valid(wielder) and wielder.has_method("uses_dungeon_durability") and bool(wielder.uses_dungeon_durability())
 
 
 func effect_status_or(fallback: String) -> String:
@@ -122,6 +163,8 @@ func make_damage_info(base_damage: float, target: Node, damage_type: StringName,
 func resolve_damage(target: Node, info: DamageInfo, heavy_attack: bool = false) -> Dictionary:
 	var result: Dictionary = target.receive_damage(info)
 	if float(result.get("applied", 0.0)) > 0.0:
+		if info.is_melee:
+			spend_melee_hit_durability()
 		hit_confirmed.emit(info.headshot)
 		effects.on_damage_dealt(target, info, result, heavy_attack)
 		if is_instance_valid(wielder) and wielder.has_method("notify_gear_damage_dealt"):

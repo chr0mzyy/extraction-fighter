@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"armory_scrap"
+display_name = "Armory Scrap"
+flavor_text = "Bent plate stamped with a forgotten crest."
+description = "A trade good recovered from the Armory."
+item_type = 4
+rarity = 0
+sell_value = 18

@@ -22,6 +22,7 @@ var weapon_panel: PanelContainer
 var weapon_name_label: Label
 var ammo_label: Label
 var reload_label: Label
+var durability_label: Label
 var slot_one_label: Label
 var slot_two_label: Label
 var dash_panel: PanelContainer
@@ -153,6 +154,8 @@ func _update_weapon_panel() -> void:
 	var weapon := player.current_weapon
 	var weapon_name := weapon.weapon_display_name.to_upper() if weapon != null else "UNARMED"
 	weapon_name_label.text = weapon_name
+	durability_label.text = "DURABILITY  " + weapon.get_durability_text() if weapon != null and not weapon.get_durability_text().is_empty() else ""
+	durability_label.add_theme_color_override("font_color", COLOR_WARNING if weapon != null and weapon.is_broken() else COLOR_MUTED)
 	if weapon != null and weapon.uses_ammunition():
 		ammo_label.text = weapon.get_ammo_text()
 		var weapon_status := weapon.get_weapon_status()
@@ -315,6 +318,8 @@ func _on_player_feedback(event_name: StringName, _data: Dictionary) -> void:
 			_show_status("SLIDE JUMP", Color(0.72, 0.90, 1.0), 0.32)
 		&"empty":
 			_show_status("EMPTY  /  PRESS R", COLOR_WARNING, 0.72)
+		&"broken_weapon":
+			_show_status("WEAPON BROKEN  /  REPAIR IN STASH", COLOR_WARNING, 1.2)
 		&"death":
 			_show_status("YOU DIED", COLOR_WARNING, 2.0)
 		&"respawn":
@@ -444,6 +449,7 @@ func _build_weapon_panel() -> void:
 	ammo_label = _make_label(header, "MELEE", 22, COLOR_ACCENT)
 	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	reload_label = _make_label(column, "RMB  BLOCK / DEFLECT", 11, COLOR_MUTED)
+	durability_label = _make_label(column, "DURABILITY  100 / 100", 10, COLOR_MUTED)
 	var separator := HSeparator.new()
 	separator.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(separator)

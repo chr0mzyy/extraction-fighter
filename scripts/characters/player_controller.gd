@@ -56,6 +56,7 @@ var phase_ready: bool = false
 var recent_skill: SkillBase
 var recent_skill_time: float = -100.0
 var invisibility_sources: Dictionary = {}
+var dungeon_durability_enabled: bool = false
 
 
 func _ready() -> void:
@@ -218,6 +219,9 @@ func modify_incoming_damage(info: DamageInfo) -> Dictionary:
 		var response := current_weapon.get_damage_response(info)
 		response["damage_multiplier"] = float(response.get("damage_multiplier", 1.0)) * multiplier
 		if bool(response.get("negate", false)) or float(response.get("damage_multiplier", 1.0)) < multiplier:
+			if dungeon_durability_enabled and current_weapon.item_instance != null:
+				var wear := DurabilityService.PERFECT_BLOCK_WEAR if bool(response.get("negate", false)) else DurabilityService.BLOCK_WEAR
+				DurabilityService.apply_weapon_use(current_weapon.item_instance, wear)
 			for runtime: WeaponEffectRuntime in gear_effects:
 				runtime.on_block(bool(response.get("negate", false)))
 		return response
@@ -229,6 +233,8 @@ func receive_damage(info: DamageInfo) -> Dictionary:
 
 
 func on_damage_response(response_type: StringName, info: DamageInfo, applied: float) -> void:
+	if dungeon_durability_enabled and applied > 0.0:
+		DurabilityService.apply_equipped_gear_damage(PlayerProfile, applied)
 	match response_type:
 		&"deflect":
 			feedback.emit(&"deflect", {"damage": info.amount})
@@ -236,6 +242,10 @@ func on_damage_response(response_type: StringName, info: DamageInfo, applied: fl
 			feedback.emit(&"block", {"damage": applied})
 		_:
 			feedback.emit(&"damage_taken", {"damage": applied, "headshot": info.headshot})
+
+
+func uses_dungeon_durability() -> bool:
+	return dungeon_durability_enabled
 
 
 func apply_knockback(force: Vector3) -> void:

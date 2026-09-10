@@ -23,7 +23,7 @@ func _ready() -> void:
 
 
 func request_primary() -> void:
-	if not equipped or is_bursting or is_reloading or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder):
+	if not equipped or is_bursting or is_reloading or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder) or not can_operate():
 		return
 	if ammo <= 0:
 		if wielder.has_method("on_empty_weapon"):
@@ -39,6 +39,7 @@ func _fire_burst() -> void:
 		if not equipped or is_reloading or ammo <= 0 or not is_instance_valid(wielder):
 			break
 		ammo -= 1
+		spend_shot_durability()
 		effects.on_shot_fired()
 		_fire_hitscan()
 		state_changed.emit()
