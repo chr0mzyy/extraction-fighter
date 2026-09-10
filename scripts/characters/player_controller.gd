@@ -57,13 +57,13 @@ var recent_skill: SkillBase
 var recent_skill_time: float = -100.0
 var invisibility_sources: Dictionary = {}
 var dungeon_durability_enabled: bool = false
+var damage_immunity_remaining: float = 0.0
 
 
 func _ready() -> void:
 	add_to_group("player")
 	add_to_group("damageable")
 	spawn_transform = global_transform
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_instantiate_profile_loadout()
 	for index: int in weapon_mount.get_child_count():
 		var child := weapon_mount.get_child(index)
@@ -84,15 +84,14 @@ func _ready() -> void:
 	set_camera_mode(true)
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("menu_toggle"):
 		pause_requested.emit()
 		get_viewport().set_input_as_handled()
 		return
 	if is_cursor_free:
 		if event is InputEventMouseButton and event.pressed:
-			is_cursor_free = false
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			MouseModeService.capture_gameplay(self)
 			get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseMotion and not is_dead:
@@ -140,6 +139,7 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	damage_immunity_remaining = maxf(0.0, damage_immunity_remaining - delta)
 	stagger_remaining = maxf(0.0, stagger_remaining - delta)
 	if is_dead:
 		velocity = Vector3.ZERO
@@ -229,7 +229,14 @@ func modify_incoming_damage(info: DamageInfo) -> Dictionary:
 
 
 func receive_damage(info: DamageInfo) -> Dictionary:
+	if damage_immunity_remaining > 0.0 and info != null and not info.bypass_defense:
+		feedback.emit(&"spawn_protected", {"remaining": damage_immunity_remaining})
+		return {"applied": 0.0, "negated": true, "protected": true}
 	return health.apply_damage(info)
+
+
+func grant_damage_immunity(duration: float) -> void:
+	damage_immunity_remaining = maxf(damage_immunity_remaining, duration)
 
 
 func on_damage_response(response_type: StringName, info: DamageInfo, applied: float) -> void:
@@ -350,6 +357,7 @@ func respawn() -> void:
 	velocity = Vector3.ZERO
 	is_dead = false
 	stagger_remaining = 0.0
+	damage_immunity_remaining = 0.0
 	invisibility_sources.clear()
 	set_invisibility(false)
 	_reset_affix_state()
@@ -439,6 +447,7 @@ func _release_skill_slot(index: int) -> void:
 
 
 func _notify_skills_of_attack() -> void:
+	damage_immunity_remaining = 0.0
 	for skill: SkillBase in equipped_skills:
 		skill.on_owner_attack(self)
 	if invisibility_sources.has(&"phantom"):

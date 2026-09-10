@@ -25,7 +25,7 @@ const RESTART_TEST_PATH := "user://extraction_fighter_restart_test.json"
 
 
 func _ready() -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseModeService.enter_lobby()
 	_build_shell()
 	var args := OS.get_cmdline_user_args()
 	if "--scene-flow-test" in args:
@@ -113,12 +113,29 @@ func _handle_scene_flow_test() -> void:
 
 
 func _handle_dungeon_scene_flow_test() -> void:
-	if String(PlayerProfile.get_meta("dungeon_flow_stage", "")) == "returned":
+	var stage := String(PlayerProfile.get_meta("dungeon_flow_stage", ""))
+	if stage == "returned":
+		var failure := String(PlayerProfile.get_meta("dungeon_flow_failure", ""))
 		PlayerProfile.remove_meta("dungeon_flow_stage")
-		print("DUNGEON_SCENE_FLOW_OK: Lobby -> Armory -> Lobby retained persistent profile state")
-		get_tree().quit(0)
+		PlayerProfile.remove_meta("dungeon_flow_failure")
+		if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
+			failure = "Lobby did not restore visible mouse mode"
+		if failure.is_empty():
+			print("DUNGEON_SCENE_FLOW_OK: Lobby -> Armory -> Lobby retained profile and restored mouse ownership")
+			get_tree().quit(0)
+		else:
+			push_error("DUNGEON_SCENE_FLOW_FAILURE: " + failure)
+			get_tree().quit(1)
 		return
-	PlayerProfile.set_meta("dungeon_flow_stage", "deployed")
+	if stage == "between":
+		if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
+			PlayerProfile.set_meta("dungeon_flow_failure", "Lobby between dungeon deployments did not restore visible mouse mode")
+		PlayerProfile.set_meta("dungeon_flow_stage", "second")
+		_route_to_dungeon.call_deferred()
+		return
+	if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
+		PlayerProfile.set_meta("dungeon_flow_failure", "Initial Lobby mouse mode was not visible")
+	PlayerProfile.set_meta("dungeon_flow_stage", "first")
 	_route_to_dungeon.call_deferred()
 
 

@@ -51,7 +51,7 @@ func update_run(seconds_left: float, inventory: RunInventory, player: PlayerCont
 		hitmarker_remaining = maxf(0.0, hitmarker_remaining - get_process_delta_time())
 		hitmarker_label.visible = hitmarker_remaining > 0.0
 	if debug_visible:
-		debug_label.text = "DUNGEON TELEMETRY\nSEED  %s\nNORMAL EXTRACTS  %s\nHIDDEN EXTRACTS  %s\nKEY SPAWNED  %s\nKEY HELD  %s\nENEMIES ALIVE  %s\nRUN ITEMS  %s" % [debug_data.get("seed", 0), debug_data.get("normal", 0), debug_data.get("hidden", 0), debug_data.get("key_spawned", false), inventory.has_definition(&"extraction_key"), debug_data.get("enemies", 0), inventory.item_count()]
+		debug_label.text = "DUNGEON TELEMETRY\nSEED  %s\nNORMAL EXTRACTS  %s\nHIDDEN EXTRACTS  %s\nKEY SPAWNED  %s\nKEY HELD  %s\nENEMIES ALIVE  %s\nENEMIES WAKING  %s\nSPAWN PROTECTION  %.2fs\nRUN ITEMS  %s" % [debug_data.get("seed", 0), debug_data.get("normal", 0), debug_data.get("hidden", 0), debug_data.get("key_spawned", false), inventory.has_definition(&"extraction_key"), debug_data.get("enemies", 0), debug_data.get("waking", 0), debug_data.get("protection", 0.0), inventory.item_count()]
 
 
 func show_summary(title: String, detail: String) -> void:
@@ -66,6 +66,7 @@ func show_notice(message: String) -> void:
 func _build() -> void:
 	var root := Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 	timer_label = _label(root, "15:00", 28, Color(0.9, 0.93, 0.95))
 	timer_label.set_anchors_preset(Control.PRESET_CENTER_TOP)

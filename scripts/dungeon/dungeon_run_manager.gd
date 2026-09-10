@@ -6,6 +6,12 @@ const BOT_SCENE := preload("res://scenes/characters/bot.tscn")
 const RUN_DURATION := 900.0
 const KEY_SPAWN_CHANCE := 0.42
 
+@export_group("Spawn Safety")
+@export_range(8.0, 30.0, 0.5) var enemy_spawn_min_player_distance: float = 15.0
+@export_range(12.0, 35.0, 0.5) var elite_spawn_min_player_distance: float = 20.0
+@export_range(0.25, 3.0, 0.05) var enemy_spawn_activation_delay: float = 1.0
+@export_range(0.5, 4.0, 0.05) var player_start_protection_duration: float = 1.75
+
 @onready var generator: ArmoryGenerator = $ArmoryGenerator
 @onready var run_inventory: RunInventory = $RunInventory
 @onready var player: PlayerController = $Player
@@ -24,10 +30,12 @@ var extraction_requires_release: bool = false
 var notice_text: String = ""
 var notice_remaining: float = 0.0
 var loot_serial: int = 0
+var spawn_records: Array[Dictionary] = []
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	MouseModeService.capture_gameplay(player)
 	run_seed = int(Time.get_unix_time_from_system()) ^ Time.get_ticks_msec()
 	_setup_run(run_seed)
 	var args := OS.get_cmdline_user_args()
@@ -66,6 +74,7 @@ func _setup_run(seed_value: int) -> void:
 	player.global_position = layout.spawn_position
 	player.spawn_transform = player.global_transform
 	player.dungeon_durability_enabled = true
+	player.grant_damage_immunity(player_start_protection_duration)
 	hud.bind(player)
 	player.actor_died.connect(_on_player_died)
 	player.pause_requested.connect(_on_return_requested)
@@ -107,19 +116,26 @@ func _next_instance_id(kind: String) -> String:
 
 
 func _spawn_enemies(markers: Array, boss_spawn: Marker3D) -> void:
-	for marker_index: int in markers.size():
-		var marker := markers[marker_index] as Marker3D
-		var enemy := BOT_SCENE.instantiate() as BotController
-		enemy.position = marker.position
-		enemy.name = "ArmoryElite" if marker_index == markers.size() - 1 else "ArmoryGuard%02d" % (enemies.size() + 1)
-		add_child(enemy)
-		if marker_index == markers.size() - 1:
-			enemy.health.max_health = 155.0
-			enemy.health.reset()
-			enemy.aggression = 0.74
-		enemy.set_target(player)
-		enemy.actor_died.connect(_on_enemy_died)
-		enemies.append(enemy)
+	spawn_records.clear()
+	var normal_candidates: Array[Marker3D] = []
+	var elite_candidates: Array[Marker3D] = []
+	for marker_value: Variant in markers:
+		var marker := marker_value as Marker3D
+		if marker == null or int(marker.get_meta("room_index", -1)) == 0:
+			continue
+		if String(marker.get_meta("enemy_role", "normal")) == "elite":
+			elite_candidates.append(marker)
+		elif _is_spawn_marker_valid(marker, enemy_spawn_min_player_distance):
+			normal_candidates.append(marker)
+	normal_candidates.sort_custom(func(a: Marker3D, b: Marker3D) -> bool: return _spawn_marker_score(a) > _spawn_marker_score(b))
+	for index: int in mini(5, normal_candidates.size()):
+		_spawn_marker_enemy(normal_candidates[index], false)
+	elite_candidates.sort_custom(func(a: Marker3D, b: Marker3D) -> bool: return _spawn_marker_score(a) > _spawn_marker_score(b))
+	for marker: Marker3D in elite_candidates:
+		if _is_spawn_marker_valid(marker, elite_spawn_min_player_distance):
+			_spawn_marker_enemy(marker, true)
+			break
+	# The Warden always uses its dedicated, geometry-safe boss room marker.
 	var warden := BOT_SCENE.instantiate() as BotController
 	warden.position = boss_spawn.position
 	warden.name = "Warden"
@@ -129,9 +145,81 @@ func _spawn_enemies(markers: Array, boss_spawn: Marker3D) -> void:
 	warden.health.reset()
 	warden.aggression = 0.82
 	warden.accuracy = 0.68
-	warden.set_target(player)
 	warden.actor_died.connect(_on_enemy_died)
 	enemies.append(warden)
+	_prepare_enemy_wake(warden)
+	spawn_records.append(_make_spawn_record(boss_spawn, "boss"))
+
+
+func _spawn_marker_enemy(marker: Marker3D, elite: bool) -> void:
+	var enemy := BOT_SCENE.instantiate() as BotController
+	enemy.position = marker.position
+	enemy.name = "ArmoryElite" if elite else "ArmoryGuard%02d" % (enemies.size() + 1)
+	add_child(enemy)
+	if elite:
+		enemy.health.max_health = 155.0
+		enemy.health.reset()
+		enemy.aggression = 0.74
+	enemy.actor_died.connect(_on_enemy_died)
+	enemies.append(enemy)
+	_prepare_enemy_wake(enemy)
+	spawn_records.append(_make_spawn_record(marker, "elite" if elite else "normal"))
+
+
+func _prepare_enemy_wake(enemy: BotController) -> void:
+	enemy.set_target(null)
+	enemy.set_physics_process(false)
+	enemy.set_meta("spawn_activation_remaining", enemy_spawn_activation_delay)
+	_activate_enemy_after_delay(enemy)
+
+
+func _activate_enemy_after_delay(enemy: BotController) -> void:
+	await get_tree().create_timer(enemy_spawn_activation_delay).timeout
+	if run_finished or not is_instance_valid(enemy) or enemy.is_dead:
+		return
+	enemy.set_meta("spawn_activation_remaining", 0.0)
+	enemy.set_target(player)
+	enemy.set_physics_process(true)
+
+
+func _is_spawn_marker_valid(marker: Marker3D, minimum_distance: float) -> bool:
+	if marker.global_position.distance_to(player.global_position) < minimum_distance:
+		return false
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.46
+	capsule.height = 1.8
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = capsule
+	query.transform = Transform3D(Basis.IDENTITY, marker.global_position + Vector3.UP * 0.92)
+	query.collision_mask = 1
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	query.margin = 0.02
+	return get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
+
+
+func _spawn_marker_score(marker: Marker3D) -> float:
+	var distance_score := marker.global_position.distance_to(player.global_position)
+	return distance_score + (1000.0 if not _spawn_has_direct_player_los(marker.global_position) else 0.0)
+
+
+func _spawn_has_direct_player_los(spawn_position: Vector3) -> bool:
+	var origin := player.global_position + Vector3.UP * 1.25
+	var destination := spawn_position + Vector3.UP * 1.25
+	var query := PhysicsRayQueryParameters3D.create(origin, destination, 1, [player.get_rid()])
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
+func _make_spawn_record(marker: Marker3D, role: String) -> Dictionary:
+	return {
+		"role": role,
+		"room_index": int(marker.get_meta("room_index", 11 if role == "boss" else -1)),
+		"position": marker.global_position,
+		"distance": marker.global_position.distance_to(player.global_position),
+		"direct_los": _spawn_has_direct_player_los(marker.global_position),
+	}
 
 
 func _update_interactions(delta: float) -> String:
@@ -237,6 +325,7 @@ func _disable_extractions() -> void:
 func _return_to_lobby_after_delay() -> void:
 	await get_tree().create_timer(2.5).timeout
 	get_tree().paused = false
+	MouseModeService.enter_lobby()
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 
@@ -245,8 +334,13 @@ func _on_player_died(_actor: Node, _info: DamageInfo) -> void:
 
 
 func _on_return_requested() -> void:
-	if not run_finished:
+	if run_finished:
+		return
+	if player.is_cursor_free:
 		_fail_run("RUN ABANDONED", false)
+	else:
+		MouseModeService.release_gameplay(player)
+		_show_notice("CURSOR RELEASED  -  CLICK TO RECAPTURE  /  ESC AGAIN TO ABANDON", 2.5)
 
 
 func _on_player_damage_resolved(_info: DamageInfo, applied: float, _response: Dictionary) -> void:
@@ -287,10 +381,13 @@ func _show_notice(message: String, duration: float = 1.8) -> void:
 
 func _debug_data() -> Dictionary:
 	var alive := 0
+	var waking := 0
 	for enemy: BotController in enemies:
 		if is_instance_valid(enemy) and not enemy.is_dead:
 			alive += 1
-	return {"seed": run_seed, "normal": normal_extractions.size(), "hidden": hidden_extractions.size(), "key_spawned": key_spawned, "enemies": alive}
+			if not enemy.is_physics_processing():
+				waking += 1
+	return {"seed": run_seed, "normal": normal_extractions.size(), "hidden": hidden_extractions.size(), "key_spawned": key_spawned, "enemies": alive, "waking": waking, "protection": player.damage_immunity_remaining}
 
 
 func _run_dungeon_self_test() -> void:
@@ -299,6 +396,8 @@ func _run_dungeon_self_test() -> void:
 		failures.append("Generated run did not contain exactly 6 normal and 2 hidden extracts")
 	var saw_key := false
 	var saw_no_key := false
+	var first_spawn_plan: Array[Dictionary] = []
+	var spawn_plan_changed := false
 	for seed_value: int in range(101, 141):
 		var plan := ArmoryGenerator.build_extraction_plan(seed_value)
 		if plan.normal_rooms.size() != 6 or plan.hidden_rooms.size() != 2:
@@ -312,10 +411,46 @@ func _run_dungeon_self_test() -> void:
 		rng.seed = seed_value ^ 0x2C71
 		if rng.randf() < KEY_SPAWN_CHANCE: saw_key = true
 		else: saw_no_key = true
+		var spawn_plan := ArmoryGenerator.build_enemy_spawn_plan(seed_value)
+		if spawn_plan.size() != 10:
+			failures.append("Enemy marker plan count failed at seed %d" % seed_value)
+		for marker_data: Dictionary in spawn_plan:
+			if int(marker_data.room_index) in [0, 11]:
+				failures.append("Enemy marker entered a protected start/boss room at seed %d" % seed_value)
+		if first_spawn_plan.is_empty():
+			first_spawn_plan = spawn_plan
+		elif spawn_plan != first_spawn_plan:
+			spawn_plan_changed = true
 	if not saw_key or not saw_no_key:
 		failures.append("Key roll did not demonstrate 0-or-1 run outcomes")
+	if not spawn_plan_changed:
+		failures.append("Enemy marker placement did not vary across dungeon seeds")
 	if time_remaining > RUN_DURATION or chests.size() < 8 or enemies.size() < 2:
 		failures.append("Dungeon foundation was incomplete")
+	var normal_spawn_count := 0
+	var elite_spawn_count := 0
+	for record: Dictionary in spawn_records:
+		match String(record.role):
+			"normal":
+				normal_spawn_count += 1
+				if float(record.distance) < enemy_spawn_min_player_distance or int(record.room_index) == 0:
+					failures.append("Normal enemy violated safe spawn distance/room")
+			"elite":
+				elite_spawn_count += 1
+				if float(record.distance) < elite_spawn_min_player_distance:
+					failures.append("Elite violated safe spawn distance")
+			"boss":
+				if int(record.room_index) != 11:
+					failures.append("Warden did not use the dedicated boss-room marker")
+	if normal_spawn_count == 0 or elite_spawn_count != 1:
+		failures.append("Safe spawn selection did not create normal enemies and one elite")
+	for enemy: BotController in enemies:
+		if enemy.is_physics_processing():
+			failures.append("Enemy activated before the configured wake delay")
+	var protected_health := player.health.current_health
+	var protection_result := player.receive_damage(DamageInfo.new(25.0, enemies[0], &"spawn_test", false, false))
+	if float(protection_result.get("applied", -1.0)) != 0.0 or player.health.current_health != protected_health:
+		failures.append("Dungeon start protection did not negate incoming damage")
 	var warden: BotController
 	for enemy: BotController in enemies:
 		if enemy.name == "Warden": warden = enemy
@@ -436,8 +571,42 @@ func _run_dungeon_soak_test() -> void:
 
 
 func _run_dungeon_scene_flow_test() -> void:
+	var failure := String(PlayerProfile.get_meta("dungeon_flow_failure", ""))
+	if player.is_cursor_free or (DisplayServer.get_name() != "headless" and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED):
+		failure = "Dungeon did not capture the mouse on entry"
+	var yaw_before := player.rotation.y
+	var pitch_before := player.pitch_pivot.rotation.x
+	var mouse_motion := InputEventMouseMotion.new()
+	mouse_motion.relative = Vector2(24.0, -12.0)
+	get_viewport().push_input(mouse_motion)
 	await get_tree().process_frame
-	PlayerProfile.set_meta("dungeon_flow_stage", "returned")
+	if is_equal_approx(player.rotation.y, yaw_before) and is_equal_approx(player.pitch_pivot.rotation.x, pitch_before):
+		failure = "Dungeon HUD consumed mouse motion before camera look"
+	var camera_before := player.is_first_person
+	var camera_event := InputEventAction.new()
+	camera_event.action = &"toggle_camera"
+	camera_event.pressed = true
+	get_viewport().push_input(camera_event)
+	await get_tree().process_frame
+	if player.is_first_person == camera_before:
+		failure = "FPP/TPP switching failed after dungeon entry"
+	_on_return_requested()
+	if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or not player.is_cursor_free:
+		failure = "Dungeon ESC did not release the mouse"
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	player._input(click)
+	await get_tree().process_frame
+	# Headless display servers cannot reacquire OS pointer capture after releasing it.
+	# The gameplay ownership flag still verifies that the click reached the capture path.
+	if player.is_cursor_free or (DisplayServer.get_name() != "headless" and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED):
+		failure = "Gameplay click did not recapture the mouse"
+	if not failure.is_empty():
+		PlayerProfile.set_meta("dungeon_flow_failure", failure)
+	var stage := String(PlayerProfile.get_meta("dungeon_flow_stage", "first"))
+	PlayerProfile.set_meta("dungeon_flow_stage", "between" if stage == "first" else "returned")
+	MouseModeService.enter_lobby()
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 

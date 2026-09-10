@@ -18,6 +18,7 @@ var pause_panel: PanelContainer
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	MouseModeService.capture_gameplay(player)
 	player.spawn_transform = player.global_transform
 	bot.spawn_transform = bot.global_transform
 	bot.set_target(player)
@@ -132,13 +133,15 @@ func _toggle_pause() -> void:
 	var should_pause := not get_tree().paused
 	get_tree().paused = should_pause
 	pause_layer.visible = should_pause
-	player.is_cursor_free = should_pause
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if should_pause else Input.MOUSE_MODE_CAPTURED
+	if should_pause:
+		MouseModeService.release_gameplay(player)
+	else:
+		MouseModeService.capture_gameplay(player)
 
 
 func _return_to_lobby() -> void:
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseModeService.enter_lobby()
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 

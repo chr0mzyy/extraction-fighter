@@ -27,7 +27,7 @@ func generate(seed_value: int) -> Dictionary:
 	for index: int in plan.hidden_rooms.size():
 		_spawn_extraction(int(plan.hidden_rooms[index]), true, index)
 	_build_chest_markers(seed_value)
-	_build_enemy_markers()
+	_build_enemy_markers(seed_value)
 	return {
 		"normal_extractions": extraction_points.filter(func(point: ExtractionPoint) -> bool: return not point.hidden_extraction),
 		"hidden_extractions": extraction_points.filter(func(point: ExtractionPoint) -> bool: return point.hidden_extraction),
@@ -139,11 +139,29 @@ func _build_chest_markers(seed_value: int) -> void:
 		loot_chests.append(chest)
 
 
-func _build_enemy_markers() -> void:
-	for room_index: int in [2, 4, 5, 7, 8, 9]:
+static func build_enemy_spawn_plan(seed_value: int) -> Array[Dictionary]:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value ^ 0x41E71
+	var result: Array[Dictionary] = []
+	for room_index: int in range(1, 11):
+		var side := -1.0 if rng.randi() % 2 == 0 else 1.0
+		result.append({
+			"room_index": room_index,
+			"role": "elite" if room_index == 10 else "normal",
+			"offset": Vector3(4.6 * side, 0.15, rng.randf_range(-5.4, -4.5)),
+		})
+	return result
+
+
+func _build_enemy_markers(seed_value: int) -> void:
+	for marker_data: Dictionary in build_enemy_spawn_plan(seed_value):
+		var room_index := int(marker_data.room_index)
 		var marker := Marker3D.new()
 		marker.name = "EnemyMarker%02d" % room_index
-		marker.position = room_centers[room_index] + Vector3(0, 0.15, -1.5)
+		marker.position = room_centers[room_index] + (marker_data.offset as Vector3)
+		marker.set_meta("room_index", room_index)
+		marker.set_meta("room_type", ROOM_TYPES[room_index])
+		marker.set_meta("enemy_role", marker_data.role)
 		add_child(marker)
 		enemy_markers.append(marker)
 	boss_marker = Marker3D.new()
