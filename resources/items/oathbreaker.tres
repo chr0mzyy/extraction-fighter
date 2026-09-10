@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/knight_sword.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"oathbreaker"
+display_name = "Oathbreaker"
+flavor_text = "The broken vow still carries weight."
+description = "A Mythic guard sword that converts perfect melee parries into brutal counters."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"duelist", &"counterweight", &"crusher"])
+affix_tiers = [3, 2, 3]
+gameplay_scene = ExtResource("2")
+weapon_family = &"sword"
+damage = 35.0
+heavy_damage = 57.0
+attack_speed_label = "Measured"
+block_reduction = 0.82
+deflect_window = 0.16
+range_label = "Short"
+special_effect_id = &"oathbreaker"
+special_description = "Perfect melee parry empowers the next heavy for 2s: rapid windup, stronger stagger, short lunge."
+durability_max = 160
+sell_value = 520

@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/falcon_burst.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"trident"
+display_name = "Trident"
+flavor_text = "Three points, one intention."
+description = "A Mythic burst rifle that remembers a flawless grouping."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"stable", &"deadeye", &"fresh_mag"])
+affix_tiers = [3, 2, 2]
+gameplay_scene = ExtResource("2")
+weapon_family = &"burst_rifle"
+damage = 20.0
+fire_rate = 6.4
+magazine_size = 24
+reload_time = 1.85
+headshot_damage = 32.0
+range_label = "Medium–Long"
+special_effect_id = &"trident"
+special_description = "Landing all three burst rounds on one target empowers the next burst: faster, steadier, +12% damage."
+durability_max = 138
+sell_value = 480

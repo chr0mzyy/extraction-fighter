@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/ironclad_rifle.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"rusty_battle_rifle"
+display_name = "Rusty Battle Rifle"
+flavor_text = "Each shot shakes loose another year."
+description = "A hard-kicking old battle rifle with a small magazine."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"battle_rifle"
+damage = 30.0
+fire_rate = 2.35
+magazine_size = 10
+reload_time = 2.65
+headshot_damage = 44.0
+range_label = "Long"
+durability_max = 72
+sell_value = 24
+special_parameters = {"hipfire_spread_degrees": 1.6, "ads_spread_degrees": 0.3}

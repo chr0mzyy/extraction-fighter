@@ -24,12 +24,14 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	effects.tick(delta)
 	fire_cooldown_remaining = maxf(0.0, fire_cooldown_remaining - delta)
 	if is_reloading:
 		reload_remaining = maxf(0.0, reload_remaining - delta)
 		if reload_remaining <= 0.0:
 			is_reloading = false
 			ammo = magazine_size
+			effects.on_reload_completed()
 			state_changed.emit()
 
 
@@ -41,7 +43,8 @@ func request_primary() -> void:
 			wielder.on_empty_weapon()
 		return
 	ammo -= 1
-	fire_cooldown_remaining = fire_delay
+	fire_cooldown_remaining = fire_delay / effects.get_rate_multiplier()
+	effects.on_shot_fired()
 	fire_hitscan()
 	state_changed.emit()
 
@@ -50,7 +53,7 @@ func fire_hitscan() -> void:
 	var origin := get_aim_origin()
 	var direction := get_aim_direction().normalized()
 	if not is_ads:
-		var spread := deg_to_rad(hipfire_spread_degrees)
+		var spread := deg_to_rad(hipfire_spread_degrees * effects.get_spread_multiplier(false))
 		var yaw_error := random.randf_range(-spread, spread)
 		var pitch_error := random.randf_range(-spread, spread)
 		var right := direction.cross(Vector3.UP).normalized()
@@ -66,8 +69,14 @@ func fire_hitscan() -> void:
 	query.collide_with_bodies = true
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
+		effects.on_attack_missed()
 		return
 	var collider := hit.get("collider") as Node
+	if collider != null and not collider.has_method("get_damage_receiver") and not collider.has_method("receive_damage"):
+		var ricochet_hit := try_ricochet_hit(origin, hit, max_range)
+		if not ricochet_hit.is_empty():
+			hit = ricochet_hit
+			collider = hit.get("collider") as Node
 	var target: Node = null
 	var was_headshot := false
 	if collider != null and collider.has_method("get_damage_receiver"):
@@ -78,20 +87,19 @@ func fire_hitscan() -> void:
 		if target.has_method("is_headshot_position"):
 			was_headshot = bool(target.is_headshot_position(hit.get("position", target.global_position)))
 	if target == null or target == wielder or not target.has_method("receive_damage"):
+		effects.on_attack_missed()
 		return
 	var damage := headshot_damage if was_headshot else body_damage
-	var info := DamageInfo.new(
+	var info := make_damage_info(
 		damage,
-		wielder,
+		target,
 		&"sniper",
 		was_headshot,
 		false,
 		hit.get("position", target.global_position),
 		direction * 2.5
 	)
-	var result: Dictionary = target.receive_damage(info)
-	if float(result.get("applied", 0.0)) > 0.0:
-		hit_confirmed.emit(was_headshot)
+	resolve_damage(target, info)
 
 
 func secondary_pressed() -> void:
@@ -107,11 +115,13 @@ func secondary_released() -> void:
 
 
 func request_reload() -> void:
+	if try_special_activation():
+		return
 	if not equipped or is_reloading or ammo >= magazine_size:
 		return
 	is_reloading = true
 	is_ads = false
-	reload_remaining = reload_duration
+	reload_remaining = reload_duration / effects.get_reload_multiplier()
 	if is_instance_valid(wielder) and wielder.has_method("on_reload_started"):
 		wielder.on_reload_started()
 	state_changed.emit()
@@ -144,4 +154,4 @@ func get_ammo_text() -> String:
 
 
 func get_weapon_status() -> String:
-	return "RELOADING %.1fs" % reload_remaining if is_reloading else "READY"
+	return "RELOADING %.1fs" % reload_remaining if is_reloading else effect_status_or("READY")

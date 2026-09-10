@@ -156,11 +156,13 @@ func _update_weapon_panel() -> void:
 	if weapon != null and weapon.uses_ammunition():
 		ammo_label.text = weapon.get_ammo_text()
 		var weapon_status := weapon.get_weapon_status()
-		reload_label.text = weapon_status if weapon_status.begins_with("RELOADING") else "R  RELOAD  /  RMB  ADS"
+		var mythic_hint := weapon.effects.get_status_hint()
+		reload_label.text = mythic_hint if not mythic_hint.is_empty() else (weapon_status if weapon_status.begins_with("RELOADING") else "R  RELOAD  /  RMB  ADS")
 		reload_label.add_theme_color_override("font_color", COLOR_WARNING if weapon.get_ammo_text().begins_with("0 ") else COLOR_MUTED)
 	else:
 		ammo_label.text = "MELEE"
-		reload_label.text = "RMB  BLOCK / DEFLECT" if weapon is KatanaWeapon and not weapon is KnightSwordWeapon else "RMB  BLOCK"
+		var mythic_hint := weapon.effects.get_status_hint() if weapon != null else ""
+		reload_label.text = mythic_hint if not mythic_hint.is_empty() else ("RMB  BLOCK / DEFLECT" if weapon is KatanaWeapon and not weapon is KnightSwordWeapon else "RMB  BLOCK")
 		reload_label.add_theme_color_override("font_color", COLOR_MUTED)
 
 	var slot_one_active := player.current_weapon_index == 0

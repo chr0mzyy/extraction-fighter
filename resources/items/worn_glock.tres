@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/service_glock.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"worn_glock"
+display_name = "Worn Glock"
+flavor_text = "Scratched initials hide beneath the grip."
+description = "A loose service pistol with a small magazine."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"pistol"
+damage = 16.0
+fire_rate = 5.5
+magazine_size = 13
+reload_time = 1.75
+headshot_damage = 24.0
+range_label = "Close–Medium"
+durability_max = 64
+sell_value = 16
+special_parameters = {"hipfire_spread_degrees": 1.05}

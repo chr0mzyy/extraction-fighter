@@ -52,6 +52,8 @@ func _ready() -> void:
 		_run_content_self_test.call_deferred()
 	elif "--tooltip-self-test" in args:
 		_run_tooltip_self_test.call_deferred()
+	elif "--affix-self-test" in args:
+		_run_affix_self_test.call_deferred()
 	elif "--capture-loadout" in args:
 		_show_loadout()
 		_capture_lobby.bind("loadout").call_deferred()
@@ -66,7 +68,7 @@ func _ready() -> void:
 
 
 func _should_route_to_arena(args: PackedStringArray) -> bool:
-	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--loadout-integration-test", "--content-arena-test", "--pause-flow-test"]:
+	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test"]:
 		if flag in args:
 			return true
 	return false
@@ -120,7 +122,7 @@ func _build_shell() -> void:
 	top_margin.add_child(title_row)
 	var title := _label(title_row, "EXTRACTION FIGHTER", 25, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var milestone := _label(title_row, "MVP 0.2.1  /  CONTENT PROTOCOL", 12, COLOR_ACCENT)
+	var milestone := _label(title_row, "MVP 0.2.2  /  VARIANT FORGE", 12, COLOR_ACCENT)
 	milestone.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 	screen_host = Control.new()
@@ -129,7 +131,7 @@ func _build_shell() -> void:
 	screen_host.offset_bottom = -38
 	add_child(screen_host)
 
-	footer_label = _label(self, "LOCAL COMBAT PROFILE  •  SAVE VERSION 1", 11, COLOR_MUTED)
+	footer_label = _label(self, "LOCAL COMBAT PROFILE  •  SAVE VERSION 2", 11, COLOR_MUTED)
 	footer_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	footer_label.offset_left = 24
 	footer_label.offset_right = -24
@@ -251,7 +253,7 @@ func _show_loadout() -> void:
 	equipped_margin.add_child(equipped)
 	_label(equipped, "WEAPONS", 12, COLOR_ACCENT)
 	for index: int in 2:
-		_add_slot_button(equipped, "[%d]  %s" % [index + 1, _definition_name(PlayerProfile.weapon_slots[index])], "weapon", index, PlayerProfile.get_definition(PlayerProfile.weapon_slots[index]))
+		_add_slot_button(equipped, "[%d]  %s" % [index + 1, _definition_name(PlayerProfile.weapon_slots[index])], "weapon", index, PlayerProfile.get_definition(PlayerProfile.weapon_slots[index]), PlayerProfile.get_weapon_instance(index))
 	_label(equipped, "SKILLS", 12, COLOR_ACCENT)
 	for index: int in 2:
 		var definition := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
@@ -260,7 +262,7 @@ func _show_loadout() -> void:
 	for key: String in PlayerProfile.GEAR_KEYS:
 		var slot_title := key.capitalize().replace(" 1", " I").replace(" 2", " II")
 		var gear_definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
-		_add_gear_slot_button(equipped, "%s  •  %s" % [slot_title, _definition_name(String(PlayerProfile.equipped_gear.get(key, "")))], key, gear_definition)
+		_add_gear_slot_button(equipped, "%s  •  %s" % [slot_title, _definition_name(String(PlayerProfile.equipped_gear.get(key, "")))], key, gear_definition, PlayerProfile.get_gear_instance(key))
 
 	var choices_panel := _panel(columns)
 	choices_panel.name = "ChoicesPanel"
@@ -335,7 +337,7 @@ func _show_stash() -> void:
 		var item_button := _button(item_grid, "%s\n%s" % [definition.display_name, definition.get_type_name().to_upper()], false)
 		item_button.custom_minimum_size = Vector2(190, 64)
 		item_button.pressed.connect(_show_item_details.bind(definition))
-		_bind_tooltip(item_button, definition)
+		_bind_tooltip(item_button, definition, PlayerProfile.get_instance_for_definition(String(definition.id)))
 	var inventory_panel := _panel(body, Vector2(390, 0))
 	inventory_panel.name = "InventoryPanel"
 	var inventory_margin := _margin(inventory_panel, 14, 12, 14, 12)
@@ -355,7 +357,7 @@ func _show_stash() -> void:
 		slot.custom_minimum_size = Vector2(50, 50)
 		slot.disabled = item_id.is_empty()
 		if not item_id.is_empty():
-			_bind_tooltip(slot, PlayerProfile.get_definition(item_id))
+			_bind_tooltip(slot, PlayerProfile.get_definition(item_id), PlayerProfile.get_instance_for_definition(item_id))
 	details_label = _label(inventory_root, "Empty slots are ready for future dungeon loot.", 12, COLOR_MUTED)
 	details_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	details_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -395,18 +397,18 @@ func _show_simple_screen(title: String, subtitle: String) -> void:
 	_label(content, subtitle, 13, COLOR_MUTED)
 
 
-func _add_slot_button(parent: Control, text: String, kind: String, slot: int, definition: ItemDefinition = null) -> void:
+func _add_slot_button(parent: Control, text: String, kind: String, slot: int, definition: ItemDefinition = null, instance: ItemInstance = null) -> void:
 	var button := _button(parent, text, false)
 	button.custom_minimum_size.y = 42
 	button.pressed.connect(_select_loadout_target.bind(kind, slot, ""))
-	_bind_tooltip(button, definition)
+	_bind_tooltip(button, definition, instance)
 
 
-func _add_gear_slot_button(parent: Control, text: String, key: String, definition: ItemDefinition = null) -> void:
+func _add_gear_slot_button(parent: Control, text: String, key: String, definition: ItemDefinition = null, instance: ItemInstance = null) -> void:
 	var button := _button(parent, text, false)
 	button.custom_minimum_size.y = 36
 	button.pressed.connect(_select_loadout_target.bind("gear", 0, key))
-	_bind_tooltip(button, definition)
+	_bind_tooltip(button, definition, instance)
 
 
 func _select_loadout_target(kind: String, slot: int, gear_key: String) -> void:
@@ -429,7 +431,7 @@ func _populate_loadout_choices(container: GridContainer) -> void:
 		var button := _button(container, "%s%s" % [definition.display_name, suffix], false)
 		button.custom_minimum_size = Vector2(220, 52)
 		button.pressed.connect(_equip_definition.bind(definition))
-		_bind_tooltip(button, definition)
+		_bind_tooltip(button, definition, PlayerProfile.get_instance_for_definition(String(definition.id)))
 		if _is_definition_selected(definition):
 			button.add_theme_stylebox_override("normal", _style(Color(0.055, 0.18, 0.2), COLOR_ACCENT, 2, 4))
 
@@ -460,10 +462,10 @@ func _show_item_details(definition: ItemDefinition) -> void:
 	details_label.text = "\n".join(lines)
 
 
-func _bind_tooltip(control: Control, definition: ItemDefinition) -> void:
+func _bind_tooltip(control: Control, definition: ItemDefinition, instance: ItemInstance = null) -> void:
 	if definition == null or item_tooltip == null:
 		return
-	control.mouse_entered.connect(item_tooltip.show_item.bind(definition))
+	control.mouse_entered.connect(item_tooltip.show_item.bind(definition, instance))
 	control.mouse_exited.connect(item_tooltip.hide_item.bind(definition))
 
 
@@ -603,7 +605,7 @@ func _run_profile_self_test() -> void:
 		failures.append("Main inventory does not contain 24 persistent slots")
 	if PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size():
 		failures.append("Default stash does not contain the complete development catalog")
-	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.WEAPON).size() != 10 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.SKILL).size() != 10 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.GEAR).size() != 27:
+	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.WEAPON).size() != 30 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.SKILL).size() != 10 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.GEAR).size() != 27:
 		failures.append("Starting stash category counts are invalid")
 	if PlayerProfile.equip_gear("helmet", "simple_ring", false):
 		failures.append("Gear compatibility allowed a ring in the helmet slot")
@@ -704,7 +706,7 @@ func _run_content_self_test() -> void:
 		failures.append("Legacy profile migration did not preserve selected loadout")
 	PlayerProfile.apply_save_data(snapshot, false)
 	if failures.is_empty():
-		print("CONTENT_TEST_OK: 10 weapons, 10 skills, 27 gear items, Power rules, gameplay scenes and save migration passed")
+		print("CONTENT_TEST_OK: 30 weapon variants, 10 skills, 27 gear items, Power rules, gameplay scenes and save migration passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -762,6 +764,100 @@ func _run_tooltip_self_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("TOOLTIP_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_affix_self_test() -> void:
+	print("AFFIX_TEST_START")
+	var failures: Array[String] = []
+	var affixes := AffixDatabase.all()
+	if affixes.size() != 50:
+		failures.append("Expected exactly 50 affix definitions, got %d" % affixes.size())
+	var unique_ids: Dictionary = {}
+	for affix: AffixDefinition in affixes:
+		if unique_ids.has(affix.id): failures.append("Duplicate affix definition: " + String(affix.id))
+		unique_ids[affix.id] = true
+		if affix.tier_values.size() != 3: failures.append("Affix does not expose three tiers: " + String(affix.id))
+	var family_counts: Dictionary = {}
+	var family_rarities: Dictionary = {}
+	var weapon_count := 0
+	var mythic_count := 0
+	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
+		if definition.item_type != ItemDefinition.ItemType.WEAPON:
+			continue
+		weapon_count += 1
+		var family := String(definition.weapon_family)
+		family_counts[family] = int(family_counts.get(family, 0)) + 1
+		if not family_rarities.has(family): family_rarities[family] = {}
+		(family_rarities[family] as Dictionary)[definition.rarity] = true
+		var dev_instance := ItemInstance.create(definition)
+		failures.append_array(AffixRoller.validate_instance(dev_instance, definition))
+		if definition.gameplay_scene == null:
+			failures.append("Variant has no gameplay scene: " + String(definition.id))
+		else:
+			var runtime_weapon := definition.gameplay_scene.instantiate() as WeaponBase
+			if runtime_weapon == null:
+				failures.append("Variant scene is not WeaponBase: " + String(definition.id))
+			else:
+				add_child(runtime_weapon)
+				runtime_weapon.configure_from_item(definition, dev_instance)
+				if runtime_weapon.item_definition != definition or runtime_weapon.weapon_display_name != definition.display_name:
+					failures.append("Variant did not configure its family runtime: " + String(definition.id))
+				runtime_weapon.free()
+		if definition.rarity == ItemDefinition.Rarity.MYTHIC:
+			mythic_count += 1
+			if definition.special_effect_id == &"" or definition.special_description.is_empty():
+				failures.append("Mythic lacks a real unique identity: " + String(definition.id))
+	if weapon_count != 30 or family_counts.size() != 10 or mythic_count != 10:
+		failures.append("Variant roster must contain 30 weapons, 10 families and 10 mythics")
+	for family: Variant in family_counts:
+		var rarities: Dictionary = family_rarities[family]
+		if int(family_counts[family]) != 3 or not rarities.has(ItemDefinition.Rarity.COMMON) or not rarities.has(ItemDefinition.Rarity.RARE) or not rarities.has(ItemDefinition.Rarity.MYTHIC):
+			failures.append("Family does not contain Common/Rare/Mythic: " + String(family))
+	var rifle := PlayerProfile.get_definition("vanguard_rifle")
+	var roll_a := AffixRoller.roll_item(rifle, 42021, "test:roll")
+	var roll_b := AffixRoller.roll_item(rifle, 42021, "test:roll")
+	if roll_a.affix_ids != roll_b.affix_ids or roll_a.affix_tiers != roll_b.affix_tiers:
+		failures.append("Seeded affix rolling is not deterministic")
+	if not AffixRoller.validate_instance(roll_a, rifle).is_empty():
+		failures.append("Rolled rifle contains duplicates, invalid tiers, or incompatible affixes")
+	var round_trip := ItemInstance.from_dictionary(roll_a.to_dictionary())
+	if round_trip.instance_id != roll_a.instance_id or round_trip.definition_id != roll_a.definition_id or round_trip.affix_ids != roll_a.affix_ids or round_trip.affix_tiers != roll_a.affix_tiers:
+		failures.append("ItemInstance serialization round trip failed")
+	var equipped_instance := PlayerProfile.get_weapon_instance(0)
+	equipped_instance.durability = 37.0
+	var version_two_save := PlayerProfile.to_save_data()
+	if not PlayerProfile.apply_save_data(version_two_save, false) or PlayerProfile.get_weapon_instance(0) == null or not is_equal_approx(PlayerProfile.get_weapon_instance(0).durability, 37.0):
+		failures.append("Version 2 profile did not preserve equipped instance data")
+	var ricochet := AffixDatabase.get_definition(&"ricochet")
+	if not ricochet.is_compatible(rifle) or ricochet.is_compatible(PlayerProfile.get_definition("ronin_katana")):
+		failures.append("Gun-only affix compatibility is invalid")
+	var vampiric := AffixDatabase.get_definition(&"vampiric")
+	if not vampiric.is_compatible(PlayerProfile.get_definition("ronin_katana")) or vampiric.is_compatible(rifle):
+		failures.append("Melee-only affix compatibility is invalid")
+	var migrated := PlayerProfile.to_save_data()
+	migrated["save_version"] = 1
+	migrated.erase("owned_item_instances")
+	migrated.erase("weapon_instance_slots")
+	migrated.erase("equipped_gear_instances")
+	if not PlayerProfile.apply_save_data(migrated, false) or PlayerProfile.owned_item_instances.size() != PlayerProfile.owned_item_ids.size() or PlayerProfile.get_weapon_instance(0) == null:
+		failures.append("Version 1 profile did not migrate to persistent item instances")
+	item_tooltip.show_item(PlayerProfile.get_definition("phantom_katana"), PlayerProfile.get_instance_for_definition("phantom_katana"))
+	await get_tree().process_frame
+	var tooltip_text := item_tooltip.get_stats_text()
+	if not tooltip_text.contains("AFFIXES") or not tooltip_text.contains("Duelist III") or not tooltip_text.contains("Perfect parry") or not tooltip_text.contains("UNIQUE"):
+		failures.append("Tooltip did not render readable affix tiers and mythic identity")
+	item_tooltip.show_item(PlayerProfile.get_definition("rushfang"), PlayerProfile.get_instance_for_definition("rushfang"))
+	await get_tree().process_frame
+	if not item_tooltip.get_stats_text().contains("Fire Rate") or not item_tooltip.get_stats_text().contains("->") or not item_tooltip.get_stats_text().contains("Fast Reload II"):
+		failures.append("Tooltip did not show affix-modified effective stats")
+	item_tooltip.hide_item()
+	if failures.is_empty():
+		print("AFFIX_TEST_OK: 30 variants, 50 tiered affixes, compatibility, deterministic rolls, instances, migration and tooltip passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("AFFIX_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
 
 

@@ -7,6 +7,7 @@ const RARITY_COLORS: Array[Color] = [
 ]
 
 var current_item: ItemDefinition
+var current_instance: ItemInstance
 var preview_texture: TextureRect
 var preview_glyph: Label
 var name_label: Label
@@ -24,12 +25,13 @@ func _ready() -> void:
 	_build()
 
 
-func show_item(definition: ItemDefinition) -> void:
+func show_item(definition: ItemDefinition, instance: ItemInstance = null) -> void:
 	if definition == null:
 		return
-	if current_item != definition:
+	if current_item != definition or current_instance != instance:
 		current_item = definition
-		_update_content(definition)
+		current_instance = instance
+		_update_content(definition, instance)
 	visible = true
 	_reposition(get_viewport().get_mouse_position(), get_viewport_rect().size)
 
@@ -39,6 +41,7 @@ func hide_item(definition: ItemDefinition = null) -> void:
 		return
 	visible = false
 	current_item = null
+	current_instance = null
 
 
 func get_stats_text() -> String:
@@ -98,14 +101,14 @@ func _build() -> void:
 	stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 
-func _update_content(definition: ItemDefinition) -> void:
+func _update_content(definition: ItemDefinition, instance: ItemInstance) -> void:
 	var accent := RARITY_COLORS[clampi(definition.rarity, 0, RARITY_COLORS.size() - 1)]
 	name_label.text = definition.display_name.to_upper()
 	rarity_label.text = definition.get_rarity_name().to_upper()
 	rarity_label.add_theme_color_override("font_color", accent)
 	type_label.text = _type_line(definition)
 	flavor_label.text = '"%s"' % (definition.flavor_text if not definition.flavor_text.is_empty() else definition.description)
-	stats_label.text = _build_stats(definition)
+	stats_label.text = _build_stats(definition, instance)
 	preview_texture.texture = definition.preview_icon
 	preview_texture.visible = definition.preview_icon != null
 	preview_glyph.visible = definition.preview_icon == null
@@ -123,21 +126,21 @@ func _type_line(definition: ItemDefinition) -> String:
 	return definition.get_type_name().to_upper()
 
 
-func _build_stats(definition: ItemDefinition) -> String:
+func _build_stats(definition: ItemDefinition, instance: ItemInstance = null) -> String:
 	var lines: Array[String] = []
 	if definition.item_type == ItemDefinition.ItemType.WEAPON:
-		_add_number(lines, "Damage", definition.damage)
-		_add_number(lines, "Heavy Damage", definition.heavy_damage)
+		_add_effective_number(lines, "Damage", definition.damage, _effective_damage(definition.damage, instance, false))
+		_add_effective_number(lines, "Heavy Damage", definition.heavy_damage, _effective_damage(definition.heavy_damage, instance, false))
 		if not definition.attack_speed_label.is_empty(): lines.append("Attack Speed  %s" % definition.attack_speed_label)
-		_add_number(lines, "Fire Rate", definition.fire_rate, " / sec")
+		_add_effective_number(lines, "Fire Rate", definition.fire_rate, _effective_fire_rate(definition.fire_rate, instance), " / sec")
 		if definition.magazine_size > 0: lines.append("Magazine  %d" % definition.magazine_size)
-		_add_number(lines, "Reload", definition.reload_time, "s")
-		_add_number(lines, "Headshot", definition.headshot_damage)
+		_add_effective_number(lines, "Reload", definition.reload_time, _effective_reload(definition.reload_time, instance), "s")
+		_add_effective_number(lines, "Headshot", definition.headshot_damage, _effective_damage(definition.headshot_damage, instance, true))
 		if definition.block_reduction > 0.0: lines.append("Block  %d%%" % roundi(definition.block_reduction * 100.0))
 		_add_number(lines, "Deflect Window", definition.deflect_window, "s")
 		if not definition.range_label.is_empty(): lines.append("Range  %s" % definition.range_label)
 		if definition.durability_max > 0: lines.append("Durability  %d" % definition.durability_max)
-		if not definition.special_description.is_empty(): lines.append("\nSPECIAL\n%s" % definition.special_description)
+		if not definition.special_description.is_empty(): lines.append("\n%s\n%s" % ["UNIQUE" if definition.rarity == ItemDefinition.Rarity.MYTHIC else "SPECIAL", definition.special_description])
 	elif definition.item_type == ItemDefinition.ItemType.SKILL:
 		lines.append("Power  %d" % definition.power_cost)
 		_add_number(lines, "Cooldown", definition.cooldown, "s")
@@ -148,8 +151,81 @@ func _build_stats(definition: ItemDefinition) -> String:
 		if definition.armor_value > 0: lines.append("Armor  %d" % definition.armor_value)
 		if not definition.modifier_text.is_empty(): lines.append("Modifier  %s" % definition.modifier_text)
 		if not definition.description.is_empty(): lines.append("\n%s" % definition.description)
-	if not definition.affix_ids.is_empty(): lines.append("\nAFFIXES\n%s" % ", ".join(definition.affix_ids))
+	var affix_lines := _affix_lines(definition, instance)
+	if not affix_lines.is_empty():
+		lines.append("\nAFFIXES\n" + "\n\n".join(affix_lines))
 	return "\n".join(lines)
+
+
+func _affix_lines(definition: ItemDefinition, instance: ItemInstance) -> Array[String]:
+	var result: Array[String] = []
+	var ids := instance.affix_ids if instance != null else definition.affix_ids
+	var tiers := instance.affix_tiers if instance != null else definition.affix_tiers
+	for index: int in ids.size():
+		var affix := AffixDatabase.get_definition(ids[index])
+		if affix == null:
+			continue
+		var tier_value := tiers[index] if index < tiers.size() else 1
+		result.append("%s %s\n%s" % [affix.display_name, _roman(tier_value), affix.formatted_description(tier_value)])
+	return result
+
+
+func _effective_damage(base_value: float, instance: ItemInstance, headshot: bool) -> float:
+	if base_value <= 0.0 or instance == null:
+		return base_value
+	var multiplier := 1.0
+	for index: int in instance.affix_ids.size():
+		var affix_id := instance.affix_ids[index]
+		var tier_value := instance.affix_tiers[index] if index < instance.affix_tiers.size() else 1
+		var affix := AffixDatabase.get_definition(affix_id)
+		if affix == null: continue
+		if affix_id == &"heavy": multiplier *= 1.0 + affix.value_for_tier(tier_value) / 100.0
+		elif affix_id == &"rapid": multiplier *= 1.0 - affix.secondary_for_tier(tier_value) / 100.0
+		elif affix_id == &"glass_cannon": multiplier *= 1.0 + affix.value_for_tier(tier_value) / 100.0
+		elif affix_id == &"gambler": multiplier *= 0.95
+		elif affix_id == &"deadeye" and headshot: multiplier *= 1.0 + affix.value_for_tier(tier_value) / 100.0
+	return base_value * multiplier
+
+
+func _effective_fire_rate(base_value: float, instance: ItemInstance) -> float:
+	if base_value <= 0.0 or instance == null:
+		return base_value
+	var multiplier := 1.0
+	for index: int in instance.affix_ids.size():
+		var affix_id := instance.affix_ids[index]
+		var tier_value := instance.affix_tiers[index] if index < instance.affix_tiers.size() else 1
+		var affix := AffixDatabase.get_definition(affix_id)
+		if affix == null: continue
+		if affix_id == &"heavy": multiplier *= 1.0 - affix.secondary_for_tier(tier_value) / 100.0
+		elif affix_id == &"rapid": multiplier *= 1.0 + affix.value_for_tier(tier_value) / 100.0
+	return base_value * multiplier
+
+
+func _effective_reload(base_value: float, instance: ItemInstance) -> float:
+	if base_value <= 0.0 or instance == null:
+		return base_value
+	for index: int in instance.affix_ids.size():
+		if instance.affix_ids[index] != &"fast_reload": continue
+		var affix := AffixDatabase.get_definition(&"fast_reload")
+		var tier_value := instance.affix_tiers[index] if index < instance.affix_tiers.size() else 1
+		return base_value / (1.0 + affix.value_for_tier(tier_value) / 100.0)
+	return base_value
+
+
+func _add_effective_number(lines: Array[String], label_text: String, base_value: float, effective_value: float, suffix: String = "") -> void:
+	if base_value <= 0.0: return
+	if not is_equal_approx(base_value, effective_value):
+		lines.append("%s  %s%s -> %s%s" % [label_text, _number(base_value), suffix, _number(effective_value), suffix])
+	else:
+		lines.append("%s  %s%s" % [label_text, _number(base_value), suffix])
+
+
+func _number(value: float) -> String:
+	return str(roundi(value)) if is_equal_approx(value, roundf(value)) else "%.1f" % value
+
+
+func _roman(tier_value: int) -> String:
+	return ["I", "II", "III"][clampi(tier_value, 1, 3) - 1]
 
 
 func _add_number(lines: Array[String], label_text: String, value: float, suffix: String = "") -> void:

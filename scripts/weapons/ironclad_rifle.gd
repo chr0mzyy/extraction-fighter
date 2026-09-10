@@ -26,4 +26,4 @@ func request_primary() -> void:
 
 
 func get_weapon_status() -> String:
-	return "RELOADING %.1fs" % reload_remaining if is_reloading else "BATTLE SEMI"
+	return "RELOADING %.1fs" % reload_remaining if is_reloading else effect_status_or("BATTLE SEMI")

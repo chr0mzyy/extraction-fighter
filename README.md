@@ -1,4 +1,4 @@
-# Extraction Fighter - MVP 0.2.1
+# Extraction Fighter - MVP 0.2.2
 
 A local single-player Godot 4.7.2 combat prototype with a persistent lobby, data-driven loadouts, and a fast player-versus-bot arena.
 
@@ -26,19 +26,21 @@ The project starts in the lobby. `PLAY > ARENA` deploys the currently selected t
 - `LMB`: light attack / fire
 - `RMB`: block / ADS
 - `F`: melee heavy attack
-- `R`: firearm reload
+- `R`: firearm reload / activate a ready Mythic weapon action
 - `Esc`: pause menu
 - `F3`: debug overlay
 
 Double Jump is the intentional contextual exception to Q/E: it occupies a skill slot but activates with a second airborne `Space` press. Other skills activate from whichever Q/E slot they occupy; contextual skills only activate when their requirements are met.
 
-The development stash contains ten playable weapons (three melee, six firearms, and one projectile wand), ten movement/combat skills, and 27 gear foundations spanning Common, Rare, and Mythic progression. The default build remains Ronin Katana, Huntsman Rifle, Dash, and Double Jump (130/200 Power). Skill combinations above 200 Power are rejected.
+The development stash contains 30 playable weapon variants: a Common, Rare, and Mythic version for each of the ten weapon families. It also includes ten movement/combat skills and 27 gear foundations. The default build remains Ronin Katana, Huntsman Rifle, Dash, and Double Jump (130/200 Power). Skill combinations above 200 Power are rejected.
 
-Hover any owned or equipped item in Loadout, Stash, or a populated Main Inventory slot to inspect its reusable rarity-colored tooltip. Tooltips show a generated placeholder preview and only the stats relevant to that item type.
+Items are stored as persistent instances separate from their reusable definitions. Instances carry durability plus zero to three compatible, non-duplicated affixes with Tier I-III rolls. The 50-affix catalog covers combat, movement, skills, elements, risk/reward, melee, firearms, and ultra-rare effects. Common items roll 0-1 affixes, Rare items 1-2, and Mythic items 2-3 plus a fixed identity mechanic.
+
+Hover any owned or equipped item in Loadout, Stash, or a populated Main Inventory slot to inspect its reusable rarity-colored tooltip. Tooltips show the exact instance's affix names, tiers, readable effect descriptions, unique Mythic mechanic, and base-to-effective damage/fire-rate/reload values where applicable.
 
 The arena remains an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character. Existing momentum-preserving air control, bunny hopping, crouching, sliding, slide jumping, cameras, bot AI, combat, launch pads, scoring, and respawn behavior remain active.
 
-Profiles are stored as versioned JSON at `user://player_profile.json`. Missing, malformed, and unsupported profiles safely fall back to the default build.
+Profiles are stored as version-2 JSON at `user://player_profile.json`. Version-1 profiles migrate to persistent item instances while preserving valid owned items and equipped slots. Missing, malformed, and unsupported profiles safely fall back to the default build.
 
 ## Validation
 
@@ -50,6 +52,8 @@ Profiles are stored as versioned JSON at `user://player_profile.json`. Missing, 
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --content-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --tooltip-self-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --affix-self-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --effect-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --content-arena-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --loadout-integration-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --lobby-layout-test

@@ -10,6 +10,7 @@ var hit_position: Vector3
 var knockback: Vector3
 var can_reflect: bool
 var bypass_defense: bool
+var armor_penetration: float = 0.0
 
 
 func _init(
@@ -46,4 +47,3 @@ func make_reflection(defender: Node) -> DamageInfo:
 		false,
 		false
 	)
-

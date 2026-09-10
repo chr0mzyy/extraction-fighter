@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scripts/characters/bot_controller.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/visuals/humanoid_placeholder.gd" id="visual"]
@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/weapons/katana.tscn" id="5"]
 [ext_resource type="PackedScene" path="res://scenes/weapons/sniper.tscn" id="6"]
 [ext_resource type="Script" path="res://scripts/characters/bot_movement_controller.gd" id="7"]
+[ext_resource type="Script" path="res://scripts/components/status_effect_component.gd" id="status"]
 
 [sub_resource type="CapsuleShape3D" id="BodyShape"]
 radius = 0.44
@@ -59,6 +60,9 @@ shape = SubResource("HeadShape")
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("2")
+
+[node name="StatusEffects" type="Node" parent="."]
+script = ExtResource("status")
 
 [node name="AimPivot" type="Node3D" parent="."]
 position = Vector3(0, 1.42, 0)

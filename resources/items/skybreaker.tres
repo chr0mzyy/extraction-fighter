@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/sniper.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"skybreaker"
+display_name = "Skybreaker"
+flavor_text = "One shot opens a road through the air."
+description = "A Mythic rifle that turns a headshot into a movement opportunity."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"deadeye", &"lightweight", &"burning"])
+affix_tiers = [3, 2, 1]
+gameplay_scene = ExtResource("2")
+weapon_family = &"sniper"
+damage = 62.0
+fire_rate = 1.11
+magazine_size = 4
+reload_time = 1.65
+headshot_damage = 112.0
+range_label = "Extreme"
+special_effect_id = &"skybreaker"
+special_description = "Headshot grants a 1s window. Press R to dash and gain 2x movement speed for 1s."
+durability_max = 135
+sell_value = 500

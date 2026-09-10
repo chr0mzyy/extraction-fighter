@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/katana.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"rusty_katana"
+display_name = "Rusty Katana"
+flavor_text = "The edge remembers rain."
+description = "A tired deflect blade with unforgiving timing."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"katana"
+damage = 22.0
+heavy_damage = 36.0
+attack_speed_label = "Sluggish"
+block_reduction = 0.55
+deflect_window = 0.11
+range_label = "Short"
+durability_max = 65
+sell_value = 18
+special_parameters = {"light_recovery": 0.52, "heavy_recovery": 1.05}

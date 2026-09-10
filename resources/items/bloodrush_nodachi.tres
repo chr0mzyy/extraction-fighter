@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/war_nodachi.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"bloodrush_nodachi"
+display_name = "Bloodrush Nodachi"
+flavor_text = "It leans toward the next heartbeat."
+description = "A Mythic lunge blade that feeds successful heavy strikes into its next charge."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"heavy", &"crusher", &"chaser"])
+affix_tiers = [2, 3, 2]
+gameplay_scene = ExtResource("2")
+weapon_family = &"nodachi"
+damage = 39.0
+heavy_damage = 60.0
+attack_speed_label = "Slow"
+block_reduction = 0.58
+range_label = "Long Melee"
+special_effect_id = &"bloodrush"
+special_description = "Enhanced lunges. Heavy hits charge additional distance for the next lunge."
+durability_max = 145
+sell_value = 440
+special_parameters = {"light_lunge": 5.2, "heavy_lunge": 9.0}

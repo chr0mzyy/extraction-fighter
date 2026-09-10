@@ -138,6 +138,7 @@ var random := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
+	add_to_group("damageable")
 	add_to_group("bot")
 	spawn_transform = global_transform
 	random.randomize()
@@ -835,6 +836,10 @@ func receive_damage(info: DamageInfo) -> Dictionary:
 	return health.apply_damage(info)
 
 
+func get_total_armor() -> float:
+	return 0.0
+
+
 func on_damage_response(response_type: StringName, _info: DamageInfo, _applied: float) -> void:
 	if response_type == &"deflect":
 		feedback.emit(&"deflect", {})
@@ -970,6 +975,7 @@ func respawn() -> void:
 	pending_dodge_direction = Vector3.ZERO
 	move_direction = Vector3.ZERO
 	player_disappeared_direction = Vector3.ZERO
+	($StatusEffects as StatusEffectComponent).effects.clear()
 	collision_layer = 2
 	collision_mask = 1
 	body_collision.disabled = false

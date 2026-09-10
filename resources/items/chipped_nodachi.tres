@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/war_nodachi.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"chipped_nodachi"
+display_name = "Chipped Nodachi"
+flavor_text = "Too long to hide, too damaged to boast."
+description = "A slow lunge blade with a shortened driving step."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"nodachi"
+damage = 30.0
+heavy_damage = 47.0
+attack_speed_label = "Very Slow"
+block_reduction = 0.45
+range_label = "Long Melee"
+durability_max = 70
+sell_value = 20
+special_parameters = {"light_recovery": 0.78, "heavy_recovery": 1.35, "light_lunge": 2.8, "heavy_lunge": 5.0}

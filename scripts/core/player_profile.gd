@@ -4,7 +4,7 @@ signal profile_changed
 signal loadout_changed
 signal validation_failed(message: String)
 
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 const SAVE_PATH := "user://player_profile.json"
 const INVENTORY_SIZE := 24
 const POWER_LIMIT := 200
@@ -13,10 +13,14 @@ const GEAR_KEYS: Array[String] = [
 ]
 
 var item_index: Dictionary = {}
+var instance_index: Dictionary = {}
 var owned_item_ids: Array[String] = []
+var owned_item_instances: Array[ItemInstance] = []
 var weapon_slots: Array[String] = ["", ""]
+var weapon_instance_slots: Array[String] = ["", ""]
 var skill_slots: Array[String] = ["", ""]
 var equipped_gear: Dictionary = {}
+var equipped_gear_instances: Dictionary = {}
 var main_inventory: Array[String] = []
 var last_load_used_defaults: bool = false
 var last_error: String = ""
@@ -30,9 +34,15 @@ func _ready() -> void:
 
 func reset_to_defaults(save_after: bool = true) -> void:
 	owned_item_ids.clear()
+	owned_item_instances.clear()
+	instance_index.clear()
 	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
 		owned_item_ids.append(String(definition.id))
+		var instance := ItemInstance.create(definition)
+		owned_item_instances.append(instance)
+		instance_index[instance.instance_id] = instance
 	weapon_slots = ["ronin_katana", "huntsman_rifle"]
+	weapon_instance_slots = ["dev:ronin_katana", "dev:huntsman_rifle"]
 	skill_slots = ["dash", "double_jump"]
 	equipped_gear = {
 		"helmet": "training_helmet",
@@ -44,6 +54,9 @@ func reset_to_defaults(save_after: bool = true) -> void:
 		"ring_2": "iron_ring",
 		"charm": "basic_charm",
 	}
+	equipped_gear_instances = {}
+	for key: String in GEAR_KEYS:
+		equipped_gear_instances[key] = "dev:%s" % String(equipped_gear[key])
 	main_inventory.clear()
 	main_inventory.resize(INVENTORY_SIZE)
 	main_inventory.fill("")
@@ -58,6 +71,25 @@ func reset_to_defaults(save_after: bool = true) -> void:
 
 func get_definition(item_id: String) -> ItemDefinition:
 	return item_index.get(item_id) as ItemDefinition
+
+
+func get_instance(instance_id: String) -> ItemInstance:
+	return instance_index.get(instance_id) as ItemInstance
+
+
+func get_instance_for_definition(definition_id: String) -> ItemInstance:
+	for instance: ItemInstance in owned_item_instances:
+		if String(instance.definition_id) == definition_id:
+			return instance
+	return null
+
+
+func get_weapon_instance(slot: int) -> ItemInstance:
+	return get_instance(weapon_instance_slots[slot]) if slot >= 0 and slot < weapon_instance_slots.size() else null
+
+
+func get_gear_instance(slot_key: String) -> ItemInstance:
+	return get_instance(String(equipped_gear_instances.get(slot_key, "")))
 
 
 func get_owned_definitions(type_filter: int = -1) -> Array[ItemDefinition]:
@@ -95,6 +127,8 @@ func equip_weapon(slot: int, item_id: String, save_after: bool = true) -> bool:
 	if weapon_slots[other_slot] == item_id:
 		return _fail("A weapon cannot occupy both slots")
 	weapon_slots[slot] = item_id
+	var instance := get_instance_for_definition(item_id)
+	weapon_instance_slots[slot] = instance.instance_id if instance != null else ""
 	_commit_loadout_change(save_after)
 	return true
 
@@ -130,6 +164,8 @@ func equip_gear(slot_key: String, item_id: String, save_after: bool = true) -> b
 	if not _gear_fits(slot_key, definition.gear_slot):
 		return _fail("That item does not fit this gear slot")
 	equipped_gear[slot_key] = item_id
+	var instance := get_instance_for_definition(item_id)
+	equipped_gear_instances[slot_key] = instance.instance_id if instance != null else ""
 	_commit_loadout_change(save_after)
 	return true
 
@@ -176,18 +212,25 @@ func validate_loadout() -> Dictionary:
 
 
 func to_save_data() -> Dictionary:
+	var serialized_instances: Array[Dictionary] = []
+	for instance: ItemInstance in owned_item_instances:
+		serialized_instances.append(instance.to_dictionary())
 	return {
 		"save_version": SAVE_VERSION,
 		"owned_item_ids": owned_item_ids.duplicate(),
+		"owned_item_instances": serialized_instances,
 		"weapon_slots": weapon_slots.duplicate(),
+		"weapon_instance_slots": weapon_instance_slots.duplicate(),
 		"skill_slots": skill_slots.duplicate(),
 		"equipped_gear": equipped_gear.duplicate(true),
+		"equipped_gear_instances": equipped_gear_instances.duplicate(true),
 		"main_inventory": main_inventory.duplicate(),
 	}
 
 
 func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
-	if int(data.get("save_version", -1)) != SAVE_VERSION:
+	var incoming_version := int(data.get("save_version", -1))
+	if incoming_version not in [1, SAVE_VERSION]:
 		last_error = "Unsupported save version"
 		return false
 	var incoming_owned := _string_array(data.get("owned_item_ids", []))
@@ -200,10 +243,27 @@ func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 		return false
 	owned_item_ids = incoming_owned
 	catalog_migrated_last_load = _ensure_development_catalog_owned()
+	_rebuild_item_instances(data.get("owned_item_instances", []) if incoming_version >= 2 else [])
 	weapon_slots = incoming_weapons
+	weapon_instance_slots.clear()
+	if incoming_version >= 2:
+		weapon_instance_slots = _string_array(data.get("weapon_instance_slots", []))
+	if weapon_instance_slots.size() != 2:
+		weapon_instance_slots = ["", ""]
+	for slot: int in 2:
+		if get_instance(weapon_instance_slots[slot]) == null:
+			var instance := get_instance_for_definition(weapon_slots[slot])
+			weapon_instance_slots[slot] = instance.instance_id if instance != null else ""
 	skill_slots = incoming_skills
 	main_inventory = incoming_inventory
 	equipped_gear = (incoming_gear as Dictionary).duplicate(true)
+	equipped_gear_instances = (data.get("equipped_gear_instances", {}) as Dictionary).duplicate(true) if data.get("equipped_gear_instances", {}) is Dictionary else {}
+	for key: String in GEAR_KEYS:
+		if get_instance(String(equipped_gear_instances.get(key, ""))) == null:
+			var instance := get_instance_for_definition(String(equipped_gear.get(key, "")))
+			equipped_gear_instances[key] = instance.instance_id if instance != null else ""
+	if incoming_version == 1:
+		catalog_migrated_last_load = true
 	var validation := validate_loadout()
 	if not bool(validation.valid):
 		last_error = "; ".join(validation.errors)
@@ -294,3 +354,26 @@ func _ensure_development_catalog_owned() -> bool:
 			owned_item_ids.append(item_id)
 			changed = true
 	return changed
+
+
+func _rebuild_item_instances(serialized: Variant) -> void:
+	owned_item_instances.clear()
+	instance_index.clear()
+	if serialized is Array:
+		for entry: Variant in serialized:
+			if not entry is Dictionary:
+				continue
+			var instance := ItemInstance.from_dictionary(entry)
+			if get_definition(String(instance.definition_id)) == null or instance.instance_id.is_empty():
+				continue
+			owned_item_instances.append(instance)
+			instance_index[instance.instance_id] = instance
+	for definition_id: String in owned_item_ids:
+		if get_instance_for_definition(definition_id) != null:
+			continue
+		var definition := get_definition(definition_id)
+		if definition == null:
+			continue
+		var instance := ItemInstance.create(definition)
+		owned_item_instances.append(instance)
+		instance_index[instance.instance_id] = instance

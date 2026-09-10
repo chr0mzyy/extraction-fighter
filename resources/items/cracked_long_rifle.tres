@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/sniper.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"cracked_long_rifle"
+display_name = "Cracked Long Rifle"
+flavor_text = "The scope is honest only at noon."
+description = "A damaged precision rifle with poor handling."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"sniper"
+damage = 48.0
+fire_rate = 0.9
+magazine_size = 3
+reload_time = 2.15
+headshot_damage = 88.0
+range_label = "Long"
+durability_max = 60
+sell_value = 22
+special_parameters = {"hipfire_spread_degrees": 1.15}

@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/ironclad_rifle.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"kingslayer"
+display_name = "Kingslayer"
+flavor_text = "A throne is only another firing position."
+description = "A Mythic battle rifle that converts precision into a short advance."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"armor_piercing", &"deadeye", &"heavy"])
+affix_tiers = [3, 2, 1]
+gameplay_scene = ExtResource("2")
+weapon_family = &"battle_rifle"
+damage = 37.0
+fire_rate = 2.85
+magazine_size = 14
+reload_time = 2.2
+headshot_damage = 56.0
+range_label = "Long"
+special_effect_id = &"kingslayer"
+special_description = "Headshot grants a 1.2s window. Press R for a controlled forward combat lunge."
+durability_max = 155
+sell_value = 520

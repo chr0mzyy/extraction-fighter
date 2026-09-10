@@ -11,3 +11,5 @@ rarity = 2
 gear_slot = 4
 armor_value = 3
 modifier_text = "+3 Armor · Minor Mobility"
+affix_ids = Array[StringName]([&"lightweight", &"slider"])
+affix_tiers = [2, 1]

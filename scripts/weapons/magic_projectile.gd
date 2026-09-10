@@ -2,13 +2,15 @@ class_name MagicProjectile
 extends Node3D
 
 var source: Node
+var source_weapon: WeaponBase
 var travel_direction: Vector3 = Vector3.FORWARD
 var speed: float = 34.0
 var damage: float = 31.0
 var remaining_life: float = 3.0
 
 
-func setup(p_source: Node, origin: Vector3, direction: Vector3, p_damage: float, p_speed: float) -> void:
+func setup(p_weapon: WeaponBase, p_source: Node, origin: Vector3, direction: Vector3, p_damage: float, p_speed: float) -> void:
+	source_weapon = p_weapon
 	source = p_source
 	global_position = origin
 	travel_direction = direction.normalized()
@@ -42,10 +44,11 @@ func _physics_process(delta: float) -> void:
 	elif collider != null and collider.has_method("receive_damage"):
 		target = collider
 	if target != null and target != source and target.has_method("receive_damage"):
-		var info := DamageInfo.new(damage * (1.35 if headshot else 1.0), source, &"arcane_projectile", headshot, false, hit.get("position", destination), travel_direction * 2.0)
-		var result: Dictionary = target.receive_damage(info)
-		if float(result.get("applied", 0.0)) > 0.0 and is_instance_valid(source) and source.has_method("on_weapon_hit_confirmed"):
-			source.on_weapon_hit_confirmed(headshot)
+		var base_damage := damage * (1.35 if headshot else 1.0)
+		var info := source_weapon.make_damage_info(base_damage, target, &"arcane_projectile", headshot, false, hit.get("position", destination), travel_direction * 2.0)
+		source_weapon.resolve_damage(target, info)
+	elif is_instance_valid(source_weapon):
+		source_weapon.notify_attack_missed()
 	queue_free()
 
 

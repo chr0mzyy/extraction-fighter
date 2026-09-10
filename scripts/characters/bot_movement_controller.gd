@@ -176,6 +176,9 @@ func _update_regular_movement(
 		target_speed = crouch_speed
 	elif wants_sprint:
 		target_speed = sprint_speed
+	var status := actor.get_node_or_null("StatusEffects") as StatusEffectComponent
+	var handling_multiplier := status.get_handling_multiplier() if status != null else 1.0
+	target_speed *= handling_multiplier
 
 	var target_velocity := wish_direction * target_speed
 	if grounded:
@@ -191,9 +194,9 @@ func _update_regular_movement(
 	else:
 		if wish_direction.length_squared() > 0.001:
 			var air_velocity := Vector3(actor.velocity.x, 0.0, actor.velocity.z)
-			air_velocity += wish_direction * air_acceleration * delta
-			if air_velocity.length() > air_speed_cap:
-				air_velocity = air_velocity.normalized() * air_speed_cap
+			air_velocity += wish_direction * air_acceleration * handling_multiplier * delta
+			if air_velocity.length() > air_speed_cap * handling_multiplier:
+				air_velocity = air_velocity.normalized() * air_speed_cap * handling_multiplier
 			actor.velocity.x = air_velocity.x
 			actor.velocity.z = air_velocity.z
 		movement_state = &"AIRBORNE"

@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/vanguard_rifle.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"rushfang"
+display_name = "Rushfang"
+flavor_text = "Pressure is a path, not a warning."
+description = "A Mythic automatic rifle that rewards sustained accurate pressure."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"rapid", &"momentum", &"fast_reload"])
+affix_tiers = [2, 2, 2]
+gameplay_scene = ExtResource("2")
+weapon_family = &"assault_rifle"
+damage = 19.0
+fire_rate = 9.2
+magazine_size = 30
+reload_time = 1.95
+headshot_damage = 28.0
+range_label = "Medium"
+special_effect_id = &"rushfang"
+special_description = "Five hits in quick succession grant movement and reload/fire-speed for 3s."
+durability_max = 140
+sell_value = 470

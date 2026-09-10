@@ -11,3 +11,5 @@ rarity = 2
 gear_slot = 3
 armor_value = 3
 modifier_text = "+3 Armor · Minor Handling"
+affix_ids = Array[StringName]([&"quickdraw", &"duelist"])
+affix_tiers = [2, 1]

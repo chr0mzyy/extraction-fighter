@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/twin_glock.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"hell_twins"
+display_name = "Hell Twins"
+flavor_text = "Silence returns only when both are empty."
+description = "Mythic paired pistols that become unnaturally precise after a kill."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"airborne", &"mag_dump", &"adrenaline"])
+affix_tiers = [3, 3, 2]
+gameplay_scene = ExtResource("2")
+weapon_family = &"akimbo_pistols"
+damage = 16.0
+fire_rate = 9.8
+magazine_size = 36
+reload_time = 2.2
+headshot_damage = 23.0
+range_label = "Close"
+special_effect_id = &"hell_twins"
+special_description = "Kill grants 2s near-zero hipfire spread, improved air control, and dash-safe accuracy."
+durability_max = 140
+sell_value = 490

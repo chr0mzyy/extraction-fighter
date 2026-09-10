@@ -10,3 +10,5 @@ item_type = 2
 rarity = 5
 gear_slot = 5
 modifier_text = "Improved Awareness"
+affix_ids = Array[StringName]([&"charged", &"flow"])
+affix_tiers = [2, 1]

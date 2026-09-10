@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/twin_glock.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"scuffed_akimbo"
+display_name = "Scuffed Akimbo"
+flavor_text = "Two bad ideas, held confidently."
+description = "A rough paired sidearm set with wild spread."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"akimbo_pistols"
+damage = 12.0
+fire_rate = 8.2
+magazine_size = 28
+reload_time = 2.7
+headshot_damage = 18.0
+range_label = "Close"
+durability_max = 62
+sell_value = 20
+special_parameters = {"hipfire_spread_degrees": 2.25}

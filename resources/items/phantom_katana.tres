@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/katana.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"phantom_katana"
+display_name = "Phantom Katana"
+flavor_text = "The victim sees only the empty scabbard."
+description = "A Mythic deflect blade that stores a vanishing step after a melee kill."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"duelist", &"lightweight", &"vampiric"])
+affix_tiers = [3, 2, 1]
+gameplay_scene = ExtResource("2")
+weapon_family = &"katana"
+damage = 30.0
+heavy_damage = 47.0
+attack_speed_label = "Fast"
+block_reduction = 0.72
+deflect_window = 0.2
+range_label = "Short"
+special_effect_id = &"phantom"
+special_description = "Melee kill stores Phantom Step. Press R for 5s invisibility, speed, and jump height; attacking cancels."
+durability_max = 130
+sell_value = 420

@@ -16,7 +16,11 @@ func _ready() -> void:
 	perfect_deflect_duration = 0.0
 
 
-func get_damage_response(_info: DamageInfo) -> Dictionary:
+func get_damage_response(info: DamageInfo) -> Dictionary:
 	if not equipped or not is_blocking:
 		return {}
+	if deflect_remaining > 0.0 and info.is_melee and item_definition != null and item_definition.special_effect_id == &"oathbreaker":
+		effects.on_block(true)
+		return {"negate": true, "stagger_attacker": true, "stagger_duration": 0.85}
+	effects.on_block(false)
 	return {"damage_multiplier": blocked_damage_multiplier}

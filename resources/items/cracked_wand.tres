@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/arcane_wand.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"cracked_wand"
+display_name = "Cracked Wand"
+flavor_text = "Blue light leaks through every fracture."
+description = "A weak focus that launches slow arcane bolts."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"magic"
+damage = 24.0
+fire_rate = 1.65
+attack_speed_label = "Slow"
+range_label = "Medium"
+durability_max = 55
+sell_value = 20
+special_parameters = {"projectile_speed": 26.0}

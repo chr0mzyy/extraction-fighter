@@ -14,6 +14,7 @@ enum GearSlot { NONE, HELMET, CHEST, GLOVES, BOOTS, NECKLACE, RING, CHARM }
 @export var preview_icon: Texture2D
 @export var sell_value: int = 0
 @export var affix_ids: Array[StringName] = []
+@export var affix_tiers: Array[int] = []
 
 @export_group("Gameplay")
 @export var gameplay_scene: PackedScene
@@ -42,6 +43,10 @@ enum GearSlot { NONE, HELMET, CHEST, GLOVES, BOOTS, NECKLACE, RING, CHARM }
 
 @export_group("Gear Tooltip Stats")
 @export var modifier_text: String = ""
+
+@export_group("Variant Identity")
+@export var special_effect_id: StringName
+@export var special_parameters: Dictionary = {}
 
 
 func get_type_name() -> String:

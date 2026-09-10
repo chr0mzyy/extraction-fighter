@@ -30,6 +30,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	effects.tick(delta)
 	recovery_remaining = maxf(0.0, recovery_remaining - delta)
 	deflect_remaining = maxf(0.0, deflect_remaining - delta)
 	swing_remaining = maxf(0.0, swing_remaining - delta)
@@ -46,7 +47,8 @@ func _process(delta: float) -> void:
 func request_primary() -> void:
 	if not equipped or recovery_remaining > 0.0 or is_blocking or not is_instance_valid(wielder):
 		return
-	recovery_remaining = light_recovery
+	recovery_remaining = light_recovery / effects.get_rate_multiplier()
+	effects.on_shot_fired()
 	attack_serial += 1
 	swing_total = 0.24
 	swing_remaining = swing_total
@@ -60,7 +62,8 @@ func request_primary() -> void:
 func request_heavy() -> void:
 	if not equipped or recovery_remaining > 0.0 or is_blocking or not is_instance_valid(wielder):
 		return
-	recovery_remaining = heavy_recovery
+	recovery_remaining = heavy_recovery / effects.get_rate_multiplier()
+	effects.on_shot_fired()
 	attack_serial += 1
 	swing_total = 0.46
 	swing_remaining = swing_total
@@ -69,7 +72,10 @@ func request_heavy() -> void:
 	if wielder.has_method("on_melee_swing"):
 		wielder.on_melee_swing(true)
 	state_changed.emit()
-	await get_tree().create_timer(heavy_windup).timeout
+	var special_lunge := effects.get_lunge_multiplier()
+	if item_definition != null and item_definition.special_effect_id == &"oathbreaker" and special_lunge > 1.0 and wielder.has_method("apply_weapon_lunge"):
+		wielder.apply_weapon_lunge(4.5 * special_lunge)
+	await get_tree().create_timer(heavy_windup * effects.get_heavy_windup_multiplier()).timeout
 	if equipped and is_instance_valid(wielder) and not bool(wielder.get("is_dead")) and this_attack == attack_serial:
 		perform_attack(heavy_damage, heavy_range, true, this_attack)
 
@@ -96,12 +102,14 @@ func get_damage_response(info: DamageInfo) -> Dictionary:
 	if not equipped or not is_blocking:
 		return {}
 	if deflect_remaining > 0.0:
+		effects.on_block(true)
 		return {
 			"negate": true,
 			"reflect": not info.is_melee,
 			"stagger_attacker": info.is_melee,
 			"stagger_duration": 0.7
 		}
+	effects.on_block(false)
 	return {"damage_multiplier": blocked_damage_multiplier}
 
 
@@ -136,18 +144,22 @@ func perform_attack(damage: float, attack_range: float, heavy: bool, _serial: in
 		var horizontal_knockback := direction
 		horizontal_knockback.y = 0.18 if heavy else 0.05
 		horizontal_knockback = horizontal_knockback.normalized() * (7.0 if heavy else 2.4)
-		var info := DamageInfo.new(
+		if heavy and effects.has(&"crusher"):
+			horizontal_knockback *= 1.0 + effects.value(&"crusher") / 100.0
+		var info := make_damage_info(
 			damage,
-			wielder,
+			target,
 			&"katana_heavy" if heavy else &"katana_light",
 			false,
 			true,
 			target_3d.global_position,
 			horizontal_knockback
 		)
-		var result_data: Dictionary = target.receive_damage(info)
-		if float(result_data.get("applied", 0.0)) > 0.0:
-			hit_confirmed.emit(false)
+		if heavy and effects.has(&"crusher") and target.has_method("apply_stagger"):
+			target.apply_stagger(0.15 + effects.value(&"crusher") * 0.01)
+		resolve_damage(target, info, heavy)
+	if hit_ids.is_empty():
+		effects.on_attack_missed()
 
 
 func unequip() -> void:

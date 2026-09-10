@@ -129,7 +129,8 @@ func physics_step(delta: float, stagger_remaining: float = 0.0) -> void:
 			jumped = true
 			grounded = false
 		elif jump_pressed and not grounded and not _is_near_landing() and double_jump_skill != null and double_jump_skill.try_activate():
-			actor.velocity.y = double_jump_skill.jump_velocity
+			var jump_multiplier := float(actor.get_jump_multiplier()) if actor.has_method("get_jump_multiplier") else 1.0
+			actor.velocity.y = double_jump_skill.jump_velocity * jump_multiplier
 			jump_buffer_remaining = 0.0
 			movement_event.emit(&"double_jump")
 			jumped = true
@@ -165,6 +166,8 @@ func _update_ground_movement(delta: float, wish_direction: Vector3, stagger_rema
 		_apply_ground_friction(delta, wish_direction.length_squared() < 0.01)
 	var speed_before_acceleration := get_horizontal_speed()
 	var speed := crouch_speed if is_crouching else (sprint_speed if Input.is_action_pressed("sprint") else walk_speed)
+	if actor.has_method("get_movement_speed_multiplier"):
+		speed *= float(actor.get_movement_speed_multiplier())
 	if stagger_remaining > 0.0:
 		speed *= 0.25
 	if wish_direction.length_squared() > 0.01:
@@ -177,6 +180,8 @@ func _update_air_movement(delta: float, wish_direction: Vector3, stagger_remaini
 	var previous_speed := get_horizontal_speed()
 	if wish_direction.length_squared() > 0.01:
 		var wish_speed := minf(air_speed_cap, sprint_speed if Input.is_action_pressed("sprint") else walk_speed)
+		if actor.has_method("get_movement_speed_multiplier"):
+			wish_speed *= float(actor.get_movement_speed_multiplier())
 		if stagger_remaining > 0.0:
 			wish_speed *= 0.35
 		var horizontal := get_horizontal_velocity()
@@ -211,7 +216,8 @@ func _apply_air_control(wish_direction: Vector3, delta: float) -> void:
 	var alignment := current_direction.dot(wish_direction)
 	if alignment <= 0.0:
 		return
-	var turn_amount := clampf(air_control * alignment * alignment * delta, 0.0, 1.0)
+	var control_multiplier := float(actor.get_air_control_multiplier()) if actor.has_method("get_air_control_multiplier") else 1.0
+	var turn_amount := clampf(air_control * control_multiplier * alignment * alignment * delta, 0.0, 1.0)
 	var controlled_direction := current_direction.slerp(wish_direction, turn_amount).normalized()
 	_set_horizontal_velocity(controlled_direction * speed)
 
@@ -243,7 +249,8 @@ func _update_slide(delta: float, wish_direction: Vector3, crouch_held: bool) -> 
 	slide_elapsed += delta
 	var horizontal := get_horizontal_velocity()
 	var speed := horizontal.length()
-	if not crouch_held or speed < slide_min_speed * 0.55 or slide_elapsed >= slide_duration_cap:
+	var slide_multiplier := float(actor.get_slide_affix_multiplier()) if actor.has_method("get_slide_affix_multiplier") else 1.0
+	if not crouch_held or speed < slide_min_speed * 0.55 or slide_elapsed >= slide_duration_cap * slide_multiplier:
 		_end_slide()
 		movement_state = "CROUCH" if crouch_held else "GROUND"
 		return
@@ -255,7 +262,7 @@ func _update_slide(delta: float, wish_direction: Vector3, crouch_held: bool) -> 
 		var downhill := Vector3.DOWN.slide(floor_normal)
 		horizontal += Vector3(downhill.x, 0.0, downhill.z) * gravity * delta * 0.42
 		speed = horizontal.length()
-	speed = maxf(0.0, speed - slide_friction * delta)
+	speed = maxf(0.0, speed - slide_friction / slide_multiplier * delta)
 	_set_horizontal_velocity(horizontal.normalized() * speed)
 	movement_state = "SLIDE"
 
@@ -267,7 +274,8 @@ func _perform_ground_jump(from_slide: bool) -> void:
 		if get_horizontal_speed() > 0.01:
 			_set_horizontal_velocity(get_horizontal_velocity().normalized() * carried_speed)
 		movement_event.emit(&"slide_jump")
-	actor.velocity.y = jump_velocity
+	var jump_multiplier := float(actor.get_jump_multiplier()) if actor.has_method("get_jump_multiplier") else 1.0
+	actor.velocity.y = jump_velocity * jump_multiplier
 	jump_buffer_remaining = 0.0
 	coyote_remaining = 0.0
 	normal_jump_available = false

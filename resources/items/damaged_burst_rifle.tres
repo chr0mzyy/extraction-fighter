@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/falcon_burst.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"damaged_burst_rifle"
+display_name = "Damaged Burst Rifle"
+flavor_text = "The third report always arrives late."
+description = "A loose three-round platform with poor burst cadence."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"burst_rifle"
+damage = 15.0
+fire_rate = 5.2
+magazine_size = 21
+reload_time = 2.2
+headshot_damage = 24.0
+range_label = "Medium"
+durability_max = 62
+sell_value = 19
+special_parameters = {"burst_delay": 0.62, "hipfire_spread_degrees": 1.15, "ads_spread_degrees": 0.24}

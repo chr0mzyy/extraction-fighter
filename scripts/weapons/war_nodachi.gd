@@ -39,4 +39,4 @@ func get_damage_response(info: DamageInfo) -> Dictionary:
 
 func _lunge(strength: float) -> void:
 	if wielder.has_method("apply_weapon_lunge"):
-		wielder.apply_weapon_lunge(strength)
+		wielder.apply_weapon_lunge(strength * effects.get_lunge_multiplier())

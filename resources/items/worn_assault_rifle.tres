@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/vanguard_rifle.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"worn_assault_rifle"
+display_name = "Worn Assault Rifle"
+flavor_text = "The receiver rattles, but answers."
+description = "A worn automatic rifle with rough recoil and reload."
+item_type = 0
+rarity = 0
+gameplay_scene = ExtResource("2")
+weapon_family = &"assault_rifle"
+damage = 15.0
+fire_rate = 8.0
+magazine_size = 26
+reload_time = 2.4
+headshot_damage = 22.0
+range_label = "Medium"
+durability_max = 68
+sell_value = 20
+special_parameters = {"hipfire_spread_degrees": 1.25, "ads_spread_degrees": 0.3}

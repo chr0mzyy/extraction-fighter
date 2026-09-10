@@ -39,22 +39,43 @@ var stagger_remaining: float = 0.0
 var camera_kick: float = 0.0
 var is_invisible: bool = false
 var visibility_factor: float = 1.0
+var gear_effects: Array[WeaponEffectRuntime] = []
+var movement_buff_multiplier: float = 1.0
+var movement_buff_remaining: float = 0.0
+var jump_buff_multiplier: float = 1.0
+var jump_buff_remaining: float = 0.0
+var air_control_buff_multiplier: float = 1.0
+var air_control_buff_remaining: float = 0.0
+var overclock_remaining: float = 0.0
+var linked_bonus_remaining: float = 0.0
+var linked_bonus_multiplier: float = 1.0
+var reversal_attacker: Node
+var reversal_remaining: float = 0.0
+var phase_check_remaining: float = 0.0
+var phase_ready: bool = false
+var recent_skill: SkillBase
+var recent_skill_time: float = -100.0
+var invisibility_sources: Dictionary = {}
 
 
 func _ready() -> void:
 	add_to_group("player")
+	add_to_group("damageable")
 	spawn_transform = global_transform
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_instantiate_profile_loadout()
-	for child in weapon_mount.get_children():
+	for index: int in weapon_mount.get_child_count():
+		var child := weapon_mount.get_child(index)
 		if child is WeaponBase:
 			var weapon := child as WeaponBase
 			weapons.append(weapon)
 			weapon.setup(self)
+			weapon.configure_from_item(PlayerProfile.get_definition(weapon_definition_ids[index]), PlayerProfile.get_weapon_instance(index))
 			weapon.hit_confirmed.connect(_on_weapon_hit)
 			weapon.unequip()
 	health.died.connect(_on_health_died)
 	movement.setup(self, body_collision, visual_body, pitch_pivot, head_hurtbox, dash_skill, double_jump_skill)
+	_build_gear_effects()
 	movement.movement_event.connect(_on_movement_event)
 	spring_arm.add_excluded_object(get_rid())
 	spring_arm.add_excluded_object(head_hurtbox.get_rid())
@@ -103,6 +124,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_affix_state(delta)
 	if camera_kick > 0.0001:
 		var recovery := minf(camera_kick, delta * 0.8)
 		pitch_pivot.rotation.x += recovery
@@ -138,12 +160,18 @@ func _physics_process(delta: float) -> void:
 func equip_weapon(index: int) -> void:
 	if index < 0 or index >= weapons.size() or index == current_weapon_index and current_weapon != null:
 		return
+	var previous_hit_recent := false
 	if current_weapon != null:
+		previous_hit_recent = Time.get_ticks_msec() / 1000.0 - current_weapon.effects.last_damage_time < 2.0
 		current_weapon.set_primary_held(false)
 		current_weapon.unequip()
 	current_weapon_index = index
 	current_weapon = weapons[index]
 	current_weapon.equip()
+	current_weapon.effects.on_weapon_swap()
+	if previous_hit_recent and _has_active_affix(&"linked"):
+		linked_bonus_multiplier = 1.0 + _max_affix_value(&"linked") / 100.0
+		linked_bonus_remaining = 1.5
 	feedback.emit(&"weapon_switched", {"name": current_weapon.weapon_display_name})
 
 
@@ -181,9 +209,19 @@ func is_headshot_position(hit_position: Vector3) -> bool:
 
 
 func modify_incoming_damage(info: DamageInfo) -> Dictionary:
+	var multiplier := get_incoming_affix_multiplier()
+	reversal_attacker = info.attacker
+	reversal_remaining = 2.5
+	phase_check_remaining = 0.0
+	phase_ready = false
 	if current_weapon != null:
-		return current_weapon.get_damage_response(info)
-	return {}
+		var response := current_weapon.get_damage_response(info)
+		response["damage_multiplier"] = float(response.get("damage_multiplier", 1.0)) * multiplier
+		if bool(response.get("negate", false)) or float(response.get("damage_multiplier", 1.0)) < multiplier:
+			for runtime: WeaponEffectRuntime in gear_effects:
+				runtime.on_block(bool(response.get("negate", false)))
+		return response
+	return {"damage_multiplier": multiplier}
 
 
 func receive_damage(info: DamageInfo) -> Dictionary:
@@ -227,10 +265,14 @@ func on_weapon_hit_confirmed(headshot: bool) -> void:
 	_on_weapon_hit(headshot)
 
 
-func set_invisibility(active: bool) -> void:
-	is_invisible = active
-	visibility_factor = 0.15 if active else 1.0
-	visual_body.visible = not is_first_person and not is_dead and not active
+func set_invisibility(active: bool, source: StringName = &"skill") -> void:
+	if active:
+		invisibility_sources[source] = true
+	else:
+		invisibility_sources.erase(source)
+	is_invisible = not invisibility_sources.is_empty()
+	visibility_factor = 0.15 if is_invisible else 1.0
+	visual_body.visible = not is_first_person and not is_dead and not is_invisible
 	feedback.emit(&"invisibility" if active else &"invisibility_end", {})
 
 
@@ -239,14 +281,14 @@ func force_kill() -> void:
 
 
 func on_sniper_fired(ads: bool) -> void:
-	var kick := 0.018 if ads else 0.028
+	var kick := (0.018 if ads else 0.028) * (current_weapon.effects.get_recoil_multiplier() if current_weapon != null else 1.0)
 	pitch_pivot.rotation.x = clampf(pitch_pivot.rotation.x - kick, deg_to_rad(-84.0), deg_to_rad(84.0))
 	camera_kick += kick
 	feedback.emit(&"sniper_fired", {"ads": ads})
 
 
 func on_rifle_fired(ads: bool) -> void:
-	var kick := 0.006 if ads else 0.01
+	var kick := (0.006 if ads else 0.01) * (current_weapon.effects.get_recoil_multiplier() if current_weapon != null else 1.0)
 	pitch_pivot.rotation.x = clampf(pitch_pivot.rotation.x - kick, deg_to_rad(-84.0), deg_to_rad(84.0))
 	camera_kick += kick
 	feedback.emit(&"rifle_fired", {"ads": ads})
@@ -273,6 +315,10 @@ func _on_weapon_hit(headshot: bool) -> void:
 
 
 func _on_movement_event(event_name: StringName) -> void:
+	if event_name == &"dash" and _has_active_affix(&"phase"):
+		phase_check_remaining = 0.35
+	for runtime: WeaponEffectRuntime in _active_effects():
+		runtime.on_traversal(event_name)
 	feedback.emit(event_name, {})
 
 
@@ -294,7 +340,9 @@ func respawn() -> void:
 	velocity = Vector3.ZERO
 	is_dead = false
 	stagger_remaining = 0.0
+	invisibility_sources.clear()
 	set_invisibility(false)
+	_reset_affix_state()
 	collision_layer = 2
 	collision_mask = 1
 	for skill: SkillBase in equipped_skills:
@@ -367,7 +415,12 @@ func perform_collision_safe_blink(distance: float) -> bool:
 
 func _activate_skill_slot(index: int) -> void:
 	if index >= 0 and index < equipped_skills.size():
-		equipped_skills[index].request_activate(self)
+		var skill := equipped_skills[index]
+		if skill.request_activate(self):
+			recent_skill = skill
+			recent_skill_time = Time.get_ticks_msec() / 1000.0
+			if _has_active_affix(&"overclocked"):
+				overclock_remaining = 1.5
 
 
 func _release_skill_slot(index: int) -> void:
@@ -378,6 +431,221 @@ func _release_skill_slot(index: int) -> void:
 func _notify_skills_of_attack() -> void:
 	for skill: SkillBase in equipped_skills:
 		skill.on_owner_attack(self)
+	if invisibility_sources.has(&"phantom"):
+		set_invisibility(false, &"phantom")
+
+
+func notify_affix_attack() -> void:
+	_notify_skills_of_attack()
+
+
+func apply_temporary_movement_buff(multiplier: float, duration: float) -> void:
+	movement_buff_multiplier = maxf(movement_buff_multiplier, multiplier)
+	movement_buff_remaining = maxf(movement_buff_remaining, duration)
+
+
+func apply_temporary_jump_buff(multiplier: float, duration: float) -> void:
+	jump_buff_multiplier = maxf(jump_buff_multiplier, multiplier)
+	jump_buff_remaining = maxf(jump_buff_remaining, duration)
+
+
+func apply_temporary_air_control_buff(multiplier: float, duration: float) -> void:
+	air_control_buff_multiplier = maxf(air_control_buff_multiplier, multiplier)
+	air_control_buff_remaining = maxf(air_control_buff_remaining, duration)
+
+
+func activate_phantom_state(duration: float) -> void:
+	set_invisibility(true, &"phantom")
+	apply_temporary_movement_buff(1.3, duration)
+	apply_temporary_jump_buff(1.25, duration)
+	feedback.emit(&"phantom_ready", {})
+
+
+func apply_special_dash(speed: float) -> void:
+	var direction := get_skill_move_direction()
+	velocity.x = direction.x * speed
+	velocity.z = direction.z * speed
+
+
+func teleport_to_safe_point(point: Vector3) -> bool:
+	var capsule := body_collision.shape as CapsuleShape3D
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = capsule
+	query.transform = Transform3D(global_basis, point + Vector3.UP * capsule.height * 0.5)
+	query.collision_mask = 1
+	query.exclude = [get_rid()]
+	query.margin = 0.05
+	if not get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty():
+		return false
+	global_position = point
+	return true
+
+
+func reduce_skill_cooldowns(fraction: float) -> void:
+	for skill: SkillBase in equipped_skills:
+		skill.cooldown_remaining *= 1.0 - clampf(fraction, 0.0, 0.5)
+
+
+func reduce_movement_skill_cooldowns(fraction: float) -> void:
+	for skill: SkillBase in equipped_skills:
+		if skill.skill_id in [&"dash", &"air_dash", &"launch", &"wallrun", &"grapple", &"blink"]:
+			skill.cooldown_remaining *= 1.0 - clampf(fraction, 0.0, 0.4)
+
+
+func refund_recent_skill(fraction: float) -> void:
+	if is_instance_valid(recent_skill) and Time.get_ticks_msec() / 1000.0 - recent_skill_time < 1.5:
+		recent_skill.cooldown_remaining *= 1.0 - clampf(fraction, 0.0, 0.35)
+
+
+func notify_gear_kill(target: Node, info: DamageInfo) -> void:
+	for runtime: WeaponEffectRuntime in gear_effects:
+		runtime.on_kill(target, info)
+
+
+func notify_gear_damage_dealt(target: Node, info: DamageInfo, result: Dictionary, heavy_attack: bool = false) -> void:
+	for runtime: WeaponEffectRuntime in gear_effects:
+		runtime.on_damage_dealt(target, info, result, heavy_attack)
+
+
+func on_affix_dot_kill(target: Node, _status: StatusEffectComponent) -> void:
+	var info := DamageInfo.new(0.0, self, &"elemental", false, false)
+	if current_weapon != null:
+		current_weapon.effects.on_kill(target, info)
+	notify_gear_kill(target, info)
+
+
+func get_affix_damage_multiplier(target: Node, headshot: bool = false, is_melee: bool = false) -> float:
+	var multiplier := linked_bonus_multiplier if linked_bonus_remaining > 0.0 else 1.0
+	if reversal_remaining > 0.0 and target == reversal_attacker and _has_active_affix(&"reversal"):
+		multiplier *= 1.0 + _max_affix_value(&"reversal") / 100.0
+	for runtime: WeaponEffectRuntime in gear_effects:
+		multiplier *= runtime.modify_damage(1.0, target, headshot, is_melee)
+	return multiplier
+
+
+func consume_phase_penetration() -> float:
+	if not phase_ready:
+		return 0.0
+	phase_ready = false
+	return _max_affix_value(&"phase") / 100.0
+
+
+func get_affix_rate_multiplier() -> float:
+	var multiplier := 1.0
+	if overclock_remaining > 0.0:
+		multiplier *= 1.0 + _max_affix_value(&"overclocked") / 100.0
+	if health.current_health / health.max_health < 0.2 and _has_active_affix(&"last_stand"):
+		multiplier *= 1.0 + _max_affix_value(&"last_stand") / 100.0
+	for runtime: WeaponEffectRuntime in gear_effects:
+		multiplier *= runtime.get_rate_multiplier()
+	return multiplier
+
+
+func get_movement_speed_multiplier() -> float:
+	var multiplier := movement_buff_multiplier if movement_buff_remaining > 0.0 else 1.0
+	for runtime: WeaponEffectRuntime in _active_effects():
+		multiplier *= runtime.movement_multiplier()
+	return multiplier * ($StatusEffects as StatusEffectComponent).get_handling_multiplier()
+
+
+func get_jump_multiplier() -> float:
+	return jump_buff_multiplier if jump_buff_remaining > 0.0 else 1.0
+
+
+func get_air_control_multiplier() -> float:
+	var multiplier := air_control_buff_multiplier if air_control_buff_remaining > 0.0 else 1.0
+	for runtime: WeaponEffectRuntime in _active_effects():
+		multiplier *= runtime.air_control_multiplier()
+	return multiplier * ($StatusEffects as StatusEffectComponent).get_handling_multiplier()
+
+
+func get_slide_affix_multiplier() -> float:
+	var multiplier := 1.0
+	for runtime: WeaponEffectRuntime in _active_effects():
+		multiplier *= runtime.slide_multiplier()
+	return multiplier
+
+
+func get_incoming_affix_multiplier() -> float:
+	var multiplier := 1.0
+	for runtime: WeaponEffectRuntime in _active_effects():
+		multiplier *= runtime.incoming_damage_multiplier()
+	return multiplier
+
+
+func get_total_armor() -> float:
+	var total := 0.0
+	for key: String in PlayerProfile.GEAR_KEYS:
+		var definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
+		if definition != null:
+			total += definition.armor_value
+	return total
+
+
+func _build_gear_effects() -> void:
+	gear_effects.clear()
+	for key: String in PlayerProfile.GEAR_KEYS:
+		var instance := PlayerProfile.get_gear_instance(key)
+		var definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
+		if instance == null or definition == null:
+			continue
+		var runtime := WeaponEffectRuntime.new()
+		runtime.configure(null, self, definition, instance)
+		gear_effects.append(runtime)
+
+
+func _active_effects() -> Array[WeaponEffectRuntime]:
+	var result: Array[WeaponEffectRuntime] = gear_effects.duplicate()
+	if current_weapon != null:
+		result.append(current_weapon.effects)
+	return result
+
+
+func _has_active_affix(affix_id: StringName) -> bool:
+	for runtime: WeaponEffectRuntime in _active_effects():
+		if runtime.has(affix_id):
+			return true
+	return false
+
+
+func _max_affix_value(affix_id: StringName) -> float:
+	var result := 0.0
+	for runtime: WeaponEffectRuntime in _active_effects():
+		result = maxf(result, runtime.value(affix_id))
+	return result
+
+
+func _tick_affix_state(delta: float) -> void:
+	for runtime: WeaponEffectRuntime in gear_effects:
+		runtime.tick(delta)
+	movement_buff_remaining = maxf(0.0, movement_buff_remaining - delta)
+	jump_buff_remaining = maxf(0.0, jump_buff_remaining - delta)
+	air_control_buff_remaining = maxf(0.0, air_control_buff_remaining - delta)
+	overclock_remaining = maxf(0.0, overclock_remaining - delta)
+	linked_bonus_remaining = maxf(0.0, linked_bonus_remaining - delta)
+	reversal_remaining = maxf(0.0, reversal_remaining - delta)
+	if phase_check_remaining > 0.0:
+		phase_check_remaining = maxf(0.0, phase_check_remaining - delta)
+		if phase_check_remaining <= 0.0:
+			phase_ready = true
+	if movement_buff_remaining <= 0.0:
+		movement_buff_multiplier = 1.0
+	if jump_buff_remaining <= 0.0:
+		jump_buff_multiplier = 1.0
+	if air_control_buff_remaining <= 0.0:
+		air_control_buff_multiplier = 1.0
+
+
+func _reset_affix_state() -> void:
+	movement_buff_remaining = 0.0
+	jump_buff_remaining = 0.0
+	air_control_buff_remaining = 0.0
+	overclock_remaining = 0.0
+	linked_bonus_remaining = 0.0
+	reversal_remaining = 0.0
+	phase_check_remaining = 0.0
+	phase_ready = false
+	($StatusEffects as StatusEffectComponent).effects.clear()
 
 
 func _instantiate_profile_loadout() -> void:
@@ -393,7 +661,6 @@ func _instantiate_profile_loadout() -> void:
 		if weapon == null:
 			continue
 		weapon_mount.add_child(weapon)
-		weapon.weapon_display_name = definition.display_name
 	for slot: int in skill_definition_ids.size():
 		var definition := PlayerProfile.get_definition(skill_definition_ids[slot])
 		if definition == null or definition.gameplay_scene == null:

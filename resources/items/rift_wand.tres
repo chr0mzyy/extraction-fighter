@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=3 format=3]
+[ext_resource type="Script" path="res://scripts/items/item_definition.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/weapons/arcane_wand.tscn" id="2"]
+[resource]
+script = ExtResource("1")
+id = &"rift_wand"
+display_name = "Rift Wand"
+flavor_text = "Follow the light where feet cannot."
+description = "A Mythic focus whose travelling orb can become an anchor."
+item_type = 0
+rarity = 5
+affix_ids = Array[StringName]([&"flow", &"void", &"lightweight"])
+affix_tiers = [2, 2, 2]
+gameplay_scene = ExtResource("2")
+weapon_family = &"magic"
+damage = 32.0
+fire_rate = 2.0
+attack_speed_label = "Moderate"
+range_label = "Medium"
+special_effect_id = &"rift_wand"
+special_description = "Fire an orb, then press R while it travels to teleport collision-safely to its position. 8s cooldown."
+durability_max = 125
+sell_value = 510

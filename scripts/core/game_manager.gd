@@ -41,6 +41,8 @@ func _ready() -> void:
 		_run_loadout_integration_test.call_deferred()
 	elif "--content-arena-test" in OS.get_cmdline_user_args():
 		_run_content_arena_test.call_deferred()
+	elif "--effect-self-test" in OS.get_cmdline_user_args():
+		_run_effect_self_test.call_deferred()
 	elif "--pause-flow-test" in OS.get_cmdline_user_args():
 		_run_pause_flow_test.call_deferred()
 	elif "--scene-flow-test" in OS.get_cmdline_user_args():
@@ -175,8 +177,8 @@ func _run_loadout_integration_test() -> void:
 		rifle.request_primary()
 		if rifle.ammo != ammo_before - 1:
 			failures.append("Vanguard Rifle did not fire from the selected slot")
-		if not rifle.automatic_fire or not is_equal_approx(rifle.fire_delay, 0.111):
-			failures.append("Vanguard Rifle is not configured for nine-round-per-second full auto")
+		if not rifle.automatic_fire or rifle.fire_delay >= 0.111:
+			failures.append("Vanguard Rifle base fire rate and rolled Rapid affix were not applied")
 		rifle.ammo = 0
 		rifle.request_reload()
 		if not rifle.is_reloading:
@@ -324,6 +326,149 @@ func _run_content_arena_test() -> void:
 		for failure: String in failures:
 			push_error("CONTENT_ARENA_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
+
+
+func _run_effect_self_test() -> void:
+	print("EFFECT_TEST_START")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	bot.set_physics_process(false)
+	player.set_physics_process(false)
+	hud.set_process(false)
+	var failures: Array[String] = []
+	var original_weapon := player.current_weapon
+
+	# Static and conditional affix execution.
+	var rifle := _create_effect_test_weapon("vanguard_rifle", [&"heavy", &"rapid", &"stable", &"fast_reload"], [3, 3, 3, 3]) as VanguardRifleWeapon
+	if rifle == null:
+		failures.append("Could not instantiate affix test rifle")
+	else:
+		if rifle.body_damage <= 18.0 or rifle.fire_delay >= 0.111 or rifle.hipfire_spread_degrees >= 0.9 or rifle.reload_duration >= 2.0:
+			failures.append("Heavy/Rapid/Stable/Fast Reload did not alter live weapon stats")
+		rifle.free()
+	var sniper := _create_effect_test_weapon("huntsman_rifle", [&"deadeye", &"fresh_mag", &"ricochet"], [3, 3, 3]) as SniperWeapon
+	if sniper == null:
+		failures.append("Could not instantiate affix test sniper")
+	else:
+		if sniper.headshot_damage <= 110.0 or sniper.effects.modify_damage(60.0, bot, false, false) <= 60.0 or not sniper.effects.should_ricochet():
+			failures.append("Deadeye/Fresh Mag/Ricochet did not execute")
+		sniper.free()
+
+	var conditional := _create_effect_test_weapon("ronin_katana", [&"executioner", &"lightweight", &"airborne", &"glass_cannon", &"berserker", &"vampiric", &"duelist"], [3, 3, 3, 3, 3, 3, 3])
+	if conditional == null:
+		failures.append("Could not instantiate conditional affix weapon")
+	else:
+		player.current_weapon = conditional
+		player.health.current_health = 25.0
+		bot.health.current_health = 20.0
+		var empowered := conditional.effects.modify_damage(20.0, bot, false, true)
+		if empowered <= 30.0 or conditional.effects.movement_multiplier() <= 1.0 or conditional.effects.air_control_multiplier() <= 1.0 or conditional.effects.incoming_damage_multiplier() <= 1.0:
+			failures.append("Executioner/Lightweight/Airborne/Glass Cannon/Berserker did not execute")
+		conditional.effects.on_block(true)
+		if conditional.effects.modify_damage(20.0, bot, false, true) <= 20.0:
+			failures.append("Duelist perfect-parry empowerment did not execute")
+		var health_before := player.health.current_health
+		conditional.effects.on_damage_dealt(bot, DamageInfo.new(20.0, player, &"test", false, true), {"applied": 20.0})
+		if player.health.current_health <= health_before:
+			failures.append("Vampiric melee healing did not execute")
+		player.current_weapon = original_weapon
+		conditional.free()
+
+	# Status effects and delayed echo execute on the reusable health/status path.
+	bot.health.reset()
+	var elemental := _create_effect_test_weapon("vanguard_rifle", [&"burning", &"frost", &"poisoned", &"bleeding", &"void", &"echo"], [3, 3, 3, 3, 3, 3])
+	if elemental != null:
+		for affix_id: StringName in [&"burning", &"frost", &"poisoned", &"bleeding", &"void"]:
+			elemental.effects.force_apply_elemental_for_test(bot, affix_id)
+		var statuses := ($Bot/StatusEffects as StatusEffectComponent).get_elemental_snapshot()
+		if statuses.size() != 5 or ($Bot/StatusEffects as StatusEffectComponent).get_handling_multiplier() >= 1.0 or ($Bot/StatusEffects as StatusEffectComponent).get_healing_multiplier() >= 1.0:
+			failures.append("Burning/Frost/Poison/Bleeding/Void status execution failed")
+		var bot_hp_before := bot.health.current_health
+		elemental.effects.force_echo_for_test(bot, 6.0)
+		await get_tree().create_timer(0.45).timeout
+		if bot.health.current_health >= bot_hp_before:
+			failures.append("Echo delayed repeat damage did not execute")
+		elemental.free()
+	else:
+		failures.append("Could not instantiate elemental affix weapon")
+
+	# Ten Mythic mechanics are stateful, testable, and wired to their shared runtime.
+	var phantom := _create_effect_test_weapon("phantom_katana")
+	phantom.effects.on_kill(bot, DamageInfo.new(1.0, player, &"test", false, true))
+	if not phantom.effects.request_special() or not player.is_invisible:
+		failures.append("Phantom Katana kill-to-Phantom Step failed")
+	player.notify_affix_attack()
+	if player.is_invisible: failures.append("Phantom Step did not cancel on attack")
+	phantom.free()
+	var bloodrush := _create_effect_test_weapon("bloodrush_nodachi")
+	bloodrush.effects.on_damage_dealt(bot, DamageInfo.new(1.0, player, &"test", false, true), {"applied": 1.0}, true)
+	if bloodrush.effects.get_lunge_multiplier() <= 1.25: failures.append("Bloodrush heavy-hit lunge charge failed")
+	bloodrush.free()
+	var skybreaker := _create_effect_test_weapon("skybreaker")
+	skybreaker.effects.on_damage_dealt(bot, DamageInfo.new(1.0, player, &"test", true, false), {"applied": 1.0})
+	if not skybreaker.effects.request_special() or player.movement_buff_remaining <= 0.0: failures.append("Skybreaker headshot dash window failed")
+	skybreaker.free()
+	var rushfang := _create_effect_test_weapon("rushfang")
+	for index: int in 5: rushfang.effects.on_damage_dealt(bot, DamageInfo.new(1.0, player), {"applied": 1.0})
+	if rushfang.effects.special_buff_remaining <= 0.0: failures.append("Rushfang five-hit tempo failed")
+	rushfang.free()
+	var trident := _create_effect_test_weapon("trident")
+	for index: int in 3: trident.effects.on_damage_dealt(bot, DamageInfo.new(1.0, player), {"applied": 1.0})
+	if trident.effects.empowered_attacks != 3 or trident.effects.get_rate_multiplier() <= 1.0: failures.append("Trident perfect-burst empowerment failed")
+	trident.free()
+	var kingslayer := _create_effect_test_weapon("kingslayer")
+	kingslayer.effects.on_damage_dealt(bot, DamageInfo.new(1.0, player, &"test", true), {"applied": 1.0})
+	if not kingslayer.effects.request_special(): failures.append("Kingslayer headshot lunge window failed")
+	kingslayer.free()
+	var oathbreaker := _create_effect_test_weapon("oathbreaker")
+	oathbreaker.effects.on_block(true)
+	if oathbreaker.effects.get_heavy_windup_multiplier() >= 1.0: failures.append("Oathbreaker perfect-parry heavy counter failed")
+	oathbreaker.free()
+	var rift := _create_effect_test_weapon("rift_wand")
+	var orb := Node3D.new()
+	add_child(orb)
+	orb.global_position = player.global_position + Vector3.UP * 3.0
+	rift.effects.track_projectile(orb)
+	if not rift.effects.request_special() or rift.effects.rift_cooldown <= 0.0: failures.append("Rift Wand collision-safe orb teleport failed")
+	rift.free()
+	var quickfang := _create_effect_test_weapon("quickfang")
+	for index: int in 3: quickfang.effects.on_damage_dealt(bot, DamageInfo.new(1.0, player), {"applied": 1.0})
+	if quickfang.effects.special_buff_remaining <= 0.0 or quickfang.effects.get_reload_multiplier() <= 2.0: failures.append("Quickfang three-hit reload/mobility proc failed")
+	quickfang.free()
+	var hell_twins := _create_effect_test_weapon("hell_twins")
+	hell_twins.effects.on_kill(bot, DamageInfo.new(1.0, player))
+	if hell_twins.effects.get_spread_multiplier(false) > 0.05 or player.air_control_buff_remaining <= 0.0: failures.append("Hell Twins kill accuracy/air-control proc failed")
+	hell_twins.free()
+
+	player.current_weapon = original_weapon
+	player.health.reset()
+	bot.health.reset()
+	($Bot/StatusEffects as StatusEffectComponent).effects.clear()
+	if failures.is_empty():
+		print("EFFECT_TEST_OK: static, conditional, status, echo and all ten Mythic runtime mechanics passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("EFFECT_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _create_effect_test_weapon(item_id: String, affix_ids: Array[StringName] = [], affix_tiers: Array[int] = []) -> WeaponBase:
+	var definition := PlayerProfile.get_definition(item_id)
+	if definition == null or definition.gameplay_scene == null:
+		return null
+	var weapon := definition.gameplay_scene.instantiate() as WeaponBase
+	if weapon == null:
+		return null
+	player.weapon_mount.add_child(weapon)
+	weapon.setup(player)
+	var instance := ItemInstance.create(definition, "effect-test:" + item_id)
+	if not affix_ids.is_empty():
+		instance.affix_ids = affix_ids.duplicate()
+		instance.affix_tiers = affix_tiers.duplicate()
+	weapon.configure_from_item(definition, instance)
+	weapon.equip()
+	return weapon
 
 
 func _run_pause_flow_test() -> void:
@@ -859,6 +1004,7 @@ func _run_ai_soak_test() -> void:
 		failures.append("Bot did not attack during melee soak")
 	bot.action_remaining = 0.0
 	bot.block_remaining = 0.0
+	(bot.current_weapon as KatanaWeapon).reset_weapon()
 	bot.block_probability = 1.0
 	bot.risk_tolerance = 1.0
 	bot.global_position = Vector3(0.0, 0.15, 0.0)

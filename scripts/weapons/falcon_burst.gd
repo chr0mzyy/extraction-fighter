@@ -30,7 +30,7 @@ func request_primary() -> void:
 			wielder.on_empty_weapon()
 		return
 	is_bursting = true
-	fire_cooldown_remaining = burst_delay
+	fire_cooldown_remaining = burst_delay / effects.get_rate_multiplier()
 	_fire_burst()
 
 
@@ -39,10 +39,11 @@ func _fire_burst() -> void:
 		if not equipped or is_reloading or ammo <= 0 or not is_instance_valid(wielder):
 			break
 		ammo -= 1
+		effects.on_shot_fired()
 		_fire_hitscan()
 		state_changed.emit()
 		if shot < burst_size - 1:
-			await get_tree().create_timer(burst_interval).timeout
+			await get_tree().create_timer(burst_interval / effects.get_rate_multiplier()).timeout
 	is_bursting = false
 
 
@@ -52,4 +53,4 @@ func reset_weapon() -> void:
 
 
 func get_weapon_status() -> String:
-	return "RELOADING %.1fs" % reload_remaining if is_reloading else "3-RND BURST"
+	return "RELOADING %.1fs" % reload_remaining if is_reloading else effect_status_or("3-RND BURST")

@@ -60,6 +60,9 @@ func apply_damage(info: DamageInfo) -> Dictionary:
 func heal(amount: float) -> float:
 	if is_dead or amount <= 0.0:
 		return 0.0
+	var status := get_parent().get_node_or_null("StatusEffects") as StatusEffectComponent
+	if status != null:
+		amount *= status.get_healing_multiplier()
 	var before := current_health
 	current_health = minf(max_health, current_health + amount)
 	var actual := current_health - before
@@ -80,4 +83,3 @@ func reset() -> void:
 	last_attacker = null
 	current_health = max_health
 	health_changed.emit(current_health, max_health)
-
