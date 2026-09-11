@@ -7,6 +7,7 @@ signal movement_event(event_name: StringName)
 @export var walk_speed: float = 6.0
 @export var sprint_speed: float = 10.0
 @export var ground_acceleration: float = 55.0
+@export var sprint_acceleration: float = 62.0
 @export var ground_deceleration: float = 55.0
 @export var ground_friction: float = 5.2
 @export var landing_friction_delay: float = 0.1
@@ -36,6 +37,7 @@ signal movement_event(event_name: StringName)
 @export var slide_friction: float = 2.5
 @export var slide_steering: float = 1.7
 @export var slide_duration_cap: float = 1.4
+@export var slide_exit_friction_delay: float = 0.08
 
 @export_group("Dash Integration")
 @export var dash_momentum_speed_cap: float = 30.0
@@ -171,7 +173,8 @@ func _update_ground_movement(delta: float, wish_direction: Vector3, stagger_rema
 	if stagger_remaining > 0.0:
 		speed *= 0.25
 	if wish_direction.length_squared() > 0.01:
-		_accelerate(wish_direction, speed, ground_acceleration, delta)
+		var acceleration := sprint_acceleration if Input.is_action_pressed("sprint") and not is_crouching else ground_acceleration
+		_accelerate(wish_direction, speed, acceleration, delta)
 		_limit_horizontal_growth(bhop_speed_cap, speed_before_acceleration)
 	movement_state = "CROUCH" if is_crouching else ("SPRINT" if Input.is_action_pressed("sprint") else "GROUND")
 
@@ -252,6 +255,7 @@ func _update_slide(delta: float, wish_direction: Vector3, crouch_held: bool) -> 
 	var slide_multiplier := float(actor.get_slide_affix_multiplier()) if actor.has_method("get_slide_affix_multiplier") else 1.0
 	if not crouch_held or speed < slide_min_speed * 0.55 or slide_elapsed >= slide_duration_cap * slide_multiplier:
 		_end_slide()
+		landing_grace_remaining = maxf(landing_grace_remaining, slide_exit_friction_delay)
 		movement_state = "CROUCH" if crouch_held else "GROUND"
 		return
 	if wish_direction.length_squared() > 0.01 and speed > 0.01:
@@ -273,9 +277,10 @@ func _perform_ground_jump(from_slide: bool) -> void:
 		var carried_speed := minf(get_horizontal_speed() * 1.02, bhop_speed_cap)
 		if get_horizontal_speed() > 0.01:
 			_set_horizontal_velocity(get_horizontal_velocity().normalized() * carried_speed)
-		movement_event.emit(&"slide_jump")
+			movement_event.emit(&"slide_jump")
 	var jump_multiplier := float(actor.get_jump_multiplier()) if actor.has_method("get_jump_multiplier") else 1.0
 	actor.velocity.y = jump_velocity * jump_multiplier
+	movement_event.emit(&"jump")
 	jump_buffer_remaining = 0.0
 	coyote_remaining = 0.0
 	normal_jump_available = false

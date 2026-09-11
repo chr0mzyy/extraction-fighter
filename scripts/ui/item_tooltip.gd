@@ -157,6 +157,8 @@ func _build_stats(definition: ItemDefinition, instance: ItemInstance = null) -> 
 	var affix_lines := _affix_lines(definition, instance)
 	if not affix_lines.is_empty():
 		lines.append("\nAFFIXES\n" + "\n\n".join(affix_lines))
+	if definition.sell_value > 0:
+		lines.append("\nVALUE  %d GOLD" % definition.sell_value)
 	return "\n".join(lines)
 
 

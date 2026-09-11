@@ -43,6 +43,8 @@ var debug_label: Label
 var hitmarker: Label
 var crosshair_root: Control
 var damage_edges: Array[ColorRect] = []
+var status_effect_label: Label
+var damage_number_root: Control
 
 var hitmarker_remaining: float = 0.0
 var hitmarker_duration: float = 0.16
@@ -94,6 +96,8 @@ func _process(delta: float) -> void:
 	_update_weapon_panel()
 	_update_skills()
 	_update_header()
+	_update_crosshair(delta)
+	_update_status_effects()
 	if debug_visible:
 		_update_debug_overlay()
 
@@ -214,13 +218,38 @@ func _update_header() -> void:
 		camera_label.text += "  /  DEFLECT" if katana.deflect_remaining > 0.0 else "  /  BLOCK"
 
 
+func _update_crosshair(delta: float) -> void:
+	crosshair_root.visible = GameSettings.crosshair_enabled
+	var target_scale := 1.0 + player.get_crosshair_spread() * 0.055
+	crosshair_root.scale = crosshair_root.scale.lerp(Vector2.ONE * target_scale, minf(1.0, delta * 18.0))
+	crosshair_root.modulate.a = 0.38 if player.current_weapon != null and player.current_weapon.is_aiming_down_sights() else 1.0
+
+
+func _update_status_effects() -> void:
+	var lines: Array[String] = []
+	var status := player.get_node_or_null("StatusEffects") as StatusEffectComponent
+	if status != null:
+		for status_id: StringName in status.effects:
+			var data: Dictionary = status.effects[status_id]
+			lines.append("%s  %.1fs" % [String(status_id).replace("_", " ").to_upper(), float(data.get("remaining", 0.0))])
+	if player.is_invisible:
+		lines.append("INVISIBLE")
+	if player.movement_buff_remaining > 0.0:
+		lines.append("SPEED  %.1fs" % player.movement_buff_remaining)
+	if player.damage_immunity_remaining > 0.0:
+		lines.append("PROTECTED  %.1fs" % player.damage_immunity_remaining)
+	status_effect_label.text = "\n".join(lines)
+
+
 func _update_debug_overlay() -> void:
 	var movement := player.movement as PlayerMovementController
 	var bot_distance := player.global_position.distance_to(bot.global_position) if is_instance_valid(bot) else 0.0
 	var bot_data: Dictionary = bot.get_debug_snapshot() if is_instance_valid(bot) else {}
 	var skill_one: SkillBase = player.equipped_skills[0] if player.equipped_skills.size() > 0 else null
 	var skill_two: SkillBase = player.equipped_skills[1] if player.equipped_skills.size() > 1 else null
-	debug_label.text = "DEVELOPER TELEMETRY\n\nFPS             %d\nPLAYER SPEED    %.2f m/s\nPLAYER VELOCITY %s\nMOVEMENT        %s\nGROUNDED        %s\nCROUCH / SLIDE  %s / %s\nAIR CONTROL     %s\nCOYOTE / BUFFER %.3f / %.3f\nBHOP CAP        %.2f m/s\nSKILL 1         %s\nSKILL 2         %s\nCAMERA          %s\n\nBOT STATE       %s\nBOT MOVEMENT    %s\nBOT WEAPON      %s\nBOT DISTANCE    %.1f m\nBOT HP          %.0f\nBOT LOS         %s\nMEMORY LEFT     %.2fs\nSTUCK TIMER     %.2fs\nRECOVERIES      %d\nSHOTS / SWINGS  %d / %d\nRELOADS / BLOCKS %d / %d" % [
+	var player_vfx := player.get_node_or_null("VisualEffects")
+	var active_vfx := int(player_vfx.call("get_active_vfx_count")) if player_vfx != null and player_vfx.has_method("get_active_vfx_count") else 0
+	debug_label.text = "DEVELOPER TELEMETRY\n\nFPS             %d\nSCENE           ARENA\nPLAYER SPEED    %.2f m/s\nPLAYER VELOCITY %s\nMOVEMENT        %s\nGROUNDED        %s\nCROUCH / SLIDE  %s / %s\nAIR CONTROL     %s\nCOYOTE / BUFFER %.3f / %.3f\nBHOP CAP        %.2f m/s\nSKILL 1         %s\nSKILL 2         %s\nCAMERA          %s\nACTIVE VFX      %d\nAUDIO EVENTS    %d\n\nBOT STATE       %s\nBOT MOVEMENT    %s\nBOT WEAPON      %s\nBOT DISTANCE    %.1f m\nBOT HP          %.0f\nBOT LOS         %s\nMEMORY LEFT     %.2fs\nSTUCK TIMER     %.2fs\nRECOVERIES      %d\nSHOTS / SWINGS  %d / %d\nRELOADS / BLOCKS %d / %d" % [
 		Engine.get_frames_per_second(),
 		movement.get_horizontal_speed(),
 		str(player.velocity),
@@ -235,6 +264,8 @@ func _update_debug_overlay() -> void:
 		"%s / %s" % [skill_one.skill_display_name, skill_one.get_status_text()] if skill_one != null else "EMPTY",
 		"%s / %s" % [skill_two.skill_display_name, skill_two.get_status_text()] if skill_two != null else "EMPTY",
 		player.get_camera_mode_name(),
+		active_vfx,
+		AudioEvents.emitted_count,
 		bot_data.get("state", "N/A"),
 		bot_data.get("movement", "N/A"),
 		bot_data.get("weapon", "N/A"),
@@ -288,6 +319,8 @@ func _on_player_feedback(event_name: StringName, _data: Dictionary) -> void:
 			_show_hitmarker(false)
 		&"headshot":
 			_show_hitmarker(true)
+		&"damage_dealt":
+			_show_damage_feedback(_data)
 		&"damage_taken":
 			damage_flash_remaining = 0.34
 		&"block":
@@ -300,12 +333,6 @@ func _on_player_feedback(event_name: StringName, _data: Dictionary) -> void:
 			_show_status("DOUBLE JUMP", Color(0.55, 0.82, 1.0), 0.38)
 		&"dash":
 			_show_status("DASH", Color(0.72, 0.66, 1.0), 0.28)
-		&"grapple":
-			_show_status("GRAPPLE LOCK", Color(0.38, 0.88, 0.92), 0.38)
-		&"grapple_miss":
-			_show_status("NO GRAPPLE TARGET", COLOR_MUTED, 0.34)
-		&"blink":
-			_show_status("BLINK", Color(0.69, 0.58, 1.0), 0.32)
 		&"grapple":
 			_show_status("GRAPPLE", Color(0.40, 0.88, 1.0), 0.42)
 		&"grapple_miss":
@@ -324,6 +351,37 @@ func _on_player_feedback(event_name: StringName, _data: Dictionary) -> void:
 			_show_status("YOU DIED", COLOR_WARNING, 2.0)
 		&"respawn":
 			_show_status("FIGHT", COLOR_TEXT, 0.62)
+
+
+func _show_damage_feedback(data: Dictionary) -> void:
+	var amount := float(data.get("amount", 0.0))
+	var blocked := bool(data.get("blocked", false))
+	var parried := bool(data.get("parried", false))
+	var headshot := bool(data.get("headshot", false))
+	var killed := bool(data.get("killed", false))
+	var elite := bool(data.get("elite", false))
+	if parried:
+		_show_status("PARRIED", Color(0.25, 1.0, 0.86), 0.6)
+	elif blocked:
+		_show_status("BLOCKED HIT", Color(0.38, 0.78, 1.0), 0.42)
+	elif elite:
+		_show_status("WARDEN HIT" if killed else "ELITE HIT", Color(0.94, 0.63, 0.28), 0.34)
+	if GameSettings.damage_numbers and amount > 0.0:
+		_spawn_damage_number(amount, headshot, blocked, killed)
+
+
+func _spawn_damage_number(amount: float, headshot: bool, blocked: bool, killed: bool) -> void:
+	var label := _make_label(damage_number_root, str(roundi(amount)), 19 if headshot or killed else 15, Color(0.4, 0.78, 1.0) if blocked else (Color(1.0, 0.38, 0.22) if headshot else Color(0.95, 0.94, 0.82)))
+	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.position = Vector2(randf_range(25.0, 48.0), randf_range(-52.0, -34.0))
+	label.size = Vector2(90, 32)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(label, "position:y", label.position.y - 42.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "modulate:a", 0.0, 0.55).set_delay(0.12)
+	tween.set_parallel(false)
+	tween.tween_callback(label.queue_free)
 
 
 func _show_hitmarker(headshot: bool) -> void:
@@ -527,6 +585,7 @@ func _build_crosshair() -> void:
 	crosshair_root.offset_right = 14
 	crosshair_root.offset_top = -14
 	crosshair_root.offset_bottom = 14
+	crosshair_root.pivot_offset = Vector2(14, 14)
 	crosshair_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_root.add_child(crosshair_root)
 	_make_crosshair_bar(Vector2(13, 1), Vector2(2, 7))
@@ -564,6 +623,18 @@ func _build_notifications() -> void:
 	status_label.offset_bottom = 100
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	status_effect_label = _make_label(ui_root, "", 11, Color(0.62, 0.84, 0.91))
+	status_effect_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	status_effect_label.offset_left = -230
+	status_effect_label.offset_right = -20
+	status_effect_label.offset_top = 62
+	status_effect_label.offset_bottom = 150
+	status_effect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	damage_number_root = Control.new()
+	damage_number_root.name = "DamageNumbers"
+	damage_number_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	damage_number_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.add_child(damage_number_root)
 
 
 func _build_debug_panel() -> void:

@@ -133,6 +133,7 @@ var debug_sniper_shots: int = 0
 var debug_melee_swings: int = 0
 var debug_reload_count: int = 0
 var debug_block_count: int = 0
+var boss_phase: int = 1
 
 var random := RandomNumberGenerator.new()
 
@@ -874,6 +875,9 @@ func on_sniper_fired(_ads: bool) -> void:
 
 func on_melee_swing(_heavy: bool) -> void:
 	debug_melee_swings += 1
+	if _heavy and visual_body.has_method("telegraph_attack"):
+		visual_body.call("telegraph_attack", 0.42 if name == "Warden" else 0.28, Color(0.82, 0.25, 1.0) if name == "Warden" else Color(1.0, 0.26, 0.12))
+		feedback.emit(&"heavy_telegraph", {"role": "warden" if name == "Warden" else ("elite" if name.to_lower().contains("elite") else "enemy")})
 
 
 func on_block_started() -> void:
@@ -920,6 +924,15 @@ func _on_damage_resolved(_info: DamageInfo, applied_amount: float, _response: Di
 	if health.current_health <= retreat_health_threshold:
 		state_lock_remaining = 0.0
 		_set_state(STATE_RETREAT, random.randf_range(1.2, 2.1))
+	if name == "Warden":
+		var health_ratio := health.current_health / maxf(health.max_health, 1.0)
+		var next_phase := 3 if health_ratio <= 0.33 else (2 if health_ratio <= 0.66 else 1)
+		if next_phase > boss_phase:
+			boss_phase = next_phase
+			action_remaining = maxf(action_remaining, 0.65)
+			if visual_body.has_method("telegraph_attack"):
+				visual_body.call("telegraph_attack", 0.9, Color(0.72, 0.24, 1.0))
+			feedback.emit(&"boss_phase", {"phase": boss_phase})
 
 
 func _on_movement_event(event_name: StringName) -> void:
@@ -973,6 +986,7 @@ func respawn() -> void:
 	pending_slide_remaining = 0.0
 	pending_dodge_remaining = 0.0
 	pending_dodge_direction = Vector3.ZERO
+	boss_phase = 1
 	move_direction = Vector3.ZERO
 	player_disappeared_direction = Vector3.ZERO
 	($StatusEffects as StatusEffectComponent).effects.clear()

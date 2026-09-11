@@ -17,6 +17,7 @@ var selected_kind: String = "weapon"
 var selected_slot: int = 0
 var selected_gear_key: String = ""
 var stash_filter: int = -1
+var stash_sort: int = 0
 var details_label: Label
 var feedback_label: Label
 var item_tooltip: ItemTooltip
@@ -60,6 +61,8 @@ func _ready() -> void:
 		_run_tooltip_self_test.call_deferred()
 	elif "--affix-self-test" in args:
 		_run_affix_self_test.call_deferred()
+	elif "--settings-self-test" in args:
+		_run_settings_self_test.call_deferred()
 	elif "--capture-loadout" in args:
 		_show_loadout()
 		_capture_lobby.bind("loadout").call_deferred()
@@ -74,7 +77,7 @@ func _ready() -> void:
 
 
 func _should_route_to_arena(args: PackedStringArray) -> bool:
-	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test"]:
+	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test"]:
 		if flag in args:
 			return true
 	return false
@@ -166,7 +169,7 @@ func _build_shell() -> void:
 	top_margin.add_child(title_row)
 	var title := _label(title_row, "EXTRACTION FIGHTER", 25, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var milestone := _label(title_row, "MVP 0.2.2  /  VARIANT FORGE", 12, COLOR_ACCENT)
+	var milestone := _label(title_row, "MVP 0.4.0  /  POLISH BUILD", 12, COLOR_ACCENT)
 	milestone.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 	screen_host = Control.new()
@@ -364,9 +367,18 @@ func _show_stash() -> void:
 	var filters := HBoxContainer.new()
 	filters.add_theme_constant_override("separation", 7)
 	root.add_child(filters)
-	for filter_data: Array in [["ALL", -1], ["WEAPONS", ItemDefinition.ItemType.WEAPON], ["SKILLS", ItemDefinition.ItemType.SKILL], ["GEAR", ItemDefinition.ItemType.GEAR]]:
+	for filter_data: Array in [["ALL", -1], ["WEAPONS", ItemDefinition.ItemType.WEAPON], ["SKILLS", ItemDefinition.ItemType.SKILL], ["GEAR", ItemDefinition.ItemType.GEAR], ["JUNK", ItemDefinition.ItemType.JUNK]]:
 		var button := _button(filters, filter_data[0], false)
 		button.pressed.connect(_set_stash_filter.bind(int(filter_data[1])))
+	var sort_label := _label(filters, "SORT", 11, COLOR_MUTED)
+	sort_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sort_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var sort_menu := OptionButton.new()
+	for option: String in ["RARITY", "NAME", "TYPE", "DURABILITY", "VALUE"]:
+		sort_menu.add_item(option)
+	sort_menu.select(stash_sort)
+	sort_menu.item_selected.connect(_set_stash_sort)
+	filters.add_child(sort_menu)
 	var body := HBoxContainer.new()
 	body.add_theme_constant_override("separation", 14)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -383,10 +395,11 @@ func _show_stash() -> void:
 	item_grid.add_theme_constant_override("h_separation", 8)
 	item_grid.add_theme_constant_override("v_separation", 8)
 	stash_scroll.add_child(item_grid)
-	for instance: ItemInstance in PlayerProfile.get_owned_instances(stash_filter):
+	for instance: ItemInstance in _get_sorted_stash_instances():
 		var definition := PlayerProfile.get_definition(String(instance.definition_id))
 		var condition := "  BROKEN" if instance.is_broken() else ("  %d%%" % roundi(instance.current_durability / instance.max_durability * 100.0) if instance.max_durability > 0.0 else "")
-		var item_button := _button(item_grid, "%s%s\n%s" % [definition.display_name, condition, definition.get_type_name().to_upper()], false)
+		var equipped := "  EQUIPPED" if _is_instance_equipped(instance.instance_id) else ""
+		var item_button := _button(item_grid, "%s%s\n%s%s  •  %s" % [definition.display_name, condition, definition.get_type_name().to_upper(), equipped, definition.get_rarity_name().to_upper()], false)
 		item_button.custom_minimum_size = Vector2(190, 64)
 		item_button.pressed.connect(_show_item_details.bind(definition))
 		_bind_tooltip(item_button, definition, instance)
@@ -416,7 +429,7 @@ func _show_stash() -> void:
 
 
 func _show_customization() -> void:
-	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.2.1.")
+	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.0.")
 
 
 func _repair_equipped() -> void:
@@ -427,7 +440,134 @@ func _repair_equipped() -> void:
 
 
 func _show_settings() -> void:
-	_show_placeholder("SETTINGS", "CURRENT PROFILE", "Keyboard + mouse  •  Local save enabled\nGameplay settings remain managed by the current prototype defaults.")
+	_clear_screen()
+	var margin := _margin(screen_host, 30, 20, 30, 20)
+	var root := VBoxContainer.new()
+	root.name = "SettingsRoot"
+	root.add_theme_constant_override("separation", 10)
+	margin.add_child(root)
+	var header := HBoxContainer.new()
+	root.add_child(header)
+	var title := _label(header, "SETTINGS", 24, COLOR_TEXT)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(header, "SAVED AUTOMATICALLY", 11, COLOR_READY)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 12)
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(columns)
+	var video := _settings_column(columns, "VIDEO / GRAPHICS")
+	var resolution_options := PackedStringArray()
+	for resolution: Vector2i in GameSettings.RESOLUTIONS:
+		resolution_options.append("%d × %d" % [resolution.x, resolution.y])
+	_setting_option(video, "Resolution", resolution_options, GameSettings.RESOLUTIONS.find(GameSettings.resolution), _on_resolution_selected)
+	_setting_toggle(video, "Fullscreen", GameSettings.fullscreen, &"fullscreen")
+	_setting_toggle(video, "VSync", GameSettings.vsync, &"vsync")
+	_setting_slider(video, "Base FOV", GameSettings.base_fov, 70.0, 110.0, 1.0, &"base_fov")
+	_setting_slider(video, "FPS Cap", GameSettings.fps_cap, 30.0, 240.0, 15.0, &"fps_cap")
+	_setting_option(video, "Shadow Quality", PackedStringArray(["OFF", "MEDIUM", "HIGH"]), GameSettings.shadow_quality, _on_setting_option.bind(&"shadow_quality"))
+	_setting_slider(video, "Render Scale", GameSettings.render_scale, 0.5, 1.0, 0.05, &"render_scale")
+	_setting_option(video, "Effects Quality", PackedStringArray(["LOW", "MEDIUM", "HIGH"]), GameSettings.effects_quality, _on_setting_option.bind(&"effects_quality"))
+
+	var gameplay := _settings_column(columns, "GAMEPLAY")
+	_setting_slider(gameplay, "Mouse Sensitivity", GameSettings.mouse_sensitivity * 1000.0, 0.5, 6.0, 0.1, &"mouse_sensitivity_ui")
+	_setting_toggle(gameplay, "Invert Y", GameSettings.invert_y, &"invert_y")
+	_setting_toggle(gameplay, "Damage Numbers", GameSettings.damage_numbers, &"damage_numbers")
+	_setting_slider(gameplay, "Camera Shake", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
+	_setting_slider(gameplay, "Headbob", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
+	_setting_toggle(gameplay, "Crosshair", GameSettings.crosshair_enabled, &"crosshair_enabled")
+	_label(gameplay, "CONTROLS", 12, COLOR_ACCENT)
+	var controls := _label(gameplay, "WASD  MOVE   SHIFT  SPRINT\nSPACE  JUMP   CTRL  CROUCH\nQ / E  SKILLS   1 / 2  WEAPONS\nLMB  ATTACK   RMB  ALT / ADS\nR  RELOAD   X  INTERACT   V  CAMERA\nESC  PAUSE   F3  DEBUG", 11, COLOR_MUTED)
+	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	var audio := _settings_column(columns, "AUDIO")
+	_setting_slider(audio, "Master", GameSettings.master_volume, 0.0, 1.0, 0.05, &"master_volume")
+	_setting_slider(audio, "Music", GameSettings.music_volume, 0.0, 1.0, 0.05, &"music_volume")
+	_setting_slider(audio, "SFX", GameSettings.sfx_volume, 0.0, 1.0, 0.05, &"sfx_volume")
+	var audio_note := _label(audio, "Music and SFX buses are ready for future assets. Current placeholder events remain silent when no stream is assigned.", 11, COLOR_MUTED)
+	audio_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var defaults := _button(audio, "RESTORE DEFAULTS", false)
+	defaults.pressed.connect(_restore_setting_defaults)
+	_add_back_button(root)
+
+
+func _settings_column(parent: Control, heading: String) -> VBoxContainer:
+	var panel := _panel(parent, Vector2(340, 0))
+	panel.name = heading.replace(" / ", "").replace(" ", "") + "Panel"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var margin := _margin(panel, 14, 12, 14, 12)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 6)
+	margin.add_child(column)
+	_label(column, heading, 12, COLOR_ACCENT)
+	return column
+
+
+func _setting_toggle(parent: Control, caption: String, enabled: bool, key: StringName) -> void:
+	var toggle := CheckButton.new()
+	toggle.text = caption
+	toggle.button_pressed = enabled
+	toggle.add_theme_font_size_override("font_size", 12)
+	toggle.toggled.connect(_on_setting_toggled.bind(key))
+	parent.add_child(toggle)
+
+
+func _setting_slider(parent: Control, caption: String, value: float, minimum: float, maximum: float, step: float, key: StringName) -> void:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 1)
+	parent.add_child(row)
+	var value_label := _label(row, "%s  %s" % [caption, _format_setting_value(value)], 11, COLOR_TEXT)
+	var slider := HSlider.new()
+	slider.min_value = minimum
+	slider.max_value = maximum
+	slider.step = step
+	slider.value = value
+	slider.custom_minimum_size.y = 22
+	slider.value_changed.connect(_on_setting_slider.bind(key, value_label, caption))
+	row.add_child(slider)
+
+
+func _setting_option(parent: Control, caption: String, options: PackedStringArray, selected: int, callback: Callable) -> void:
+	var label := _label(parent, caption, 11, COLOR_MUTED)
+	label.custom_minimum_size.y = 16
+	var option := OptionButton.new()
+	for item: String in options:
+		option.add_item(item)
+	option.select(clampi(selected, 0, maxi(0, options.size() - 1)))
+	option.item_selected.connect(callback)
+	parent.add_child(option)
+
+
+func _on_setting_toggled(enabled: bool, key: StringName) -> void:
+	GameSettings.set_value(key, enabled)
+
+
+func _on_setting_slider(value: float, key: StringName, value_label: Label, caption: String) -> void:
+	var actual_value := value / 1000.0 if key == &"mouse_sensitivity_ui" else value
+	var actual_key := &"mouse_sensitivity" if key == &"mouse_sensitivity_ui" else key
+	value_label.text = "%s  %s" % [caption, _format_setting_value(value)]
+	GameSettings.set_value(actual_key, actual_value)
+
+
+func _on_setting_option(index: int, key: StringName) -> void:
+	GameSettings.set_value(key, index)
+
+
+func _on_resolution_selected(index: int) -> void:
+	GameSettings.set_value(&"resolution", GameSettings.RESOLUTIONS[clampi(index, 0, GameSettings.RESOLUTIONS.size() - 1)])
+
+
+func _format_setting_value(value: float) -> String:
+	return str(roundi(value)) if is_equal_approx(value, roundf(value)) else "%.2f" % value
+
+
+func _restore_setting_defaults() -> void:
+	GameSettings.reset_defaults()
+	GameSettings.save_settings()
+	_show_settings()
 
 
 func _show_placeholder(title: String, status: String, body: String) -> void:
@@ -624,6 +764,33 @@ func _set_stash_filter(filter_value: int) -> void:
 	_show_stash()
 
 
+func _set_stash_sort(sort_value: int) -> void:
+	stash_sort = sort_value
+	_show_stash()
+
+
+func _get_sorted_stash_instances() -> Array[ItemInstance]:
+	var result := PlayerProfile.get_owned_instances(stash_filter)
+	result.sort_custom(func(a: ItemInstance, b: ItemInstance) -> bool:
+		var a_definition := PlayerProfile.get_definition(String(a.definition_id))
+		var b_definition := PlayerProfile.get_definition(String(b.definition_id))
+		match stash_sort:
+			1: return a_definition.display_name.naturalnocasecmp_to(b_definition.display_name) < 0
+			2: return a_definition.item_type < b_definition.item_type if a_definition.item_type != b_definition.item_type else a_definition.display_name < b_definition.display_name
+			3:
+				var a_ratio := a.current_durability / a.max_durability if a.max_durability > 0.0 else 1.0
+				var b_ratio := b.current_durability / b.max_durability if b.max_durability > 0.0 else 1.0
+				return a_ratio > b_ratio
+			4: return a_definition.sell_value > b_definition.sell_value
+			_: return a_definition.rarity > b_definition.rarity if a_definition.rarity != b_definition.rarity else a_definition.display_name < b_definition.display_name
+	)
+	return result
+
+
+func _is_instance_equipped(instance_id: String) -> bool:
+	return PlayerProfile.weapon_instance_slots.has(instance_id) or PlayerProfile.equipped_gear_instances.values().has(instance_id)
+
+
 func _add_menu_button(parent: Control, text: String, callable: Callable, danger: bool = false) -> void:
 	var button := _button(parent, text, danger)
 	button.custom_minimum_size.y = 48
@@ -760,6 +927,46 @@ func _run_profile_self_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("PROFILE_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_settings_self_test() -> void:
+	var failures: Array[String] = []
+	var snapshot := GameSettings.to_dictionary()
+	var test_path := "user://extraction_fighter_settings_test.json"
+	GameSettings.reset_defaults(false)
+	GameSettings.set_value(&"base_fov", 104.0, false)
+	GameSettings.set_value(&"mouse_sensitivity", 0.0034, false)
+	GameSettings.set_value(&"damage_numbers", false, false)
+	GameSettings.set_value(&"headbob_strength", 0.2, false)
+	GameSettings.set_value(&"resolution", Vector2i(1920, 1080), false)
+	if not GameSettings.save_settings(test_path):
+		failures.append("Settings save failed")
+	GameSettings.reset_defaults(false)
+	if not GameSettings.load_settings(test_path, false):
+		failures.append("Settings load failed")
+	if not is_equal_approx(GameSettings.base_fov, 104.0) or not is_equal_approx(GameSettings.mouse_sensitivity, 0.0034) or GameSettings.damage_numbers or GameSettings.resolution != Vector2i(1920, 1080):
+		failures.append("Settings round trip changed persisted values")
+	var corrupt := FileAccess.open(test_path, FileAccess.WRITE)
+	if corrupt != null:
+		corrupt.store_string("{ invalid settings")
+	corrupt = null
+	if GameSettings.load_settings(test_path, true) or not FileAccess.file_exists(test_path) or not is_equal_approx(GameSettings.base_fov, 90.0):
+		failures.append("Corrupt settings did not recover to persisted defaults")
+	GameSettings.apply_dictionary(snapshot)
+	GameSettings.save_settings()
+	if FileAccess.file_exists(test_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(test_path))
+	_show_settings()
+	await get_tree().process_frame
+	if screen_host.find_child("SettingsRoot", true, false) == null:
+		failures.append("Settings UI did not instantiate")
+	if failures.is_empty():
+		print("SETTINGS_TEST_OK: video, gameplay, audio values, persistence and corrupt-save fallback passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("SETTINGS_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
 
 
@@ -1008,8 +1215,12 @@ func _run_lobby_layout_test() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		_validate_controls_in_view(["StashPanel", "InventoryPanel"], test_size, failures)
+		_show_settings()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_validate_controls_in_view(["SettingsRoot", "VIDEOGRAPHICSPanel", "GAMEPLAYPanel", "AUDIOPanel"], test_size, failures)
 	if failures.is_empty():
-		print("LOBBY_LAYOUT_OK: lobby, loadout, stash and 24-slot inventory fit 1280x720, 1920x1080 and 2560x1440")
+		print("LOBBY_LAYOUT_OK: lobby, loadout, stash, settings and inventory fit 1280x720, 1920x1080 and 2560x1440")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -1079,6 +1290,7 @@ func _button(parent: Control, text: String, danger: bool) -> Button:
 	button.add_theme_stylebox_override("pressed", _style(Color(0.05, 0.22, 0.24), COLOR_ACCENT, 2, 4))
 	button.add_theme_stylebox_override("disabled", _style(Color(0.03, 0.04, 0.05), Color(0.11, 0.13, 0.15), 1, 4))
 	parent.add_child(button)
+	button.pressed.connect(func() -> void: AudioEvents.play(&"ui_click"))
 	return button
 
 

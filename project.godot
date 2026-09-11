@@ -1,4 +1,4 @@
-; Extraction Fighter MVP 0.2.0 - Godot 4.7.2
+; Extraction Fighter MVP 0.4.0 - Godot 4.7.2
 config_version=5
 
 [application]
@@ -11,6 +11,8 @@ config/icon="res://icon.svg"
 [autoload]
 
 PlayerProfile="*res://scripts/core/player_profile.gd"
+GameSettings="*res://scripts/core/game_settings.gd"
+AudioEvents="*res://scripts/core/audio_event_bus.gd"
 
 [display]
 

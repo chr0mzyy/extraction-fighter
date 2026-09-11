@@ -30,7 +30,7 @@ func interact() -> void:
 
 
 func get_prompt() -> String:
-	return "EMPTY CHEST" if opened_once else ("X  OPEN WARDEN CHEST" if is_boss_chest else "X  OPEN CHEST")
+	return "EMPTY CHEST" if opened_once else ("[X]  OPEN WARDEN CHEST" if is_boss_chest else "[X]  OPEN CHEST")
 
 
 func _build_visual() -> void:

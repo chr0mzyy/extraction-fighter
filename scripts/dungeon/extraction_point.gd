@@ -36,7 +36,7 @@ func update_channel(actor: Node3D, holding: bool, delta: float, has_key: bool = 
 		return
 	state = State.CHANNELING
 	channel_progress = minf(channel_duration, channel_progress + delta)
-	channel_changed.emit(self, channel_progress / channel_duration, "HOLD X  EXTRACTING %.1fs" % (channel_duration - channel_progress))
+	channel_changed.emit(self, channel_progress / channel_duration, "[X]  EXTRACTING  %.1fs" % (channel_duration - channel_progress))
 	if channel_progress >= channel_duration:
 		state = State.USED
 		channel_changed.emit(self, 1.0, "EXTRACTION COMPLETE")
@@ -65,7 +65,7 @@ func prompt_text(has_key: bool) -> String:
 		return "EXTRACTION OFFLINE"
 	if hidden_extraction and not has_key:
 		return "EXTRACTION KEY REQUIRED"
-	return "HOLD X  EXTRACT"
+	return "[X]  HOLD TO EXTRACT"
 
 
 func _build_visual() -> void:

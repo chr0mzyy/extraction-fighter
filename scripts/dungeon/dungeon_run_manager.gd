@@ -31,6 +31,9 @@ var notice_text: String = ""
 var notice_remaining: float = 0.0
 var loot_serial: int = 0
 var spawn_records: Array[Dictionary] = []
+var pause_layer: CanvasLayer
+var pause_menu: VBoxContainer
+var pause_settings: VBoxContainer
 
 
 func _ready() -> void:
@@ -38,6 +41,7 @@ func _ready() -> void:
 	MouseModeService.capture_gameplay(player)
 	run_seed = int(Time.get_unix_time_from_system()) ^ Time.get_ticks_msec()
 	_setup_run(run_seed)
+	_build_pause_menu()
 	var args := OS.get_cmdline_user_args()
 	if "--dungeon-self-test" in args:
 		_run_dungeon_self_test.call_deferred()
@@ -65,6 +69,12 @@ func _physics_process(delta: float) -> void:
 	hud.update_run(time_remaining, run_inventory, player, prompt, _debug_data())
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if get_tree().paused and event.is_action_pressed("menu_toggle"):
+		_toggle_pause()
+		get_viewport().set_input_as_handled()
+
+
 func _setup_run(seed_value: int) -> void:
 	run_inventory.clear()
 	var layout := generator.generate(seed_value)
@@ -77,7 +87,7 @@ func _setup_run(seed_value: int) -> void:
 	player.grant_damage_immunity(player_start_protection_duration)
 	hud.bind(player)
 	player.actor_died.connect(_on_player_died)
-	player.pause_requested.connect(_on_return_requested)
+	player.pause_requested.connect(_toggle_pause)
 	player.health.damage_resolved.connect(_on_player_damage_resolved)
 	for point: ExtractionPoint in normal_extractions + hidden_extractions:
 		point.extraction_completed.connect(_on_extraction_completed)
@@ -146,6 +156,7 @@ func _spawn_enemies(markers: Array, boss_spawn: Marker3D) -> void:
 	warden.aggression = 0.82
 	warden.accuracy = 0.68
 	warden.actor_died.connect(_on_enemy_died)
+	warden.feedback.connect(_on_enemy_feedback.bind(warden))
 	enemies.append(warden)
 	_prepare_enemy_wake(warden)
 	spawn_records.append(_make_spawn_record(boss_spawn, "boss"))
@@ -161,6 +172,7 @@ func _spawn_marker_enemy(marker: Marker3D, elite: bool) -> void:
 		enemy.health.reset()
 		enemy.aggression = 0.74
 	enemy.actor_died.connect(_on_enemy_died)
+	enemy.feedback.connect(_on_enemy_feedback.bind(enemy))
 	enemies.append(enemy)
 	_prepare_enemy_wake(enemy)
 	spawn_records.append(_make_spawn_record(marker, "elite" if elite else "normal"))
@@ -266,12 +278,24 @@ func _update_interactions(delta: float) -> String:
 
 
 func _on_chest_opened(_chest: LootChest, items: Array[ItemInstance], gold_reward: int) -> void:
+	AudioEvents.play(&"chest", _chest.global_position)
 	var added := 0
 	for instance: ItemInstance in items:
 		if run_inventory.add_item(instance):
 			added += 1
 	run_inventory.add_gold(gold_reward)
 	_show_notice("LOOTED %d ITEM%s  +%d GOLD" % [added, "" if added == 1 else "S", gold_reward])
+	if not items.is_empty():
+		var best := items[0]
+		var best_definition := PlayerProfile.get_definition(String(best.definition_id))
+		for instance: ItemInstance in items:
+			var definition := PlayerProfile.get_definition(String(instance.definition_id))
+			if definition != null and best_definition != null and definition.rarity > best_definition.rarity:
+				best = instance
+				best_definition = definition
+		if best_definition != null:
+			_show_notice("+ %s  •  %s  •  +%d GOLD" % [best_definition.display_name.to_upper(), best_definition.get_rarity_name().to_upper(), gold_reward], 2.0)
+		AudioEvents.play(&"pickup", player.global_position, {"count": added})
 
 
 func _on_extraction_completed(point: ExtractionPoint) -> void:
@@ -281,6 +305,7 @@ func _on_extraction_completed(point: ExtractionPoint) -> void:
 		point.state = ExtractionPoint.State.AVAILABLE
 		point.cancel_channel("EXTRACTION KEY REQUIRED")
 		return
+	AudioEvents.play(&"extraction", point.global_position)
 	_succeed_run()
 
 
@@ -329,18 +354,128 @@ func _return_to_lobby_after_delay() -> void:
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 
+func _build_pause_menu() -> void:
+	pause_layer = CanvasLayer.new()
+	pause_layer.layer = 90
+	pause_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(pause_layer)
+	var shade := ColorRect.new()
+	shade.color = Color(0.01, 0.015, 0.022, 0.84)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and pause_menu.visible:
+			_toggle_pause()
+	)
+	pause_layer.add_child(shade)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-205, -225)
+	panel.size = Vector2(410, 450)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.025, 0.035, 0.048, 0.98)
+	style.border_color = Color(0.27, 0.67, 0.62)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(24)
+	panel.add_theme_stylebox_override("panel", style)
+	pause_layer.add_child(panel)
+	pause_menu = VBoxContainer.new()
+	pause_menu.add_theme_constant_override("separation", 12)
+	panel.add_child(pause_menu)
+	var title := Label.new()
+	title.text = "ARMORY RUN PAUSED"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	pause_menu.add_child(title)
+	var warning := Label.new()
+	warning.text = "Returning to Lobby abandons carried run loot"
+	warning.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	warning.add_theme_color_override("font_color", Color(0.88, 0.57, 0.3))
+	pause_menu.add_child(warning)
+	_add_pause_button(pause_menu, "RESUME", _toggle_pause)
+	_add_pause_button(pause_menu, "SETTINGS", _show_pause_settings)
+	_add_pause_button(pause_menu, "RETURN TO LOBBY  /  ABANDON", _abandon_run)
+	pause_settings = VBoxContainer.new()
+	pause_settings.add_theme_constant_override("separation", 8)
+	panel.add_child(pause_settings)
+	var settings_title := Label.new()
+	settings_title.text = "GAMEPLAY SETTINGS"
+	settings_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	settings_title.add_theme_font_size_override("font_size", 21)
+	pause_settings.add_child(settings_title)
+	_add_pause_setting_slider("FOV", GameSettings.base_fov, 70.0, 110.0, 1.0, &"base_fov")
+	_add_pause_setting_slider("CAMERA SHAKE", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
+	_add_pause_setting_slider("HEADBOB", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
+	var numbers := CheckButton.new()
+	numbers.text = "DAMAGE NUMBERS"
+	numbers.button_pressed = GameSettings.damage_numbers
+	numbers.toggled.connect(func(value: bool) -> void: GameSettings.set_value(&"damage_numbers", value))
+	pause_settings.add_child(numbers)
+	_add_pause_button(pause_settings, "BACK", _hide_pause_settings)
+	pause_settings.visible = false
+	pause_layer.visible = false
+
+
+func _add_pause_button(parent: Control, caption: String, callback: Callable) -> void:
+	var button := Button.new()
+	button.text = caption
+	button.custom_minimum_size.y = 48
+	button.pressed.connect(callback)
+	parent.add_child(button)
+
+
+func _add_pause_setting_slider(caption: String, value: float, minimum: float, maximum: float, step: float, key: StringName) -> void:
+	var label := Label.new()
+	label.text = "%s  %.2f" % [caption, value]
+	pause_settings.add_child(label)
+	var slider := HSlider.new()
+	slider.min_value = minimum
+	slider.max_value = maximum
+	slider.step = step
+	slider.value = value
+	slider.value_changed.connect(func(new_value: float) -> void:
+		label.text = "%s  %.2f" % [caption, new_value]
+		GameSettings.set_value(key, new_value)
+	)
+	pause_settings.add_child(slider)
+
+
+func _toggle_pause() -> void:
+	if run_finished:
+		return
+	var paused := not get_tree().paused
+	get_tree().paused = paused
+	pause_layer.visible = paused
+	if paused:
+		_hide_pause_settings()
+		MouseModeService.release_gameplay(player)
+	else:
+		MouseModeService.capture_gameplay(player)
+
+
+func _show_pause_settings() -> void:
+	pause_menu.visible = false
+	pause_settings.visible = true
+
+
+func _hide_pause_settings() -> void:
+	pause_settings.visible = false
+	pause_menu.visible = true
+
+
+func _abandon_run() -> void:
+	get_tree().paused = false
+	pause_layer.visible = false
+	_fail_run("RUN ABANDONED", false)
+
+
 func _on_player_died(_actor: Node, _info: DamageInfo) -> void:
 	_fail_run("YOU DIED", true)
 
 
 func _on_return_requested() -> void:
-	if run_finished:
-		return
-	if player.is_cursor_free:
-		_fail_run("RUN ABANDONED", false)
-	else:
-		MouseModeService.release_gameplay(player)
-		_show_notice("CURSOR RELEASED  -  CLICK TO RECAPTURE  /  ESC AGAIN TO ABANDON", 2.5)
+	_toggle_pause()
 
 
 func _on_player_damage_resolved(_info: DamageInfo, applied: float, _response: Dictionary) -> void:
@@ -366,6 +501,14 @@ func _on_enemy_died(actor: Node, _info: DamageInfo) -> void:
 	boss_chest.opened.connect(_on_chest_opened)
 	chests.append(boss_chest)
 	_show_notice("WARDEN DEFEATED  -  CHEST DROPPED  -  EXTRACT WHEN READY")
+
+
+func _on_enemy_feedback(event_name: StringName, data: Dictionary, enemy: BotController) -> void:
+	if event_name == &"boss_phase":
+		AudioEvents.play(&"boss_phase", enemy.global_position, data)
+		_show_notice("WARDEN PHASE %d  -  RECOVERY WINDOW" % int(data.get("phase", 1)), 1.2)
+	elif event_name == &"heavy_telegraph" and is_instance_valid(enemy) and player.global_position.distance_to(enemy.global_position) <= 9.0:
+		_show_notice("WARDEN HEAVY  -  DODGE / DEFLECT" if enemy.name == "Warden" else "HEAVY ATTACK", 0.45)
 
 
 func _on_channel_changed(_point: ExtractionPoint, _progress: float, message: String) -> void:
@@ -591,17 +734,14 @@ func _run_dungeon_scene_flow_test() -> void:
 	if player.is_first_person == camera_before:
 		failure = "FPP/TPP switching failed after dungeon entry"
 	_on_return_requested()
-	if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or not player.is_cursor_free:
-		failure = "Dungeon ESC did not release the mouse"
-	var click := InputEventMouseButton.new()
-	click.button_index = MOUSE_BUTTON_LEFT
-	click.pressed = true
-	player._input(click)
+	if not get_tree().paused or not pause_layer.visible or Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or not player.is_cursor_free:
+		failure = "Dungeon ESC did not pause and release the mouse"
+	_toggle_pause()
 	await get_tree().process_frame
 	# Headless display servers cannot reacquire OS pointer capture after releasing it.
 	# The gameplay ownership flag still verifies that the click reached the capture path.
 	if player.is_cursor_free or (DisplayServer.get_name() != "headless" and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED):
-		failure = "Gameplay click did not recapture the mouse"
+		failure = "Dungeon resume did not recapture the mouse"
 	if not failure.is_empty():
 		PlayerProfile.set_meta("dungeon_flow_failure", failure)
 	var stage := String(PlayerProfile.get_meta("dungeon_flow_stage", "first"))

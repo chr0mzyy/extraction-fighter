@@ -10,6 +10,12 @@ signal pause_requested
 @export var first_person_fov: float = 90.0
 @export var third_person_fov: float = 78.0
 @export var ads_fov: float = 45.0
+@export var sprint_fov_bonus: float = 4.0
+@export var dash_fov_bonus: float = 7.0
+@export var camera_effect_recovery: float = 8.0
+@export var headbob_frequency: float = 9.0
+@export var headbob_amplitude: float = 0.018
+@export var landing_camera_impulse: float = 0.055
 
 @onready var health: HealthComponent = $HealthComponent
 @onready var body_collision: CollisionShape3D = $CollisionShape3D
@@ -58,6 +64,13 @@ var recent_skill_time: float = -100.0
 var invisibility_sources: Dictionary = {}
 var dungeon_durability_enabled: bool = false
 var damage_immunity_remaining: float = 0.0
+var camera_fov_impulse: float = 0.0
+var camera_vertical_impulse: float = 0.0
+var camera_roll_impulse: float = 0.0
+var headbob_time: float = 0.0
+var crosshair_impulse: float = 0.0
+var footstep_remaining: float = 0.0
+var was_sprinting_audio: bool = false
 
 
 func _ready() -> void:
@@ -82,6 +95,9 @@ func _ready() -> void:
 	spring_arm.add_excluded_object(head_hurtbox.get_rid())
 	equip_weapon(0)
 	set_camera_mode(true)
+	_apply_gameplay_settings()
+	if not GameSettings.changed.is_connected(_apply_gameplay_settings):
+		GameSettings.changed.connect(_apply_gameplay_settings)
 
 
 func _input(event: InputEvent) -> void:
@@ -96,7 +112,8 @@ func _input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion and not is_dead:
 		rotate_y(-event.relative.x * mouse_sensitivity)
-		pitch_pivot.rotate_x(-event.relative.y * mouse_sensitivity)
+		var pitch_sign := -1.0 if not GameSettings.invert_y else 1.0
+		pitch_pivot.rotate_x(event.relative.y * mouse_sensitivity * pitch_sign)
 		pitch_pivot.rotation.x = clampf(pitch_pivot.rotation.x, deg_to_rad(-84.0), deg_to_rad(84.0))
 	if is_dead:
 		return
@@ -125,17 +142,56 @@ func _input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_tick_affix_state(delta)
+	crosshair_impulse = move_toward(crosshair_impulse, 0.0, delta * 22.0)
+	camera_fov_impulse = move_toward(camera_fov_impulse, 0.0, delta * camera_effect_recovery)
+	camera_vertical_impulse = move_toward(camera_vertical_impulse, 0.0, delta * camera_effect_recovery * 0.025)
+	camera_roll_impulse = move_toward(camera_roll_impulse, 0.0, delta * camera_effect_recovery * 0.02)
 	if camera_kick > 0.0001:
 		var recovery := minf(camera_kick, delta * 0.8)
 		pitch_pivot.rotation.x += recovery
 		camera_kick -= recovery
-	var desired_fpp_fov := first_person_fov
-	var desired_tpp_fov := third_person_fov
+	var movement_speed := movement.get_horizontal_speed() if movement.actor != null else 0.0
+	var sprinting := movement.movement_state == "SPRINT"
+	var desired_fpp_fov := first_person_fov + (sprint_fov_bonus if sprinting else 0.0) + camera_fov_impulse
+	var desired_tpp_fov := third_person_fov + (sprint_fov_bonus * 0.7 if sprinting else 0.0) + camera_fov_impulse * 0.7
 	if current_weapon != null and current_weapon.is_aiming_down_sights():
 		desired_fpp_fov = ads_fov
 		desired_tpp_fov = ads_fov + 7.0
 	first_person_camera.fov = lerpf(first_person_camera.fov, desired_fpp_fov, minf(1.0, delta * 14.0))
 	third_person_camera.fov = lerpf(third_person_camera.fov, desired_tpp_fov, minf(1.0, delta * 14.0))
+	var moving_on_floor := is_on_floor() and movement_speed > 1.0 and not is_dead
+	if moving_on_floor:
+		headbob_time += delta * headbob_frequency * clampf(movement_speed / movement.sprint_speed, 0.35, 1.25)
+		footstep_remaining -= delta
+		if footstep_remaining <= 0.0:
+			AudioEvents.play(&"footstep", global_position, {"speed": movement_speed})
+			footstep_remaining = 0.27 if sprinting else 0.38
+	else:
+		footstep_remaining = 0.0
+	if sprinting and not was_sprinting_audio:
+		AudioEvents.play(&"sprint", global_position)
+	was_sprinting_audio = sprinting
+	var bob_strength := GameSettings.headbob_strength * (0.35 if current_weapon != null and current_weapon.is_aiming_down_sights() else 1.0)
+	var bob := Vector2(cos(headbob_time * 0.5), sin(headbob_time)) * headbob_amplitude * bob_strength if moving_on_floor else Vector2.ZERO
+	var shake := GameSettings.camera_shake_strength
+	first_person_camera.position = first_person_camera.position.lerp(Vector3(bob.x, bob.y + camera_vertical_impulse * shake, 0.0), minf(1.0, delta * 12.0))
+	third_person_camera.position = third_person_camera.position.lerp(Vector3(bob.x * 0.35, (bob.y + camera_vertical_impulse) * 0.35, 0.0), minf(1.0, delta * 10.0))
+	first_person_camera.rotation.z = lerpf(first_person_camera.rotation.z, camera_roll_impulse * shake, minf(1.0, delta * 12.0))
+	third_person_camera.rotation.z = lerpf(third_person_camera.rotation.z, camera_roll_impulse * shake * 0.45, minf(1.0, delta * 10.0))
+
+
+func _apply_gameplay_settings() -> void:
+	mouse_sensitivity = GameSettings.mouse_sensitivity
+	first_person_fov = GameSettings.base_fov
+	third_person_fov = clampf(GameSettings.base_fov - 12.0, 65.0, 98.0)
+
+
+func get_crosshair_spread() -> float:
+	if current_weapon != null and current_weapon.is_aiming_down_sights():
+		return 0.0
+	var speed_factor := clampf(movement.get_horizontal_speed() / maxf(movement.sprint_speed, 0.1), 0.0, 1.5)
+	var stance_factor := 4.0 if movement.is_sliding else (1.5 if not is_on_floor() else 0.0)
+	return clampf(speed_factor * 3.0 + stance_factor + crosshair_impulse, 0.0, 10.0)
 
 
 func _physics_process(delta: float) -> void:
@@ -245,8 +301,10 @@ func on_damage_response(response_type: StringName, info: DamageInfo, applied: fl
 	match response_type:
 		&"deflect":
 			feedback.emit(&"deflect", {"damage": info.amount})
+			AudioEvents.play(&"parry", global_position)
 		&"block":
 			feedback.emit(&"block", {"damage": applied})
+			AudioEvents.play(&"block", global_position)
 		_:
 			feedback.emit(&"damage_taken", {"damage": applied, "headshot": info.headshot})
 
@@ -282,6 +340,21 @@ func on_weapon_hit_confirmed(headshot: bool) -> void:
 	_on_weapon_hit(headshot)
 
 
+func on_damage_dealt_feedback(target: Node, info: DamageInfo, result: Dictionary) -> void:
+	var elite := is_instance_valid(target) and (target.name == "Warden" or target.name.to_lower().contains("elite"))
+	feedback.emit(&"damage_dealt", {
+		"amount": float(result.get("applied", 0.0)),
+		"headshot": info.headshot,
+		"blocked": float(result.get("applied", 0.0)) < info.amount and not bool(result.get("deflected", false)),
+		"parried": bool(result.get("deflected", false)),
+		"killed": bool(result.get("killed", false)),
+		"elite": elite,
+		"position": info.hit_position,
+		"damage_type": info.damage_type,
+	})
+	AudioEvents.play(&"melee_hit" if info.is_melee else (&"headshot" if info.headshot else &"hit"), info.hit_position)
+
+
 func set_invisibility(active: bool, source: StringName = &"skill") -> void:
 	if active:
 		invisibility_sources[source] = true
@@ -301,30 +374,42 @@ func on_sniper_fired(ads: bool) -> void:
 	var kick := (0.018 if ads else 0.028) * (current_weapon.effects.get_recoil_multiplier() if current_weapon != null else 1.0)
 	pitch_pivot.rotation.x = clampf(pitch_pivot.rotation.x - kick, deg_to_rad(-84.0), deg_to_rad(84.0))
 	camera_kick += kick
+	crosshair_impulse = maxf(crosshair_impulse, 8.0 if not ads else 2.5)
+	camera_roll_impulse += randf_range(-0.012, 0.012)
 	feedback.emit(&"sniper_fired", {"ads": ads})
+	AudioEvents.play(&"gunshot", global_position, {"weapon": current_weapon.weapon_display_name if current_weapon != null else ""})
 
 
 func on_rifle_fired(ads: bool) -> void:
 	var kick := (0.006 if ads else 0.01) * (current_weapon.effects.get_recoil_multiplier() if current_weapon != null else 1.0)
 	pitch_pivot.rotation.x = clampf(pitch_pivot.rotation.x - kick, deg_to_rad(-84.0), deg_to_rad(84.0))
 	camera_kick += kick
+	crosshair_impulse = maxf(crosshair_impulse, 4.0 if not ads else 1.4)
+	camera_roll_impulse += randf_range(-0.006, 0.006)
 	feedback.emit(&"rifle_fired", {"ads": ads})
+	AudioEvents.play(&"gunshot", global_position, {"weapon": current_weapon.weapon_display_name if current_weapon != null else ""})
 
 
 func on_melee_swing(heavy: bool) -> void:
+	crosshair_impulse = maxf(crosshair_impulse, 7.0 if heavy else 4.0)
+	camera_roll_impulse += -0.018 if heavy else -0.009
 	feedback.emit(&"heavy_swing" if heavy else &"light_swing", {})
+	AudioEvents.play(&"melee_swing", global_position, {"heavy": heavy})
 
 
 func on_block_started() -> void:
 	feedback.emit(&"block_started", {})
+	AudioEvents.play(&"block", global_position)
 
 
 func on_reload_started() -> void:
 	feedback.emit(&"reload", {})
+	AudioEvents.play(&"reload", global_position)
 
 
 func on_empty_weapon() -> void:
 	feedback.emit(&"empty", {})
+	AudioEvents.play(&"empty", global_position)
 
 
 func _on_weapon_hit(headshot: bool) -> void:
@@ -332,11 +417,19 @@ func _on_weapon_hit(headshot: bool) -> void:
 
 
 func _on_movement_event(event_name: StringName) -> void:
+	if event_name == &"landed":
+		camera_vertical_impulse = -landing_camera_impulse * clampf(absf(velocity.y) / 6.0, 0.35, 1.0)
+	elif event_name == &"dash":
+		camera_fov_impulse = dash_fov_bonus
+		camera_roll_impulse += 0.012
 	if event_name == &"dash" and _has_active_affix(&"phase"):
 		phase_check_remaining = 0.35
 	for runtime: WeaponEffectRuntime in _active_effects():
 		runtime.on_traversal(event_name)
 	feedback.emit(event_name, {})
+	match event_name:
+		&"jump", &"landed", &"slide", &"dash", &"grapple":
+			AudioEvents.play(&"land" if event_name == &"landed" else event_name, global_position)
 
 
 func _on_health_died(info: DamageInfo) -> void:
@@ -393,6 +486,8 @@ func start_equipped_dash(skill: DashSkill) -> void:
 
 func emit_skill_feedback(event_name: StringName, data: Dictionary) -> void:
 	feedback.emit(event_name, data)
+	if event_name == &"grapple":
+		AudioEvents.play(&"grapple", global_position, data)
 
 
 func perform_collision_safe_blink(distance: float) -> bool:

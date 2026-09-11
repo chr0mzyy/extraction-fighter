@@ -1,4 +1,4 @@
-# Extraction Fighter - MVP 0.3.0B
+# Extraction Fighter - MVP 0.4.0
 
 A local single-player Godot 4.7.2 combat prototype with a persistent lobby, data-driven loadouts, and a fast player-versus-bot arena.
 
@@ -45,6 +45,8 @@ The arena remains an endless player-versus-bot deathmatch. Falling below the are
 
 Profiles are stored as version-3 JSON at `user://player_profile.json`. Version-1/2 profiles migrate to current/max durability while preserving valid owned items and equipped slots. Missing, malformed, and unsupported profiles safely fall back to the default build.
 
+Video, graphics, gameplay, and audio preferences are stored independently at `user://game_settings.json`. The lobby and gameplay pause menus apply supported settings live, including FOV, sensitivity, camera effects, damage numbers, crosshair visibility, resolution, rendering scale, and volume buses.
+
 ## Validation
 
 ```powershell
@@ -69,4 +71,6 @@ Profiles are stored as version-3 JSON at `user://player_profile.json`. Version-1
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --durability-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --dungeon-soak-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --dungeon-scene-flow-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --settings-self-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --polish-self-test
 ```

@@ -9,6 +9,9 @@ var weapon_label: Label
 var health_label: Label
 var skill_label: Label
 var hitmarker_label: Label
+var crosshair_label: Label
+var status_label: Label
+var damage_number_root: Control
 var debug_label: Label
 var summary_panel: PanelContainer
 var summary_label: Label
@@ -39,7 +42,7 @@ func update_run(seconds_left: float, inventory: RunInventory, player: PlayerCont
 	inventory_label.text = "RUN PACK  %02d / 24     GOLD  %d%s" % [inventory.item_count(), inventory.run_gold, "     KEY" if inventory.has_definition(&"extraction_key") else ""]
 	prompt_label.text = prompt
 	var weapon := player.current_weapon
-	weapon_label.text = "%s\nDUR  %s" % [weapon.weapon_display_name.to_upper(), weapon.get_durability_text()] if weapon != null else "UNARMED"
+	weapon_label.text = "%s  %s\nDUR  %s" % [weapon.weapon_display_name.to_upper(), weapon.get_ammo_text(), weapon.get_durability_text()] if weapon != null else "UNARMED"
 	health_label.text = "HP  %03d" % ceili(player.health.current_health)
 	health_label.add_theme_color_override("font_color", Color(1.0, 0.34, 0.25) if player.health.current_health <= 30.0 else Color(0.9, 0.93, 0.95))
 	var skill_lines: Array[String] = []
@@ -47,6 +50,19 @@ func update_run(seconds_left: float, inventory: RunInventory, player: PlayerCont
 		var skill := player.equipped_skills[index]
 		skill_lines.append("%s  %s  %s" % [skill.get_input_hint(), skill.skill_display_name.to_upper(), skill.get_status_text()])
 	skill_label.text = "\n".join(skill_lines)
+	crosshair_label.visible = GameSettings.crosshair_enabled
+	var crosshair_spread := player.get_crosshair_spread()
+	crosshair_label.add_theme_font_size_override("font_size", 18 + roundi(crosshair_spread * 0.45))
+	crosshair_label.modulate.a = 0.4 if weapon != null and weapon.is_aiming_down_sights() else 0.9
+	var statuses: Array[String] = []
+	var status := player.get_node_or_null("StatusEffects") as StatusEffectComponent
+	if status != null:
+		for key: Variant in status.effects:
+			var data: Dictionary = status.effects[key]
+			statuses.append("%s %.1fs" % [String(key).to_upper(), float(data.get("remaining", 0.0))])
+	if player.is_invisible: statuses.append("INVISIBLE")
+	if player.damage_immunity_remaining > 0.0: statuses.append("PROTECTED %.1fs" % player.damage_immunity_remaining)
+	status_label.text = "  •  ".join(statuses)
 	if hitmarker_remaining > 0.0:
 		hitmarker_remaining = maxf(0.0, hitmarker_remaining - get_process_delta_time())
 		hitmarker_label.visible = hitmarker_remaining > 0.0
@@ -100,21 +116,30 @@ func _build() -> void:
 	skill_label.position = Vector2(-330, -152)
 	skill_label.size = Vector2(305, 54)
 	skill_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	var crosshair := _label(root, "+", 22, Color(0.92, 0.94, 0.95, 0.9))
-	crosshair.set_anchors_preset(Control.PRESET_CENTER)
-	crosshair.position = Vector2(-12, -15)
-	crosshair.size = Vector2(24, 30)
-	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	crosshair_label = _label(root, "+", 22, Color(0.92, 0.94, 0.95, 0.9))
+	crosshair_label.set_anchors_preset(Control.PRESET_CENTER)
+	crosshair_label.position = Vector2(-12, -15)
+	crosshair_label.size = Vector2(24, 30)
+	crosshair_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hitmarker_label = _label(root, "X", 26, Color.WHITE)
 	hitmarker_label.set_anchors_preset(Control.PRESET_CENTER)
 	hitmarker_label.position = Vector2(-18, -20)
 	hitmarker_label.size = Vector2(36, 40)
 	hitmarker_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hitmarker_label.visible = false
+	damage_number_root = Control.new()
+	damage_number_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	damage_number_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(damage_number_root)
 	debug_label = _label(root, "", 12, Color(0.73, 0.82, 0.82))
 	debug_label.position = Vector2(20, 86)
 	debug_label.size = Vector2(300, 240)
 	debug_label.visible = false
+	status_label = _label(root, "", 11, Color(0.55, 0.84, 0.88))
+	status_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	status_label.position = Vector2(-430, 62)
+	status_label.size = Vector2(405, 28)
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	summary_panel = PanelContainer.new()
 	summary_panel.set_anchors_preset(Control.PRESET_CENTER)
 	summary_panel.position = Vector2(-240, -135)
@@ -148,5 +173,37 @@ func _on_player_feedback(event_name: StringName, data: Dictionary) -> void:
 			hitmarker_label.visible = true
 			hitmarker_label.add_theme_color_override("font_color", Color(1.0, 0.34, 0.22) if event_name == &"headshot" else Color.WHITE)
 			hitmarker_remaining = 0.22
+		&"damage_dealt":
+			var blocked := bool(data.get("blocked", false))
+			var killed := bool(data.get("killed", false))
+			var elite := bool(data.get("elite", false))
+			_spawn_damage_number(data)
+			if blocked:
+				show_notice("BLOCKED HIT")
+			elif killed:
+				show_notice("WARDEN ELIMINATED" if elite else "ENEMY ELIMINATED")
 		&"broken_weapon":
 			show_notice("%s IS BROKEN" % String(data.get("name", "WEAPON")).to_upper())
+
+
+func _spawn_damage_number(data: Dictionary) -> void:
+	if not GameSettings.damage_numbers or damage_number_root == null:
+		return
+	var amount := roundi(float(data.get("amount", 0.0)))
+	if amount <= 0:
+		return
+	var headshot := bool(data.get("headshot", false))
+	var blocked := bool(data.get("blocked", false))
+	var label := _label(damage_number_root, str(amount), 20 if headshot else 16, Color(1.0, 0.42, 0.24) if headshot else Color(0.94, 0.95, 0.9))
+	if blocked:
+		label.text = "%d  BLOCK" % amount
+		label.add_theme_color_override("font_color", Color(0.45, 0.8, 1.0))
+	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.position = Vector2(randf_range(28.0, 62.0), randf_range(-62.0, -30.0))
+	label.size = Vector2(110, 32)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(label, "position:y", label.position.y - 42.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "modulate:a", 0.0, 0.55).set_delay(0.12)
+	tween.chain().tween_callback(label.queue_free)

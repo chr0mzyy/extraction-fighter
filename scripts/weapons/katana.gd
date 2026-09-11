@@ -140,6 +140,11 @@ func perform_attack(damage: float, attack_range: float, heavy: bool, _serial: in
 		var to_target: Vector3 = target_3d.global_position - origin
 		if to_target.length() > attack_range + 0.8 or direction.dot(to_target.normalized()) < 0.05:
 			continue
+		var wall_query := PhysicsRayQueryParameters3D.create(origin, target_3d.global_position + Vector3.UP * 0.8, 1, get_query_exclusions())
+		wall_query.collide_with_areas = false
+		wall_query.collide_with_bodies = true
+		if not get_world_3d().direct_space_state.intersect_ray(wall_query).is_empty():
+			continue
 		hit_ids[target_id] = true
 		var horizontal_knockback := direction
 		horizontal_knockback.y = 0.18 if heavy else 0.05

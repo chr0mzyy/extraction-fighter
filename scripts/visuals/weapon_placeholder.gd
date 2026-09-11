@@ -5,9 +5,14 @@ var flash: MeshInstance3D
 var trail: MeshInstance3D
 var previous_ammo: int = -1
 var flash_time: float = 0.0
+var recoil_offset: float = 0.0
+var base_position: Vector3
+var base_rotation: Vector3
 
 func _ready() -> void:
 	var weapon := get_parent() as WeaponBase
+	base_position = position
+	base_rotation = rotation
 	for child: Node in weapon.get_children():
 		if child is MeshInstance3D:
 			(child as MeshInstance3D).visible = false
@@ -73,12 +78,19 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var weapon := get_parent() as WeaponBase
+	recoil_offset = move_toward(recoil_offset, 0.0, delta * 1.8)
 	if flash != null:
 		var ammo := int(weapon.get("ammo"))
-		if previous_ammo >= 0 and ammo < previous_ammo and weapon.equipped:
+		if previous_ammo < 0:
+			previous_ammo = ammo
+		elif ammo < previous_ammo and weapon.equipped:
 			flash_time = 0.045
+			recoil_offset = 0.075
 		previous_ammo = ammo
 		flash_time = maxf(0, flash_time - delta)
-		flash.visible = flash_time > 0 and weapon.equipped
+		flash.visible = flash_time > 0 and weapon.equipped and GameSettings.effects_quality > 0
+		var reloading := bool(weapon.get("is_reloading"))
+		rotation.x = lerpf(rotation.x, base_rotation.x + (0.28 if reloading else 0.0), minf(1.0, delta * 10.0))
+		position = position.lerp(base_position + Vector3(0.0, -0.04 if reloading else 0.0, recoil_offset), minf(1.0, delta * 18.0))
 	if trail != null:
 		trail.visible = weapon.equipped and float(weapon.get("swing_remaining")) > 0.05

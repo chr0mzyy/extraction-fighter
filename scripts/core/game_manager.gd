@@ -14,6 +14,8 @@ var player_kills: int = 0
 var bot_kills: int = 0
 var pause_layer: CanvasLayer
 var pause_panel: PanelContainer
+var pause_menu_column: VBoxContainer
+var pause_settings_column: VBoxContainer
 
 
 func _ready() -> void:
@@ -46,6 +48,8 @@ func _ready() -> void:
 		_run_effect_self_test.call_deferred()
 	elif "--pause-flow-test" in OS.get_cmdline_user_args():
 		_run_pause_flow_test.call_deferred()
+	elif "--polish-self-test" in OS.get_cmdline_user_args():
+		_run_polish_self_test.call_deferred()
 	elif "--scene-flow-test" in OS.get_cmdline_user_args():
 		_run_scene_flow_arena_leg.call_deferred()
 
@@ -57,6 +61,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_actor_died(actor: Node, info: DamageInfo) -> void:
+	AudioEvents.play(&"kill", (actor as Node3D).global_position if actor is Node3D else Vector3.ZERO)
 	if actor == bot:
 		player_kills += 1
 		kill_feed.emit("ELIMINATED BOT")
@@ -87,8 +92,8 @@ func _build_pause_menu() -> void:
 	pause_panel.set_anchors_preset(Control.PRESET_CENTER)
 	pause_panel.offset_left = -190
 	pause_panel.offset_right = 190
-	pause_panel.offset_top = -190
-	pause_panel.offset_bottom = 190
+	pause_panel.offset_top = -235
+	pause_panel.offset_bottom = 235
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.035, 0.046, 0.061, 0.98)
 	style.border_color = Color(0.28, 0.58, 0.64)
@@ -97,27 +102,81 @@ func _build_pause_menu() -> void:
 	style.set_content_margin_all(24)
 	pause_panel.add_theme_stylebox_override("panel", style)
 	pause_layer.add_child(pause_panel)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 12)
-	pause_panel.add_child(column)
+	pause_menu_column = VBoxContainer.new()
+	pause_menu_column.add_theme_constant_override("separation", 12)
+	pause_panel.add_child(pause_menu_column)
 	var title := Label.new()
 	title.text = "ARENA PAUSED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 25)
 	title.add_theme_color_override("font_color", Color(0.91, 0.93, 0.95))
-	column.add_child(title)
+	pause_menu_column.add_child(title)
 	var subtitle := Label.new()
 	subtitle.text = "Your selected loadout remains saved"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_color_override("font_color", Color(0.54, 0.62, 0.68))
-	column.add_child(subtitle)
+	pause_menu_column.add_child(subtitle)
 	var spacer := Control.new()
 	spacer.custom_minimum_size.y = 18
-	column.add_child(spacer)
-	_add_pause_button(column, "RESUME", _toggle_pause)
-	_add_pause_button(column, "RETURN TO LOBBY", _return_to_lobby)
-	_add_pause_button(column, "QUIT", _quit_game)
+	pause_menu_column.add_child(spacer)
+	_add_pause_button(pause_menu_column, "RESUME", _toggle_pause)
+	_add_pause_button(pause_menu_column, "SETTINGS", _show_pause_settings)
+	_add_pause_button(pause_menu_column, "RETURN TO LOBBY", _return_to_lobby)
+	_add_pause_button(pause_menu_column, "QUIT", _quit_game)
+	_build_pause_settings()
 	pause_layer.visible = false
+
+
+func _build_pause_settings() -> void:
+	pause_settings_column = VBoxContainer.new()
+	pause_settings_column.add_theme_constant_override("separation", 9)
+	pause_panel.add_child(pause_settings_column)
+	var title := Label.new()
+	title.text = "GAMEPLAY SETTINGS"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	pause_settings_column.add_child(title)
+	_add_pause_slider("FOV", GameSettings.base_fov, 70.0, 110.0, 1.0, &"base_fov")
+	_add_pause_slider("CAMERA SHAKE", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
+	_add_pause_slider("HEADBOB", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
+	var damage_numbers := CheckButton.new()
+	damage_numbers.text = "DAMAGE NUMBERS"
+	damage_numbers.button_pressed = GameSettings.damage_numbers
+	damage_numbers.toggled.connect(func(value: bool) -> void: GameSettings.set_value(&"damage_numbers", value))
+	pause_settings_column.add_child(damage_numbers)
+	var crosshair := CheckButton.new()
+	crosshair.text = "CROSSHAIR"
+	crosshair.button_pressed = GameSettings.crosshair_enabled
+	crosshair.toggled.connect(func(value: bool) -> void: GameSettings.set_value(&"crosshair_enabled", value))
+	pause_settings_column.add_child(crosshair)
+	_add_pause_button(pause_settings_column, "BACK", _hide_pause_settings)
+	pause_settings_column.visible = false
+
+
+func _add_pause_slider(caption: String, value: float, minimum: float, maximum: float, step: float, key: StringName) -> void:
+	var label := Label.new()
+	label.text = "%s  %.2f" % [caption, value]
+	pause_settings_column.add_child(label)
+	var slider := HSlider.new()
+	slider.min_value = minimum
+	slider.max_value = maximum
+	slider.step = step
+	slider.value = value
+	slider.value_changed.connect(func(new_value: float) -> void:
+		label.text = "%s  %.2f" % [caption, new_value]
+		GameSettings.set_value(key, new_value)
+	)
+	pause_settings_column.add_child(slider)
+
+
+func _show_pause_settings() -> void:
+	pause_menu_column.visible = false
+	pause_settings_column.visible = true
+
+
+func _hide_pause_settings() -> void:
+	pause_settings_column.visible = false
+	pause_menu_column.visible = true
 
 
 func _add_pause_button(parent: Control, text: String, callback: Callable) -> void:
@@ -133,6 +192,8 @@ func _toggle_pause() -> void:
 	var should_pause := not get_tree().paused
 	get_tree().paused = should_pause
 	pause_layer.visible = should_pause
+	if should_pause:
+		_hide_pause_settings()
 	if should_pause:
 		MouseModeService.release_gameplay(player)
 	else:
@@ -492,6 +553,47 @@ func _run_pause_flow_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("PAUSE_FLOW_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_polish_self_test() -> void:
+	var failures: Array[String] = []
+	var settings_snapshot := GameSettings.to_dictionary()
+	GameSettings.set_value(&"base_fov", 101.0, false)
+	GameSettings.set_value(&"mouse_sensitivity", 0.0031, false)
+	if not is_equal_approx(player.first_person_fov, 101.0) or not is_equal_approx(player.mouse_sensitivity, 0.0031):
+		failures.append("Player did not consume live FOV/sensitivity settings")
+	player.crosshair_impulse = 6.0
+	if player.get_crosshair_spread() < 5.0:
+		failures.append("Dynamic crosshair did not respond to weapon impulse")
+	hud._show_damage_feedback({"amount": 42.0, "headshot": true, "blocked": false, "killed": false})
+	if hud.damage_number_root.get_child_count() != 1:
+		failures.append("Damage number feedback did not instantiate")
+	var audio_before := AudioEvents.emitted_count
+	player.on_empty_weapon()
+	if AudioEvents.emitted_count != audio_before + 1:
+		failures.append("Audio event foundation did not receive gameplay events")
+	bot.on_melee_swing(true)
+	if float(bot.visual_body.get("telegraph_remaining")) <= 0.0:
+		failures.append("Enemy heavy attack telegraph did not activate")
+	player.equip_weapon(1)
+	await get_tree().process_frame
+	var placeholder := player.current_weapon.get_node_or_null("PlaceholderModel")
+	if placeholder == null:
+		failures.append("Weapon placeholder feedback node is missing")
+	else:
+		player.current_weapon.request_primary()
+		placeholder.set("previous_ammo", int(player.current_weapon.get("ammo")) + 1)
+		placeholder.call("_process", 0.001)
+		if float(placeholder.get("flash_time")) <= 0.0:
+			failures.append("Muzzle flash hook did not react to ammo consumption")
+	GameSettings.apply_dictionary(settings_snapshot)
+	if failures.is_empty():
+		print("POLISH_TEST_OK: live settings, crosshair, damage numbers, audio hooks, telegraphs and muzzle feedback passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("POLISH_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
 
 

@@ -162,6 +162,8 @@ func make_damage_info(base_damage: float, target: Node, damage_type: StringName,
 
 func resolve_damage(target: Node, info: DamageInfo, heavy_attack: bool = false) -> Dictionary:
 	var result: Dictionary = target.receive_damage(info)
+	if is_instance_valid(wielder) and wielder.has_method("on_damage_dealt_feedback"):
+		wielder.on_damage_dealt_feedback(target, info, result)
 	if float(result.get("applied", 0.0)) > 0.0:
 		if info.is_melee:
 			spend_melee_hit_durability()

@@ -16,6 +16,7 @@ func setup(p_weapon: WeaponBase, p_source: Node, origin: Vector3, direction: Vec
 	travel_direction = direction.normalized()
 	damage = p_damage
 	speed = p_speed
+	look_at(origin + travel_direction, Vector3.UP)
 	_build_visual()
 
 
@@ -49,6 +50,7 @@ func _physics_process(delta: float) -> void:
 		source_weapon.resolve_damage(target, info)
 	elif is_instance_valid(source_weapon):
 		source_weapon.notify_attack_missed()
+	_spawn_impact(hit.get("position", destination))
 	queue_free()
 
 
@@ -74,3 +76,43 @@ func _build_visual() -> void:
 	light.omni_range = 2.5
 	light.shadow_enabled = false
 	add_child(light)
+	var trail := MeshInstance3D.new()
+	var trail_mesh := CylinderMesh.new()
+	trail_mesh.top_radius = 0.025
+	trail_mesh.bottom_radius = 0.11
+	trail_mesh.height = 0.9
+	trail_mesh.radial_segments = 6
+	trail_mesh.material = material
+	trail.mesh = trail_mesh
+	trail.position.z = 0.48
+	trail.rotation.x = PI / 2.0
+	trail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(trail)
+
+
+func _spawn_impact(hit_position: Vector3) -> void:
+	if GameSettings.effects_quality <= 0:
+		return
+	var impact := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.22
+	mesh.height = 0.44
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.25, 0.58, 1.0, 0.72)
+	material.emission_enabled = true
+	material.emission = Color(0.1, 0.38, 1.0)
+	material.emission_energy_multiplier = 3.0
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh.material = material
+	impact.mesh = mesh
+	impact.global_position = hit_position
+	impact.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	get_tree().current_scene.add_child(impact)
+	var tween := impact.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(impact, "scale", Vector3.ONE * 2.2, 0.18)
+	tween.tween_property(impact, "transparency", 1.0, 0.18)
+	tween.set_parallel(false)
+	tween.tween_callback(impact.queue_free)
