@@ -4,8 +4,10 @@ signal event_emitted(event_name: StringName, world_position: Vector3, context: D
 
 const SUPPORTED_EVENTS: Array[StringName] = [
 	&"footstep", &"jump", &"land", &"sprint", &"slide", &"dash", &"grapple",
-	&"gunshot", &"reload", &"empty", &"melee_swing", &"melee_hit", &"block",
-	&"parry", &"hit", &"headshot", &"kill", &"pickup", &"chest", &"extraction", &"ui_click", &"boss_phase",
+	&"blink", &"gunshot", &"reload", &"empty", &"melee_swing", &"melee_hit", &"heavy_hit", &"block",
+	&"parry", &"hit", &"headshot", &"kill", &"player_damage", &"enemy_damage", &"armor_hit",
+	&"pickup", &"key_pickup", &"chest", &"extraction_start", &"extraction_success", &"extraction_failure", &"boss_phase",
+	&"ui_hover", &"ui_click", &"ui_back", &"ui_invalid",
 ]
 
 var emitted_count: int = 0

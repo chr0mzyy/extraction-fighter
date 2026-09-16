@@ -866,6 +866,7 @@ func force_kill() -> void:
 
 
 func on_sniper_fired(_ads: bool) -> void:
+	AudioEvents.play(&"gunshot", global_position, {"weapon": current_weapon.weapon_display_name if current_weapon != null else ""})
 	debug_sniper_shots += 1
 	sniper_shots_from_position += 1
 	action_remaining = random.randf_range(sniper_aim_time_min, sniper_aim_time_max)
@@ -874,6 +875,7 @@ func on_sniper_fired(_ads: bool) -> void:
 
 
 func on_melee_swing(_heavy: bool) -> void:
+	AudioEvents.play(&"melee_swing", global_position, {"heavy": _heavy})
 	debug_melee_swings += 1
 	if _heavy and visual_body.has_method("telegraph_attack"):
 		visual_body.call("telegraph_attack", 0.42 if name == "Warden" else 0.28, Color(0.82, 0.25, 1.0) if name == "Warden" else Color(1.0, 0.26, 0.12))
@@ -882,10 +884,12 @@ func on_melee_swing(_heavy: bool) -> void:
 
 func on_block_started() -> void:
 	debug_block_count += 1
+	AudioEvents.play(&"block", global_position)
 
 
 func on_reload_started() -> void:
 	debug_reload_count += 1
+	AudioEvents.play(&"reload", global_position)
 	if ai_state != STATE_RETREAT:
 		_set_state(STATE_RECOVER, random.randf_range(1.0, 1.7))
 

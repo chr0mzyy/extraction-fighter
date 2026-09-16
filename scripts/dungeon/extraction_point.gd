@@ -34,6 +34,8 @@ func update_channel(actor: Node3D, holding: bool, delta: float, has_key: bool = 
 	if hidden_extraction and not has_key:
 		cancel_channel("EXTRACTION KEY REQUIRED")
 		return
+	if state == State.AVAILABLE:
+		AudioEvents.play(&"extraction_start", global_position)
 	state = State.CHANNELING
 	channel_progress = minf(channel_duration, channel_progress + delta)
 	channel_changed.emit(self, channel_progress / channel_duration, "[X]  EXTRACTING  %.1fs" % (channel_duration - channel_progress))

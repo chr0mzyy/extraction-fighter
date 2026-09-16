@@ -66,19 +66,27 @@ script = ExtResource("status")
 position = Vector3(0, 1.58, 0)
 
 [node name="FirstPersonCamera" type="Camera3D" parent="PitchPivot"]
-current = true
 fov = 90.0
 near = 0.04
 
-[node name="ThirdPersonSpringArm" type="SpringArm3D" parent="PitchPivot"]
+[node name="ThirdPersonPivot" type="Node3D" parent="."]
+position = Vector3(0, 1.58, 0)
+
+[node name="ThirdPersonSpringArm" type="SpringArm3D" parent="ThirdPersonPivot"]
 position = Vector3(0.58, 0.12, 0)
 spring_length = 3.8
 margin = 0.12
 collision_mask = 1
 
-[node name="ThirdPersonCamera" type="Camera3D" parent="PitchPivot/ThirdPersonSpringArm"]
+[node name="ThirdPersonCamera" type="Camera3D" parent="ThirdPersonPivot"]
+position = Vector3(0.58, 0.12, 3.8)
 fov = 78.0
 near = 0.08
+
+[node name="ViewCamera" type="Camera3D" parent="."]
+current = true
+fov = 90.0
+near = 0.04
 
 [node name="WeaponMount" type="Node3D" parent="PitchPivot"]
 position = Vector3(0.34, -0.29, -0.48)

@@ -39,6 +39,7 @@ var pause_settings: VBoxContainer
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	MouseModeService.capture_gameplay(player)
+	AudioManager.play_music(&"dungeon")
 	run_seed = int(Time.get_unix_time_from_system()) ^ Time.get_ticks_msec()
 	_setup_run(run_seed)
 	_build_pause_menu()
@@ -286,6 +287,7 @@ func _on_chest_opened(_chest: LootChest, items: Array[ItemInstance], gold_reward
 	run_inventory.add_gold(gold_reward)
 	_show_notice("LOOTED %d ITEM%s  +%d GOLD" % [added, "" if added == 1 else "S", gold_reward])
 	if not items.is_empty():
+		var found_key := false
 		var best := items[0]
 		var best_definition := PlayerProfile.get_definition(String(best.definition_id))
 		for instance: ItemInstance in items:
@@ -293,9 +295,13 @@ func _on_chest_opened(_chest: LootChest, items: Array[ItemInstance], gold_reward
 			if definition != null and best_definition != null and definition.rarity > best_definition.rarity:
 				best = instance
 				best_definition = definition
+			if String(instance.definition_id) == "extraction_key":
+				found_key = true
 		if best_definition != null:
 			_show_notice("+ %s  •  %s  •  +%d GOLD" % [best_definition.display_name.to_upper(), best_definition.get_rarity_name().to_upper(), gold_reward], 2.0)
 		AudioEvents.play(&"pickup", player.global_position, {"count": added})
+		if found_key:
+			AudioEvents.play(&"key_pickup", player.global_position)
 
 
 func _on_extraction_completed(point: ExtractionPoint) -> void:
@@ -305,7 +311,6 @@ func _on_extraction_completed(point: ExtractionPoint) -> void:
 		point.state = ExtractionPoint.State.AVAILABLE
 		point.cancel_channel("EXTRACTION KEY REQUIRED")
 		return
-	AudioEvents.play(&"extraction", point.global_position)
 	_succeed_run()
 
 
@@ -313,6 +318,7 @@ func _succeed_run(return_to_lobby: bool = true, persist_profile: bool = true) ->
 	if run_finished:
 		return
 	run_finished = true
+	AudioEvents.play(&"extraction_success", player.global_position)
 	_disable_extractions()
 	var gold_reward := run_inventory.run_gold
 	var items := run_inventory.take_all_items()
@@ -330,6 +336,7 @@ func _fail_run(reason: String, death_penalty: bool, return_to_lobby: bool = true
 	if run_finished:
 		return
 	run_finished = true
+	AudioEvents.play(&"extraction_failure", player.global_position, {"reason": reason})
 	_disable_extractions()
 	var lost_count := run_inventory.item_count()
 	run_inventory.clear()
@@ -363,10 +370,6 @@ func _build_pause_menu() -> void:
 	shade.color = Color(0.01, 0.015, 0.022, 0.84)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
-	shade.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and pause_menu.visible:
-			_toggle_pause()
-	)
 	pause_layer.add_child(shade)
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_CENTER)
@@ -407,6 +410,7 @@ func _build_pause_menu() -> void:
 	_add_pause_setting_slider("FOV", GameSettings.base_fov, 70.0, 110.0, 1.0, &"base_fov")
 	_add_pause_setting_slider("CAMERA SHAKE", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
 	_add_pause_setting_slider("HEADBOB", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
+	_add_pause_setting_slider("TPP SMOOTHING", GameSettings.tpp_camera_smoothing, 6.0, 30.0, 1.0, &"tpp_camera_smoothing")
 	var numbers := CheckButton.new()
 	numbers.text = "DAMAGE NUMBERS"
 	numbers.button_pressed = GameSettings.damage_numbers
@@ -421,6 +425,8 @@ func _add_pause_button(parent: Control, caption: String, callback: Callable) -> 
 	var button := Button.new()
 	button.text = caption
 	button.custom_minimum_size.y = 48
+	button.mouse_entered.connect(func() -> void: AudioEvents.play(&"ui_hover"))
+	button.pressed.connect(func() -> void: AudioEvents.play(&"ui_click"))
 	button.pressed.connect(callback)
 	parent.add_child(button)
 
@@ -449,7 +455,6 @@ func _toggle_pause() -> void:
 	pause_layer.visible = paused
 	if paused:
 		_hide_pause_settings()
-		MouseModeService.release_gameplay(player)
 	else:
 		MouseModeService.capture_gameplay(player)
 
@@ -457,11 +462,14 @@ func _toggle_pause() -> void:
 func _show_pause_settings() -> void:
 	pause_menu.visible = false
 	pause_settings.visible = true
+	MouseModeService.enter_settings(player)
 
 
 func _hide_pause_settings() -> void:
 	pause_settings.visible = false
 	pause_menu.visible = true
+	if get_tree().paused:
+		MouseModeService.enter_pause(player)
 
 
 func _abandon_run() -> void:
@@ -488,6 +496,7 @@ func _on_player_damage_resolved(_info: DamageInfo, applied: float, _response: Di
 func _on_enemy_died(actor: Node, _info: DamageInfo) -> void:
 	if actor.name != "Warden":
 		return
+	AudioManager.play_music(&"dungeon")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = run_seed ^ 0x7B055
 	var boss_loot: Array[ItemInstance] = []
@@ -505,6 +514,7 @@ func _on_enemy_died(actor: Node, _info: DamageInfo) -> void:
 
 func _on_enemy_feedback(event_name: StringName, data: Dictionary, enemy: BotController) -> void:
 	if event_name == &"boss_phase":
+		AudioManager.play_music(&"boss")
 		AudioEvents.play(&"boss_phase", enemy.global_position, data)
 		_show_notice("WARDEN PHASE %d  -  RECOVERY WINDOW" % int(data.get("phase", 1)), 1.2)
 	elif event_name == &"heavy_telegraph" and is_instance_valid(enemy) and player.global_position.distance_to(enemy.global_position) <= 9.0:
@@ -734,8 +744,16 @@ func _run_dungeon_scene_flow_test() -> void:
 	if player.is_first_person == camera_before:
 		failure = "FPP/TPP switching failed after dungeon entry"
 	_on_return_requested()
-	if not get_tree().paused or not pause_layer.visible or Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or not player.is_cursor_free:
+	if not get_tree().paused or not pause_layer.visible or Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or not player.is_cursor_free or MouseModeService.current_mode != MouseModeService.Mode.PAUSE:
 		failure = "Dungeon ESC did not pause and release the mouse"
+	_show_pause_settings()
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	player._input(click)
+	if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or not player.is_cursor_free or MouseModeService.current_mode != MouseModeService.Mode.SETTINGS:
+		failure = "Dungeon pause settings click recaptured gameplay input"
+	_hide_pause_settings()
 	_toggle_pause()
 	await get_tree().process_frame
 	# Headless display servers cannot reacquire OS pointer capture after releasing it.

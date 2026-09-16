@@ -19,10 +19,12 @@ var invert_y: bool = false
 var damage_numbers: bool = true
 var camera_shake_strength: float = 0.55
 var headbob_strength: float = 0.45
+var tpp_camera_smoothing: float = 18.0
 var crosshair_enabled: bool = true
 var master_volume: float = 0.80
 var music_volume: float = 0.65
 var sfx_volume: float = 0.85
+var ui_volume: float = 0.8
 var _save_pending: bool = false
 var _save_delay_remaining: float = 0.0
 
@@ -53,10 +55,12 @@ func reset_defaults(apply_now: bool = true) -> void:
 	damage_numbers = true
 	camera_shake_strength = 0.55
 	headbob_strength = 0.45
+	tpp_camera_smoothing = 18.0
 	crosshair_enabled = true
 	master_volume = 0.80
 	music_volume = 0.65
 	sfx_volume = 0.85
+	ui_volume = 0.8
 	if apply_now:
 		apply_settings()
 
@@ -76,10 +80,12 @@ func set_value(key: StringName, value: Variant, persist: bool = true) -> void:
 		&"damage_numbers": damage_numbers = bool(value)
 		&"camera_shake_strength": camera_shake_strength = clampf(float(value), 0.0, 1.0)
 		&"headbob_strength": headbob_strength = clampf(float(value), 0.0, 1.0)
+		&"tpp_camera_smoothing": tpp_camera_smoothing = clampf(float(value), 6.0, 30.0)
 		&"crosshair_enabled": crosshair_enabled = bool(value)
 		&"master_volume": master_volume = clampf(float(value), 0.0, 1.0)
 		&"music_volume": music_volume = clampf(float(value), 0.0, 1.0)
 		&"sfx_volume": sfx_volume = clampf(float(value), 0.0, 1.0)
+		&"ui_volume": ui_volume = clampf(float(value), 0.0, 1.0)
 		_: return
 	apply_settings()
 	if persist:
@@ -101,6 +107,7 @@ func apply_settings() -> void:
 		AudioServer.set_bus_volume_db(master_bus, linear_to_db(maxf(master_volume, 0.0001)))
 	_apply_optional_audio_bus("Music", music_volume)
 	_apply_optional_audio_bus("SFX", sfx_volume)
+	_apply_optional_audio_bus("UI", ui_volume)
 	changed.emit()
 
 
@@ -126,10 +133,12 @@ func to_dictionary() -> Dictionary:
 		"damage_numbers": damage_numbers,
 		"camera_shake_strength": camera_shake_strength,
 		"headbob_strength": headbob_strength,
+		"tpp_camera_smoothing": tpp_camera_smoothing,
 		"crosshair_enabled": crosshair_enabled,
 		"master_volume": master_volume,
 		"music_volume": music_volume,
 		"sfx_volume": sfx_volume,
+		"ui_volume": ui_volume,
 	}
 
 
@@ -152,10 +161,12 @@ func apply_dictionary(data: Dictionary, apply_now: bool = true) -> bool:
 	damage_numbers = bool(data.get("damage_numbers", true))
 	camera_shake_strength = clampf(float(data.get("camera_shake_strength", 0.55)), 0.0, 1.0)
 	headbob_strength = clampf(float(data.get("headbob_strength", 0.45)), 0.0, 1.0)
+	tpp_camera_smoothing = clampf(float(data.get("tpp_camera_smoothing", 18.0)), 6.0, 30.0)
 	crosshair_enabled = bool(data.get("crosshair_enabled", true))
 	master_volume = clampf(float(data.get("master_volume", 0.80)), 0.0, 1.0)
 	music_volume = clampf(float(data.get("music_volume", 0.65)), 0.0, 1.0)
 	sfx_volume = clampf(float(data.get("sfx_volume", 0.85)), 0.0, 1.0)
+	ui_volume = clampf(float(data.get("ui_volume", 0.8)), 0.0, 1.0)
 	if apply_now:
 		apply_settings()
 	return true

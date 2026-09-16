@@ -13,6 +13,7 @@ config/icon="res://icon.svg"
 PlayerProfile="*res://scripts/core/player_profile.gd"
 GameSettings="*res://scripts/core/game_settings.gd"
 AudioEvents="*res://scripts/core/audio_event_bus.gd"
+AudioManager="*res://scripts/core/audio_manager.gd"
 
 [display]
 

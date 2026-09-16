@@ -21,6 +21,7 @@ var pause_settings_column: VBoxContainer
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	MouseModeService.capture_gameplay(player)
+	AudioManager.play_music(&"arena")
 	player.spawn_transform = player.global_transform
 	bot.spawn_transform = bot.global_transform
 	bot.set_target(player)
@@ -139,6 +140,7 @@ func _build_pause_settings() -> void:
 	_add_pause_slider("FOV", GameSettings.base_fov, 70.0, 110.0, 1.0, &"base_fov")
 	_add_pause_slider("CAMERA SHAKE", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
 	_add_pause_slider("HEADBOB", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
+	_add_pause_slider("TPP SMOOTHING", GameSettings.tpp_camera_smoothing, 6.0, 30.0, 1.0, &"tpp_camera_smoothing")
 	var damage_numbers := CheckButton.new()
 	damage_numbers.text = "DAMAGE NUMBERS"
 	damage_numbers.button_pressed = GameSettings.damage_numbers
@@ -172,11 +174,14 @@ func _add_pause_slider(caption: String, value: float, minimum: float, maximum: f
 func _show_pause_settings() -> void:
 	pause_menu_column.visible = false
 	pause_settings_column.visible = true
+	MouseModeService.enter_settings(player)
 
 
 func _hide_pause_settings() -> void:
 	pause_settings_column.visible = false
 	pause_menu_column.visible = true
+	if get_tree().paused:
+		MouseModeService.enter_pause(player)
 
 
 func _add_pause_button(parent: Control, text: String, callback: Callable) -> void:
@@ -184,6 +189,8 @@ func _add_pause_button(parent: Control, text: String, callback: Callable) -> voi
 	button.text = text
 	button.custom_minimum_size.y = 48
 	button.add_theme_font_size_override("font_size", 15)
+	button.mouse_entered.connect(func() -> void: AudioEvents.play(&"ui_hover"))
+	button.pressed.connect(func() -> void: AudioEvents.play(&"ui_click"))
 	button.pressed.connect(callback)
 	parent.add_child(button)
 
@@ -194,8 +201,6 @@ func _toggle_pause() -> void:
 	pause_layer.visible = should_pause
 	if should_pause:
 		_hide_pause_settings()
-	if should_pause:
-		MouseModeService.release_gameplay(player)
 	else:
 		MouseModeService.capture_gameplay(player)
 
@@ -540,15 +545,27 @@ func _run_pause_flow_test() -> void:
 	await get_tree().process_frame
 	var failures: Array[String] = []
 	_toggle_pause()
-	if not get_tree().paused or not pause_layer.visible or not player.is_cursor_free:
+	if not get_tree().paused or not pause_layer.visible or not player.is_cursor_free or MouseModeService.current_mode != MouseModeService.Mode.PAUSE:
 		failures.append("Arena pause did not expose the free-cursor menu")
+	_show_pause_settings()
+	if not pause_settings_column.visible or Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or MouseModeService.current_mode != MouseModeService.Mode.SETTINGS:
+		failures.append("Arena pause settings did not retain UI cursor ownership")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	player._input(click)
+	if Input.mouse_mode != Input.MOUSE_MODE_VISIBLE or not player.is_cursor_free:
+		failures.append("Clicking Arena pause settings recaptured gameplay input")
+	_hide_pause_settings()
+	if not pause_menu_column.visible or MouseModeService.current_mode != MouseModeService.Mode.PAUSE:
+		failures.append("Returning from Arena settings did not restore pause ownership")
 	_toggle_pause()
-	if get_tree().paused or pause_layer.visible or player.is_cursor_free:
+	if get_tree().paused or pause_layer.visible or player.is_cursor_free or MouseModeService.current_mode != MouseModeService.Mode.GAMEPLAY:
 		failures.append("Arena resume did not restore gameplay input")
 	if not ResourceLoader.exists("res://scenes/lobby.tscn"):
 		failures.append("Return-to-lobby destination is missing")
 	if failures.is_empty():
-		print("PAUSE_FLOW_OK: pause, resume, cursor capture and lobby destination passed")
+		print("PAUSE_FLOW_OK: pause/settings clicks, resume, cursor ownership and lobby destination passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -821,7 +838,7 @@ func _run_self_test() -> void:
 	var preserved_velocity := Vector3(2, 3, 4)
 	player.velocity = preserved_velocity
 	player.set_camera_mode(false)
-	if player.velocity != preserved_velocity or not player.third_person_camera.current:
+	if player.velocity != preserved_velocity or player.is_first_person or not player.view_camera.current:
 		failures.append("TPP switch altered velocity or failed to activate camera")
 	player.global_position = Vector3(0, 0.05, 27.75)
 	player.velocity = Vector3.ZERO
@@ -831,7 +848,7 @@ func _run_self_test() -> void:
 		failures.append("Third-person SpringArm did not shorten against the south wall")
 	var before_fpp_switch := player.velocity
 	player.set_camera_mode(true)
-	if player.velocity != before_fpp_switch or not player.first_person_camera.current:
+	if player.velocity != before_fpp_switch or not player.is_first_person or not player.view_camera.current:
 		failures.append("FPP switch altered velocity or failed to activate camera")
 	player.velocity = Vector3.ZERO
 	($Arena/LaunchPadSouth as LaunchPad)._on_body_entered(player)

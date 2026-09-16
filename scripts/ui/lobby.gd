@@ -27,6 +27,7 @@ const RESTART_TEST_PATH := "user://extraction_fighter_restart_test.json"
 
 func _ready() -> void:
 	MouseModeService.enter_lobby()
+	AudioManager.play_music(&"lobby")
 	_build_shell()
 	var args := OS.get_cmdline_user_args()
 	if "--scene-flow-test" in args:
@@ -478,6 +479,7 @@ func _show_settings() -> void:
 	_setting_toggle(gameplay, "Damage Numbers", GameSettings.damage_numbers, &"damage_numbers")
 	_setting_slider(gameplay, "Camera Shake", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
 	_setting_slider(gameplay, "Headbob", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
+	_setting_slider(gameplay, "TPP Smoothing", GameSettings.tpp_camera_smoothing, 6.0, 30.0, 1.0, &"tpp_camera_smoothing")
 	_setting_toggle(gameplay, "Crosshair", GameSettings.crosshair_enabled, &"crosshair_enabled")
 	_label(gameplay, "CONTROLS", 12, COLOR_ACCENT)
 	var controls := _label(gameplay, "WASD  MOVE   SHIFT  SPRINT\nSPACE  JUMP   CTRL  CROUCH\nQ / E  SKILLS   1 / 2  WEAPONS\nLMB  ATTACK   RMB  ALT / ADS\nR  RELOAD   X  INTERACT   V  CAMERA\nESC  PAUSE   F3  DEBUG", 11, COLOR_MUTED)
@@ -487,7 +489,8 @@ func _show_settings() -> void:
 	_setting_slider(audio, "Master", GameSettings.master_volume, 0.0, 1.0, 0.05, &"master_volume")
 	_setting_slider(audio, "Music", GameSettings.music_volume, 0.0, 1.0, 0.05, &"music_volume")
 	_setting_slider(audio, "SFX", GameSettings.sfx_volume, 0.0, 1.0, 0.05, &"sfx_volume")
-	var audio_note := _label(audio, "Music and SFX buses are ready for future assets. Current placeholder events remain silent when no stream is assigned.", 11, COLOR_MUTED)
+	_setting_slider(audio, "UI", GameSettings.ui_volume, 0.0, 1.0, 0.05, &"ui_volume")
+	var audio_note := _label(audio, "Procedural placeholder audio is active. Every cue can be replaced centrally without changing gameplay code.", 11, COLOR_MUTED)
 	audio_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var defaults := _button(audio, "RESTORE DEFAULTS", false)
 	defaults.pressed.connect(_restore_setting_defaults)
@@ -666,6 +669,7 @@ func _equip_definition(definition: ItemDefinition) -> void:
 		_show_loadout()
 	elif feedback_label != null:
 		feedback_label.text = PlayerProfile.last_error
+		AudioEvents.play(&"ui_invalid")
 
 
 func _equip_instance(definition: ItemDefinition, instance: ItemInstance) -> void:
@@ -678,6 +682,7 @@ func _equip_instance(definition: ItemDefinition, instance: ItemInstance) -> void
 		_show_loadout()
 	elif feedback_label != null:
 		feedback_label.text = PlayerProfile.last_error
+		AudioEvents.play(&"ui_invalid")
 
 
 func _show_item_details(definition: ItemDefinition) -> void:
@@ -804,6 +809,7 @@ func _add_back_button(parent: Control) -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
 	var back := _button(row, "BACK", false)
+	back.set_meta("audio_event", &"ui_back")
 	back.custom_minimum_size = Vector2(150, 42)
 	back.pressed.connect(_show_main)
 
@@ -1290,7 +1296,8 @@ func _button(parent: Control, text: String, danger: bool) -> Button:
 	button.add_theme_stylebox_override("pressed", _style(Color(0.05, 0.22, 0.24), COLOR_ACCENT, 2, 4))
 	button.add_theme_stylebox_override("disabled", _style(Color(0.03, 0.04, 0.05), Color(0.11, 0.13, 0.15), 1, 4))
 	parent.add_child(button)
-	button.pressed.connect(func() -> void: AudioEvents.play(&"ui_click"))
+	button.pressed.connect(func() -> void: AudioEvents.play(StringName(button.get_meta("audio_event", &"ui_click"))))
+	button.mouse_entered.connect(func() -> void: AudioEvents.play(&"ui_hover"))
 	return button
 
 

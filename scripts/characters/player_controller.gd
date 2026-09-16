@@ -16,6 +16,11 @@ signal pause_requested
 @export var headbob_frequency: float = 9.0
 @export var headbob_amplitude: float = 0.018
 @export var landing_camera_impulse: float = 0.055
+@export var tpp_follow_smoothing: float = 18.0
+@export var tpp_rotation_smoothing: float = 22.0
+@export var tpp_collision_smoothing: float = 11.0
+@export var tpp_distance: float = 3.8
+@export var camera_transition_duration: float = 0.16
 
 @onready var health: HealthComponent = $HealthComponent
 @onready var body_collision: CollisionShape3D = $CollisionShape3D
@@ -23,8 +28,10 @@ signal pause_requested
 @onready var visual_body: MeshInstance3D = $VisualBody
 @onready var pitch_pivot: Node3D = $PitchPivot
 @onready var first_person_camera: Camera3D = $PitchPivot/FirstPersonCamera
-@onready var spring_arm: SpringArm3D = $PitchPivot/ThirdPersonSpringArm
-@onready var third_person_camera: Camera3D = $PitchPivot/ThirdPersonSpringArm/ThirdPersonCamera
+@onready var third_person_pivot: Node3D = $ThirdPersonPivot
+@onready var spring_arm: SpringArm3D = $ThirdPersonPivot/ThirdPersonSpringArm
+@onready var third_person_camera: Camera3D = $ThirdPersonPivot/ThirdPersonCamera
+@onready var view_camera: Camera3D = $ViewCamera
 @onready var weapon_mount: Node3D = $PitchPivot/WeaponMount
 @onready var skill_mount: Node = $SkillMount
 @onready var movement: PlayerMovementController = $MovementController
@@ -71,6 +78,10 @@ var headbob_time: float = 0.0
 var crosshair_impulse: float = 0.0
 var footstep_remaining: float = 0.0
 var was_sprinting_audio: bool = false
+var tpp_collision_distance: float = 3.8
+var camera_transition_remaining: float = 0.0
+var camera_transition_from: Transform3D
+var camera_view_initialized: bool = false
 
 
 func _ready() -> void:
@@ -93,9 +104,11 @@ func _ready() -> void:
 	movement.movement_event.connect(_on_movement_event)
 	spring_arm.add_excluded_object(get_rid())
 	spring_arm.add_excluded_object(head_hurtbox.get_rid())
+	spring_arm.spring_length = tpp_distance
 	equip_weapon(0)
-	set_camera_mode(true)
 	_apply_gameplay_settings()
+	view_camera.set_as_top_level(true)
+	set_camera_mode(true, false)
 	if not GameSettings.changed.is_connected(_apply_gameplay_settings):
 		GameSettings.changed.connect(_apply_gameplay_settings)
 
@@ -105,10 +118,12 @@ func _input(event: InputEvent) -> void:
 		pause_requested.emit()
 		get_viewport().set_input_as_handled()
 		return
+	if get_tree().paused or not MouseModeService.is_gameplay_active():
+		return
 	if is_cursor_free:
 		if event is InputEventMouseButton and event.pressed:
-			MouseModeService.capture_gameplay(self)
-			get_viewport().set_input_as_handled()
+			if MouseModeService.capture_gameplay(self):
+				get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseMotion and not is_dead:
 		rotate_y(-event.relative.x * mouse_sensitivity)
@@ -175,15 +190,57 @@ func _process(delta: float) -> void:
 	var bob := Vector2(cos(headbob_time * 0.5), sin(headbob_time)) * headbob_amplitude * bob_strength if moving_on_floor else Vector2.ZERO
 	var shake := GameSettings.camera_shake_strength
 	first_person_camera.position = first_person_camera.position.lerp(Vector3(bob.x, bob.y + camera_vertical_impulse * shake, 0.0), minf(1.0, delta * 12.0))
-	third_person_camera.position = third_person_camera.position.lerp(Vector3(bob.x * 0.35, (bob.y + camera_vertical_impulse) * 0.35, 0.0), minf(1.0, delta * 10.0))
 	first_person_camera.rotation.z = lerpf(first_person_camera.rotation.z, camera_roll_impulse * shake, minf(1.0, delta * 12.0))
-	third_person_camera.rotation.z = lerpf(third_person_camera.rotation.z, camera_roll_impulse * shake * 0.45, minf(1.0, delta * 10.0))
+	_update_third_person_target(delta, bob, shake)
+	_update_view_camera(delta)
 
 
 func _apply_gameplay_settings() -> void:
 	mouse_sensitivity = GameSettings.mouse_sensitivity
 	first_person_fov = GameSettings.base_fov
 	third_person_fov = clampf(GameSettings.base_fov - 12.0, 65.0, 98.0)
+	tpp_follow_smoothing = GameSettings.tpp_camera_smoothing
+
+
+func _update_third_person_target(delta: float, bob: Vector2, shake: float) -> void:
+	var follow_alpha := 1.0 - exp(-tpp_follow_smoothing * delta)
+	var rotation_alpha := 1.0 - exp(-tpp_rotation_smoothing * delta)
+	third_person_pivot.position.y = lerpf(third_person_pivot.position.y, pitch_pivot.position.y, follow_alpha)
+	third_person_pivot.rotation.x = lerp_angle(third_person_pivot.rotation.x, pitch_pivot.rotation.x, rotation_alpha)
+	spring_arm.spring_length = tpp_distance
+	var hit_length := spring_arm.get_hit_length()
+	if hit_length <= 0.01:
+		hit_length = tpp_distance
+	if hit_length < tpp_collision_distance:
+		# Collision contraction is immediate so smoothing can never carry the camera through a wall.
+		tpp_collision_distance = hit_length
+	else:
+		var collision_alpha := 1.0 - exp(-tpp_collision_smoothing * delta)
+		tpp_collision_distance = lerpf(tpp_collision_distance, minf(hit_length, tpp_distance), collision_alpha)
+	third_person_camera.position = Vector3(
+		spring_arm.position.x + bob.x * 0.35,
+		spring_arm.position.y + (bob.y + camera_vertical_impulse) * 0.35,
+		tpp_collision_distance
+	)
+	third_person_camera.rotation.z = lerpf(third_person_camera.rotation.z, camera_roll_impulse * shake * 0.45, minf(1.0, delta * 10.0))
+
+
+func _update_view_camera(delta: float) -> void:
+	var target := first_person_camera if is_first_person else third_person_camera
+	var target_transform := target.global_transform
+	if camera_transition_remaining > 0.0:
+		camera_transition_remaining = maxf(0.0, camera_transition_remaining - delta)
+		var progress := 1.0 - camera_transition_remaining / maxf(camera_transition_duration, 0.001)
+		var eased := smoothstep(0.0, 1.0, progress)
+		view_camera.global_transform = camera_transition_from.interpolate_with(target_transform, eased)
+	elif is_first_person:
+		view_camera.global_transform = target_transform
+	else:
+		var position_alpha := 1.0 - exp(-tpp_follow_smoothing * delta)
+		var rotation_alpha := 1.0 - exp(-tpp_rotation_smoothing * delta)
+		view_camera.global_position = view_camera.global_position.lerp(target_transform.origin, position_alpha)
+		view_camera.global_basis = view_camera.global_basis.slerp(target_transform.basis, rotation_alpha).orthonormalized()
+	view_camera.fov = lerpf(view_camera.fov, target.fov, minf(1.0, delta * 14.0))
 
 
 func get_crosshair_spread() -> float:
@@ -232,11 +289,21 @@ func equip_weapon(index: int) -> void:
 	feedback.emit(&"weapon_switched", {"name": current_weapon.weapon_display_name})
 
 
-func set_camera_mode(first_person: bool) -> void:
+func set_camera_mode(first_person: bool, animate: bool = true) -> void:
+	if animate and camera_view_initialized:
+		camera_transition_from = view_camera.global_transform
+		camera_transition_remaining = camera_transition_duration
 	is_first_person = first_person
-	first_person_camera.current = first_person
-	third_person_camera.current = not first_person
+	first_person_camera.current = false
+	third_person_camera.current = false
+	view_camera.current = true
 	visual_body.visible = not first_person and not is_dead and not is_invisible
+	if not animate or not camera_view_initialized:
+		var target := first_person_camera if first_person else third_person_camera
+		view_camera.global_transform = target.global_transform
+		view_camera.fov = target.fov
+		camera_transition_remaining = 0.0
+	camera_view_initialized = true
 	feedback.emit(&"camera_switched", {"mode": get_camera_mode_name()})
 
 
@@ -245,7 +312,7 @@ func get_camera_mode_name() -> String:
 
 
 func get_aim_origin() -> Vector3:
-	return first_person_camera.global_position if is_first_person else third_person_camera.global_position
+	return view_camera.global_position
 
 
 func get_melee_origin() -> Vector3:
@@ -253,8 +320,7 @@ func get_melee_origin() -> Vector3:
 
 
 func get_aim_direction() -> Vector3:
-	var camera := first_person_camera if is_first_person else third_person_camera
-	return -camera.global_basis.z.normalized()
+	return -view_camera.global_basis.z.normalized()
 
 
 func get_aim_exclusions() -> Array[RID]:
@@ -307,6 +373,8 @@ func on_damage_response(response_type: StringName, info: DamageInfo, applied: fl
 			AudioEvents.play(&"block", global_position)
 		_:
 			feedback.emit(&"damage_taken", {"damage": applied, "headshot": info.headshot})
+			if applied > 0.0:
+				AudioEvents.play(&"player_damage", global_position, {"amount": applied})
 
 
 func uses_dungeon_durability() -> bool:
@@ -352,7 +420,12 @@ func on_damage_dealt_feedback(target: Node, info: DamageInfo, result: Dictionary
 		"position": info.hit_position,
 		"damage_type": info.damage_type,
 	})
-	AudioEvents.play(&"melee_hit" if info.is_melee else (&"headshot" if info.headshot else &"hit"), info.hit_position)
+	if bool(result.get("blocked", false)) or float(result.get("applied", 0.0)) < info.amount:
+		AudioEvents.play(&"armor_hit", info.hit_position)
+	elif info.is_melee and String(info.damage_type).contains("heavy"):
+		AudioEvents.play(&"heavy_hit", info.hit_position)
+	else:
+		AudioEvents.play(&"melee_hit" if info.is_melee else &"enemy_damage", info.hit_position)
 
 
 func set_invisibility(active: bool, source: StringName = &"skill") -> void:
@@ -414,6 +487,7 @@ func on_empty_weapon() -> void:
 
 func _on_weapon_hit(headshot: bool) -> void:
 	feedback.emit(&"headshot" if headshot else &"hitmarker", {})
+	AudioEvents.play(&"headshot" if headshot else &"hit")
 
 
 func _on_movement_event(event_name: StringName) -> void:
@@ -462,7 +536,7 @@ func respawn() -> void:
 	for weapon in weapons:
 		weapon.reset_weapon()
 	health.reset()
-	set_camera_mode(is_first_person)
+	set_camera_mode(is_first_person, false)
 	feedback.emit(&"respawn", {})
 
 
@@ -488,6 +562,8 @@ func emit_skill_feedback(event_name: StringName, data: Dictionary) -> void:
 	feedback.emit(event_name, data)
 	if event_name == &"grapple":
 		AudioEvents.play(&"grapple", global_position, data)
+	elif event_name == &"blink":
+		AudioEvents.play(&"blink", global_position, data)
 
 
 func perform_collision_safe_blink(distance: float) -> bool:

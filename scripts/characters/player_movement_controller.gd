@@ -7,7 +7,6 @@ signal movement_event(event_name: StringName)
 @export var walk_speed: float = 6.0
 @export var sprint_speed: float = 10.0
 @export var ground_acceleration: float = 55.0
-@export var sprint_acceleration: float = 62.0
 @export var ground_deceleration: float = 55.0
 @export var ground_friction: float = 5.2
 @export var landing_friction_delay: float = 0.1
@@ -37,7 +36,6 @@ signal movement_event(event_name: StringName)
 @export var slide_friction: float = 2.5
 @export var slide_steering: float = 1.7
 @export var slide_duration_cap: float = 1.4
-@export var slide_exit_friction_delay: float = 0.08
 
 @export_group("Dash Integration")
 @export var dash_momentum_speed_cap: float = 30.0
@@ -73,8 +71,8 @@ func setup(
 		p_visual_body: MeshInstance3D,
 		p_pitch_pivot: Node3D,
 		p_head_hurtbox: Area3D,
-		p_dash_skill: DashSkill = null,
-		p_double_jump_skill: DoubleJumpSkill = null
+		p_dash_skill: DashSkill,
+		p_double_jump_skill: DoubleJumpSkill
 ) -> void:
 	actor = p_actor
 	body_collision = p_body_collision
@@ -90,14 +88,11 @@ func setup(
 	was_on_floor = actor.is_on_floor()
 
 
-func configure_skills(p_dash_skill: DashSkill, p_double_jump_skill: DoubleJumpSkill) -> void:
-	dash_skill = p_dash_skill
-	double_jump_skill = p_double_jump_skill
-
-
 func physics_step(delta: float, stagger_remaining: float = 0.0) -> void:
 	if actor == null:
 		return
+	dash_skill.tick(delta)
+	double_jump_skill.tick(delta)
 	jump_buffer_remaining = maxf(0.0, jump_buffer_remaining - delta)
 	landing_grace_remaining = maxf(0.0, landing_grace_remaining - delta)
 
@@ -130,16 +125,22 @@ func physics_step(delta: float, stagger_remaining: float = 0.0) -> void:
 			_perform_ground_jump(is_sliding)
 			jumped = true
 			grounded = false
-		elif jump_pressed and not grounded and not _is_near_landing() and double_jump_skill != null and double_jump_skill.try_activate():
-			var jump_multiplier := float(actor.get_jump_multiplier()) if actor.has_method("get_jump_multiplier") else 1.0
-			actor.velocity.y = double_jump_skill.jump_velocity * jump_multiplier
+		elif jump_pressed and not grounded and not _is_near_landing() and double_jump_skill.try_activate():
+			actor.velocity.y = double_jump_skill.jump_velocity
 			jump_buffer_remaining = 0.0
 			movement_event.emit(&"double_jump")
 			jumped = true
 
+	if Input.is_action_just_pressed("dash") and stagger_remaining <= 0.0:
+		var dash_direction := wish_direction if wish_direction.length_squared() > 0.01 else -actor.global_basis.z
+		dash_direction.y = 0.0
+		if dash_skill.try_activate(dash_direction):
+			_prepare_dash_velocity(dash_direction.normalized())
+			movement_event.emit(&"dash")
+
 	_update_stance(delta, crouch_held or is_sliding)
 
-	if dash_skill != null and dash_skill.is_active():
+	if dash_skill.is_active():
 		_set_horizontal_velocity(dash_horizontal_velocity)
 		movement_state = "DASH"
 	elif is_sliding and grounded:
@@ -168,13 +169,10 @@ func _update_ground_movement(delta: float, wish_direction: Vector3, stagger_rema
 		_apply_ground_friction(delta, wish_direction.length_squared() < 0.01)
 	var speed_before_acceleration := get_horizontal_speed()
 	var speed := crouch_speed if is_crouching else (sprint_speed if Input.is_action_pressed("sprint") else walk_speed)
-	if actor.has_method("get_movement_speed_multiplier"):
-		speed *= float(actor.get_movement_speed_multiplier())
 	if stagger_remaining > 0.0:
 		speed *= 0.25
 	if wish_direction.length_squared() > 0.01:
-		var acceleration := sprint_acceleration if Input.is_action_pressed("sprint") and not is_crouching else ground_acceleration
-		_accelerate(wish_direction, speed, acceleration, delta)
+		_accelerate(wish_direction, speed, ground_acceleration, delta)
 		_limit_horizontal_growth(bhop_speed_cap, speed_before_acceleration)
 	movement_state = "CROUCH" if is_crouching else ("SPRINT" if Input.is_action_pressed("sprint") else "GROUND")
 
@@ -183,8 +181,6 @@ func _update_air_movement(delta: float, wish_direction: Vector3, stagger_remaini
 	var previous_speed := get_horizontal_speed()
 	if wish_direction.length_squared() > 0.01:
 		var wish_speed := minf(air_speed_cap, sprint_speed if Input.is_action_pressed("sprint") else walk_speed)
-		if actor.has_method("get_movement_speed_multiplier"):
-			wish_speed *= float(actor.get_movement_speed_multiplier())
 		if stagger_remaining > 0.0:
 			wish_speed *= 0.35
 		var horizontal := get_horizontal_velocity()
@@ -219,8 +215,7 @@ func _apply_air_control(wish_direction: Vector3, delta: float) -> void:
 	var alignment := current_direction.dot(wish_direction)
 	if alignment <= 0.0:
 		return
-	var control_multiplier := float(actor.get_air_control_multiplier()) if actor.has_method("get_air_control_multiplier") else 1.0
-	var turn_amount := clampf(air_control * control_multiplier * alignment * alignment * delta, 0.0, 1.0)
+	var turn_amount := clampf(air_control * alignment * alignment * delta, 0.0, 1.0)
 	var controlled_direction := current_direction.slerp(wish_direction, turn_amount).normalized()
 	_set_horizontal_velocity(controlled_direction * speed)
 
@@ -252,10 +247,8 @@ func _update_slide(delta: float, wish_direction: Vector3, crouch_held: bool) -> 
 	slide_elapsed += delta
 	var horizontal := get_horizontal_velocity()
 	var speed := horizontal.length()
-	var slide_multiplier := float(actor.get_slide_affix_multiplier()) if actor.has_method("get_slide_affix_multiplier") else 1.0
-	if not crouch_held or speed < slide_min_speed * 0.55 or slide_elapsed >= slide_duration_cap * slide_multiplier:
+	if not crouch_held or speed < slide_min_speed * 0.55 or slide_elapsed >= slide_duration_cap:
 		_end_slide()
-		landing_grace_remaining = maxf(landing_grace_remaining, slide_exit_friction_delay)
 		movement_state = "CROUCH" if crouch_held else "GROUND"
 		return
 	if wish_direction.length_squared() > 0.01 and speed > 0.01:
@@ -266,7 +259,7 @@ func _update_slide(delta: float, wish_direction: Vector3, crouch_held: bool) -> 
 		var downhill := Vector3.DOWN.slide(floor_normal)
 		horizontal += Vector3(downhill.x, 0.0, downhill.z) * gravity * delta * 0.42
 		speed = horizontal.length()
-	speed = maxf(0.0, speed - slide_friction / slide_multiplier * delta)
+	speed = maxf(0.0, speed - slide_friction * delta)
 	_set_horizontal_velocity(horizontal.normalized() * speed)
 	movement_state = "SLIDE"
 
@@ -277,10 +270,8 @@ func _perform_ground_jump(from_slide: bool) -> void:
 		var carried_speed := minf(get_horizontal_speed() * 1.02, bhop_speed_cap)
 		if get_horizontal_speed() > 0.01:
 			_set_horizontal_velocity(get_horizontal_velocity().normalized() * carried_speed)
-			movement_event.emit(&"slide_jump")
-	var jump_multiplier := float(actor.get_jump_multiplier()) if actor.has_method("get_jump_multiplier") else 1.0
-	actor.velocity.y = jump_velocity * jump_multiplier
-	movement_event.emit(&"jump")
+		movement_event.emit(&"slide_jump")
+	actor.velocity.y = jump_velocity
 	jump_buffer_remaining = 0.0
 	coyote_remaining = 0.0
 	normal_jump_available = false
@@ -291,8 +282,7 @@ func _on_landed() -> void:
 	landing_grace_remaining = landing_friction_delay
 	coyote_remaining = coyote_time
 	normal_jump_available = true
-	if double_jump_skill != null:
-		double_jump_skill.on_landed()
+	double_jump_skill.on_landed()
 	movement_event.emit(&"landed")
 
 
@@ -305,12 +295,6 @@ func _prepare_dash_velocity(direction: Vector3) -> void:
 		dash_horizontal_velocity = dash_horizontal_velocity.normalized() * dash_momentum_speed_cap
 	if is_sliding:
 		_end_slide()
-
-
-func start_equipped_dash(skill: DashSkill) -> void:
-	dash_skill = skill
-	_prepare_dash_velocity(skill.dash_direction)
-	movement_event.emit(&"dash")
 
 
 func _update_stance(delta: float, wants_crouch: bool) -> void:
