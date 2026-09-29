@@ -1,4 +1,4 @@
-# Extraction Fighter - MVP 0.4.0
+# Extraction Fighter - MVP 0.4.1
 
 A local single-player Godot 4.7.2 combat prototype with a persistent lobby, data-driven loadouts, and a fast player-versus-bot arena.
 
@@ -14,10 +14,9 @@ The project starts in the lobby. `PLAY > ARENA` launches endless deathmatch and 
 
 ## Arena controls
 
-- `WASD`: move
-- `Shift`: sprint
-- `Ctrl`: crouch / momentum slide
-- `Space`: jump; airborne double jump only when Double Jump is equipped
+- `WASD`: constant-speed arena movement
+- `Shift`, `C`, or `Ctrl`: crouch / momentum slide
+- `Space`: jump; hold for auto bunny hop; release and press again in the air for an equipped Double Jump
 - `Q`: skill slot 1
 - `E`: skill slot 2
 - `V`: instant FPP/TPP toggle
@@ -41,11 +40,31 @@ Armory runs generate exactly six normal extraction sites and two hidden key site
 
 Hover any owned or equipped item in Loadout, Stash, or a populated Main Inventory slot to inspect its reusable rarity-colored tooltip. Tooltips show the exact instance's affix names, tiers, readable effect descriptions, unique Mythic mechanic, and base-to-effective damage/fire-rate/reload values where applicable.
 
-The arena remains an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character. Existing momentum-preserving air control, bunny hopping, crouching, sliding, slide jumping, cameras, bot AI, combat, launch pads, scoring, and respawn behavior remain active.
+The arena remains an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character. Cameras, bot AI, combat, launch pads, scoring, and respawn behavior remain active.
+
+## Kour-style movement baseline
+
+The previous player locomotion was removed and replaced by an original controller based on Kour.io's public movement characteristics. This is a starting point for playtesting, not extracted Kour.io code or a claim of identical internal values.
+
+- Constant arena run speed with CS-style acceleration, responsive counter-strafing and normalized diagonals. There is no separate sprint mode.
+- Hold Space to chain ground jumps without consuming an equipped Double Jump. Release and press again for the airborne skill.
+- Airborne `W/S` and unsynchronized `A/D` do nothing, preserving launch momentum. Bhop steering requires held `Space` plus mouse-left+`A` or mouse-right+`D`.
+- Ctrl at speed starts a slide; Space carries its momentum into a jump. Dash/launch speed above the normal movement cap survives slide entry and slide jumps.
+- Crouch still checks ceiling clearance. Coyote time, jump buffering, loadout skills, movement/jump/air-control buffs, and slide affixes remain integrated.
+
+Tune `Player > MovementController` in the Godot Inspector (`scripts/characters/player_movement_controller.gd`). Defaults: run **10.5 m/s**, ground acceleration **85 m/s²**, jump velocity **7.4 m/s**, gravity **20 m/s²**, air acceleration **24 m/s²**, camera follow **11.5**, bunny-hop cap **22 m/s**. `auto_bunny_hop` can be disabled; jump/landing windows, camera-relative air control, crouch and slide values are exported separately. Bots retain their existing movement profile.
+
+The `--self-test` suite additionally checks diagonal speed, stopping, held-jump chains, skill cooldown ownership, loadouts without Dash/Double Jump, and preservation of above-cap slide momentum.
 
 Profiles are stored as version-3 JSON at `user://player_profile.json`. Version-1/2 profiles migrate to current/max durability while preserving valid owned items and equipped slots. Missing, malformed, and unsupported profiles safely fall back to the default build.
 
 Video, graphics, gameplay, and audio preferences are stored independently at `user://game_settings.json`. The lobby and gameplay pause menus apply supported settings live, including FOV, sensitivity, camera effects, damage numbers, crosshair visibility, resolution, rendering scale, and volume buses.
+
+## Combat feel foundation
+
+All ten weapon families use centralized presentation profiles for configurable FPP hip, ADS and sprint poses plus bounded TPP offsets. The same profiles drive procedural idle/movement sway, firing kick, recovery, reload motion, swap motion, muzzle timing, tracer duration and family-specific crosshair behavior, so future Blender models can be retuned without spreading transforms through gameplay scripts.
+
+Combat feedback distinguishes normal, headshot, armor, blocked, parry/deflect, critical/proc, damage-over-time and kill results. Damage numbers use a fixed reusable pool, impacts use a fixed 3D pool, enemy reactions are visual rather than repeated stun, and strong melee connections use a short 42 ms hit-stop. Damage numbers, camera shake, hit-effect intensity and crosshair visibility are persisted in Settings.
 
 ## Validation
 
@@ -73,4 +92,5 @@ Video, graphics, gameplay, and audio preferences are stored independently at `us
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --dungeon-scene-flow-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --settings-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --polish-self-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --combat-feel-test
 ```

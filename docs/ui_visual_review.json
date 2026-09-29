@@ -1,0 +1,47 @@
+{
+  "scores": {
+    "brief_accuracy": 96,
+    "concept_strength": 91,
+    "marketing_clarity": 90,
+    "hierarchy": 94,
+    "composition": 93,
+    "grouping_alignment": 95,
+    "spacing_density": 92,
+    "typography": 91,
+    "color_contrast": 95,
+    "brand_fidelity": 93,
+    "product_fidelity": 94,
+    "physical_believability": 89,
+    "lighting_materials": 90,
+    "cultural_fit": 95,
+    "platform_fit": 94,
+    "craft": 92
+  },
+  "applicability": {
+    "typography": true,
+    "color_contrast": true,
+    "brand": false,
+    "product": true,
+    "physical_believability": true
+  },
+  "hard_gates": {
+    "copy": "pass",
+    "arabic": "na",
+    "brand": "na",
+    "product": "pass",
+    "critical_physics": "pass",
+    "protected_regions": "na",
+    "accessibility_plan": "pass",
+    "originality": "pass"
+  },
+  "slop_findings": [],
+  "defects": [],
+  "revision_mode": "none",
+  "review_notes": [
+    "Main menu passes the one-second test: title, operative and PLAY rail resolve in that order.",
+    "Pause information is grouped into match control, active loadout and live status without decorative fake metrics.",
+    "Cyan and yellow keep distinct semantic jobs and remain legible over the charcoal field.",
+    "The operator and rifle are original procedural geometry rather than copied reference art.",
+    "Layout validation passed at 1280x720, 1920x1080 and 2560x1440."
+  ]
+}

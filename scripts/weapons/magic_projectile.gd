@@ -7,6 +7,8 @@ var travel_direction: Vector3 = Vector3.FORWARD
 var speed: float = 34.0
 var damage: float = 31.0
 var remaining_life: float = 3.0
+var is_rift_orb: bool = false
+var visual_time: float = 0.0
 
 
 func setup(p_weapon: WeaponBase, p_source: Node, origin: Vector3, direction: Vector3, p_damage: float, p_speed: float) -> void:
@@ -16,11 +18,16 @@ func setup(p_weapon: WeaponBase, p_source: Node, origin: Vector3, direction: Vec
 	travel_direction = direction.normalized()
 	damage = p_damage
 	speed = p_speed
+	is_rift_orb = p_weapon.item_definition != null and p_weapon.item_definition.special_effect_id == &"rift_wand"
 	look_at(origin + travel_direction, Vector3.UP)
 	_build_visual()
 
 
 func _physics_process(delta: float) -> void:
+	visual_time += delta
+	if is_rift_orb:
+		var pulse := 1.0 + sin(visual_time * 11.0) * 0.13
+		scale = Vector3.ONE * pulse
 	remaining_life -= delta
 	if remaining_life <= 0.0:
 		queue_free()
@@ -62,18 +69,18 @@ func _build_visual() -> void:
 	mesh.radial_segments = 8
 	mesh.rings = 4
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.32, 0.62, 1.0)
+	material.albedo_color = Color(0.58, 0.24, 1.0) if is_rift_orb else Color(0.32, 0.62, 1.0)
 	material.emission_enabled = true
-	material.emission = Color(0.12, 0.38, 1.0)
-	material.emission_energy_multiplier = 4.0
+	material.emission = Color(0.46, 0.08, 1.0) if is_rift_orb else Color(0.12, 0.38, 1.0)
+	material.emission_energy_multiplier = 5.5 if is_rift_orb else 4.0
 	mesh.material = material
 	orb.mesh = mesh
 	orb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(orb)
 	var light := OmniLight3D.new()
-	light.light_color = Color(0.25, 0.52, 1.0)
-	light.light_energy = 1.2
-	light.omni_range = 2.5
+	light.light_color = Color(0.58, 0.20, 1.0) if is_rift_orb else Color(0.25, 0.52, 1.0)
+	light.light_energy = 1.7 if is_rift_orb else 1.2
+	light.omni_range = 3.4 if is_rift_orb else 2.5
 	light.shadow_enabled = false
 	add_child(light)
 	var trail := MeshInstance3D.new()

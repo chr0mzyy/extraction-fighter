@@ -27,12 +27,11 @@ func request_primary() -> void:
 	fire_cooldown_remaining = shot_cooldown / effects.get_rate_multiplier()
 	spend_shot_durability()
 	effects.on_shot_fired()
+	notify_weapon_fired(false)
 	var projectile := MagicProjectile.new()
 	get_tree().current_scene.add_child(projectile)
 	projectile.setup(self, wielder, get_aim_origin() + get_aim_direction() * 0.65, get_aim_direction(), projectile_damage, projectile_speed)
 	effects.track_projectile(projectile)
-	if wielder.has_method("on_rifle_fired"):
-		wielder.on_rifle_fired(false)
 	state_changed.emit()
 
 
@@ -49,6 +48,11 @@ func reset_weapon() -> void:
 	fire_cooldown_remaining = 0.0
 	primary_held = false
 	state_changed.emit()
+
+
+func cancel_combat() -> void:
+	primary_held = false
+	super.cancel_combat()
 
 
 func request_reload() -> void:

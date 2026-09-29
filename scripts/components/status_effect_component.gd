@@ -74,5 +74,7 @@ func _apply_dot(status_id: StringName, data: Dictionary) -> void:
 		amount *= 1.0 + clampf(speed / 12.0, 0.0, 1.0)
 	var info := DamageInfo.new(amount, data.get("source") as Node, status_id, false, false, (actor as Node3D).global_position, Vector3.ZERO, false, true)
 	var result: Dictionary = actor.receive_damage(info)
+	if is_instance_valid(info.attacker) and info.attacker.has_method("on_status_damage_feedback"):
+		info.attacker.on_status_damage_feedback(actor, info, result)
 	if bool(result.get("killed", false)) and is_instance_valid(info.attacker) and info.attacker.has_method("on_affix_dot_kill"):
 		info.attacker.on_affix_dot_kill(actor, self)

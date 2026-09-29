@@ -8,16 +8,16 @@
 
 [sub_resource type="Environment" id="Environment"]
 background_mode = 1
-background_color = Color(0.018, 0.022, 0.035, 1)
-background_energy_multiplier = 0.72
+background_color = Color(0.045, 0.065, 0.085, 1)
+background_energy_multiplier = 0.92
 ambient_light_source = 2
-ambient_light_color = Color(0.48, 0.53, 0.62, 1)
-ambient_light_energy = 0.7
+ambient_light_color = Color(0.58, 0.65, 0.74, 1)
+ambient_light_energy = 1.05
 reflected_light_source = 2
 fog_enabled = true
 fog_light_color = Color(0.08, 0.105, 0.15, 1)
-fog_light_energy = 0.55
-fog_density = 0.003
+fog_light_energy = 0.72
+fog_density = 0.0012
 fog_height = 2.0
 fog_height_density = 0.05
 
@@ -43,7 +43,7 @@ environment = SubResource("Environment")
 [node name="MoonLight" type="DirectionalLight3D" parent="."]
 rotation_degrees = Vector3(-58, -32, 0)
 light_color = Color(0.48, 0.58, 0.78, 1)
-light_energy = 1.42
+light_energy = 1.8
 shadow_enabled = true
 directional_shadow_max_distance = 80.0
 
@@ -68,11 +68,11 @@ mesh = SubResource("MoonMesh")
 [node name="Arena" parent="." instance=ExtResource("2")]
 
 [node name="Player" parent="." instance=ExtResource("3")]
-position = Vector3(-10, 0.15, 5)
-rotation = Vector3(0, -1.15, 0)
+position = Vector3(-22, 0.15, 0)
+rotation = Vector3(0, -1.5708, 0)
 
 [node name="Bot" parent="." instance=ExtResource("4")]
-position = Vector3(11, 0.15, -5)
-rotation = Vector3(0, 1.1, 0)
+position = Vector3(22, 0.15, 0)
+rotation = Vector3(0, 1.5708, 0)
 
 [node name="HUD" parent="." instance=ExtResource("5")]

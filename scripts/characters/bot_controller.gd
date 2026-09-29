@@ -134,6 +134,13 @@ var debug_melee_swings: int = 0
 var debug_reload_count: int = 0
 var debug_block_count: int = 0
 var boss_phase: int = 1
+var hit_reaction_remaining: float = 0.0
+var hit_reaction_strength: float = 0.0
+var hit_reaction_direction: Vector3 = Vector3.ZERO
+var visual_base_position: Vector3
+var visual_base_rotation: Vector3
+var visual_base_scale: Vector3
+var death_tween: Tween
 
 var random := RandomNumberGenerator.new()
 
@@ -142,6 +149,9 @@ func _ready() -> void:
 	add_to_group("damageable")
 	add_to_group("bot")
 	spawn_transform = global_transform
+	visual_base_position = visual_body.position
+	visual_base_rotation = visual_body.rotation
+	visual_base_scale = visual_body.scale
 	random.randomize()
 	for child in weapon_mount.get_children():
 		if child is WeaponBase:
@@ -154,6 +164,9 @@ func _ready() -> void:
 	movement.movement_event.connect(_on_movement_event)
 	health.died.connect(_on_health_died)
 	health.damage_resolved.connect(_on_damage_resolved)
+	var status := get_node_or_null("StatusEffects") as StatusEffectComponent
+	if status != null:
+		status.status_applied.connect(_on_status_applied)
 	equip_weapon(1)
 	aim_direction = -global_basis.z
 	desired_aim_direction = aim_direction
@@ -174,6 +187,7 @@ func set_target(new_target: Node3D) -> void:
 
 func _physics_process(delta: float) -> void:
 	_tick_timers(delta)
+	_update_hit_reaction(delta)
 	if is_dead:
 		velocity = Vector3.ZERO
 		return
@@ -841,11 +855,17 @@ func get_total_armor() -> float:
 	return 0.0
 
 
+func has_armor_feedback() -> bool:
+	return name == "Warden" or name.to_lower().contains("elite")
+
+
 func on_damage_response(response_type: StringName, _info: DamageInfo, _applied: float) -> void:
 	if response_type == &"deflect":
 		feedback.emit(&"deflect", {})
 	elif response_type == &"block":
 		feedback.emit(&"block", {})
+	elif response_type == &"hit":
+		feedback.emit(&"hit", {"damage": _applied, "damage_type": _info.damage_type})
 
 
 func apply_knockback(force: Vector3) -> void:
@@ -866,12 +886,26 @@ func force_kill() -> void:
 
 
 func on_sniper_fired(_ads: bool) -> void:
-	AudioEvents.play(&"gunshot", global_position, {"weapon": current_weapon.weapon_display_name if current_weapon != null else ""})
+	AudioEvents.play(&"sniper_shot", global_position, {"weapon": current_weapon.weapon_display_name if current_weapon != null else ""})
 	debug_sniper_shots += 1
 	sniper_shots_from_position += 1
 	action_remaining = random.randf_range(sniper_aim_time_min, sniper_aim_time_max)
 	if sniper_shots_from_position >= sniper_relocate_after:
 		state_lock_remaining = 0.0
+
+
+func on_weapon_fired(family: StringName, ads: bool) -> void:
+	if current_weapon is SniperWeapon:
+		on_sniper_fired(ads)
+		return
+	var event_name: StringName = &"ar_shot"
+	match family:
+		&"battle_rifle": event_name = &"battle_shot"
+		&"burst_rifle": event_name = &"burst_shot"
+		&"pistol": event_name = &"pistol_shot"
+		&"akimbo_pistols": event_name = &"akimbo_shot"
+		&"magic": event_name = &"magic_shot"
+	AudioEvents.play(event_name, global_position, {"weapon": current_weapon.weapon_display_name if current_weapon != null else ""})
 
 
 func on_melee_swing(_heavy: bool) -> void:
@@ -899,6 +933,10 @@ func on_empty_weapon() -> void:
 		(current_weapon as SniperWeapon).request_reload()
 
 
+func emit_combat_feedback(event_name: StringName, data: Dictionary = {}) -> void:
+	feedback.emit(event_name, data)
+
+
 func get_debug_snapshot() -> Dictionary:
 	return {
 		"state": ai_state,
@@ -919,6 +957,14 @@ func get_debug_snapshot() -> Dictionary:
 func _on_damage_resolved(_info: DamageInfo, applied_amount: float, _response: Dictionary) -> void:
 	if applied_amount <= 0.0:
 		return
+	var strong_hit := String(_info.damage_type).contains("heavy") or _info.damage_type == &"sniper" or applied_amount >= 45.0
+	var reaction_strength := 0.24 if strong_hit else 0.075
+	if is_instance_valid(_info.attacker) and _info.attacker is Node3D:
+		hit_reaction_direction = (global_position - (_info.attacker as Node3D).global_position).normalized()
+	else:
+		hit_reaction_direction = -global_basis.z
+	hit_reaction_strength = maxf(hit_reaction_strength, reaction_strength)
+	hit_reaction_remaining = maxf(hit_reaction_remaining, 0.18 if strong_hit else 0.10)
 	recent_damage_timer = 1.4
 	if ai_state != STATE_RETREAT and dash_skill.cooldown_remaining <= 0.0 and random.randf() < dash_dodge_probability * mobility:
 		var away := -_flat_direction_to(last_known_player_position)
@@ -957,16 +1003,18 @@ func _on_health_died(info: DamageInfo) -> void:
 	velocity = Vector3.ZERO
 	collision_layer = 0
 	collision_mask = 0
-	body_collision.disabled = true
+	body_collision.set_deferred("disabled", true)
 	head_hurtbox.set_deferred("monitorable", false)
-	visual_body.visible = false
 	weapon_mount.visible = false
 	if current_weapon != null:
-		current_weapon.secondary_released()
+		current_weapon.cancel_combat()
+	_play_death_response(info)
 	actor_died.emit(self, info)
 
 
 func respawn() -> void:
+	if death_tween != null and death_tween.is_valid():
+		death_tween.kill()
 	global_transform = spawn_transform
 	velocity = Vector3.ZERO
 	is_dead = false
@@ -996,9 +1044,12 @@ func respawn() -> void:
 	($StatusEffects as StatusEffectComponent).effects.clear()
 	collision_layer = 2
 	collision_mask = 1
-	body_collision.disabled = false
+	body_collision.set_deferred("disabled", false)
 	head_hurtbox.set_deferred("monitorable", true)
 	visual_body.visible = true
+	visual_body.position = visual_base_position
+	visual_body.rotation = visual_base_rotation
+	visual_body.scale = visual_base_scale
 	weapon_mount.visible = true
 	movement.reset_state()
 	for weapon in weapons:
@@ -1011,3 +1062,41 @@ func respawn() -> void:
 	ai_state = &"RESPAWN"
 	decision_remaining = random.randf_range(reaction_time_min, reaction_time_max)
 	aim_reaction_remaining = maxf(aim_reaction_delay, decision_remaining)
+
+
+func _update_hit_reaction(delta: float) -> void:
+	if is_dead:
+		return
+	hit_reaction_remaining = maxf(0.0, hit_reaction_remaining - delta)
+	var target_roll := -hit_reaction_direction.dot(global_basis.x) * hit_reaction_strength if hit_reaction_remaining > 0.0 else 0.0
+	var target_pitch := hit_reaction_strength * 0.45 if hit_reaction_remaining > 0.0 else 0.0
+	var target_position := visual_base_position + Vector3(0.0, -hit_reaction_strength * 0.18, hit_reaction_strength * 0.12) if hit_reaction_remaining > 0.0 else visual_base_position
+	visual_body.rotation.x = lerp_angle(visual_body.rotation.x, visual_base_rotation.x + target_pitch, minf(1.0, delta * 24.0))
+	visual_body.rotation.z = lerp_angle(visual_body.rotation.z, visual_base_rotation.z + target_roll, minf(1.0, delta * 24.0))
+	visual_body.position = visual_body.position.lerp(target_position, minf(1.0, delta * 22.0))
+	if hit_reaction_remaining <= 0.0:
+		hit_reaction_strength = move_toward(hit_reaction_strength, 0.0, delta * 2.8)
+
+
+func _play_death_response(info: DamageInfo) -> void:
+	visual_body.visible = true
+	var fall_sign := -1.0
+	if info != null and is_instance_valid(info.attacker) and info.attacker is Node3D:
+		fall_sign = signf(global_basis.x.dot(global_position - (info.attacker as Node3D).global_position))
+		if is_zero_approx(fall_sign):
+			fall_sign = -1.0
+	death_tween = create_tween()
+	death_tween.set_parallel(true)
+	death_tween.tween_property(visual_body, "rotation:z", visual_base_rotation.z + fall_sign * 1.12, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	death_tween.tween_property(visual_body, "position:y", visual_base_position.y - 0.45, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	death_tween.tween_property(visual_body, "scale", visual_base_scale * Vector3(1.05, 0.78, 1.05), 0.28)
+	death_tween.set_parallel(false)
+	death_tween.tween_interval(0.16)
+	death_tween.tween_callback(func() -> void: visual_body.visible = false if is_dead else true)
+
+
+func _on_status_applied(status_id: StringName) -> void:
+	var strength := 0.13 if status_id in [&"shock", &"burning", &"void"] else 0.07
+	hit_reaction_strength = maxf(hit_reaction_strength, strength)
+	hit_reaction_remaining = maxf(hit_reaction_remaining, 0.12)
+	feedback.emit(&"status_applied", {"status": status_id, "position": global_position})

@@ -25,6 +25,8 @@ var parkour_ready: bool = false
 var quickdraw_remaining: float = 0.0
 var special_target_id: int = 0
 var special_last_hit_time: float = -100.0
+var last_damage_was_critical: bool = false
+var last_damage_was_proc: bool = false
 
 
 func configure(p_weapon: WeaponBase, actor: CharacterBody3D, definition: ItemDefinition, instance: ItemInstance) -> void:
@@ -96,9 +98,12 @@ func apply_static_stats() -> void:
 
 func modify_damage(base_damage: float, target: Node, headshot: bool, is_melee: bool) -> float:
 	var amount := base_damage
+	last_damage_was_critical = false
+	last_damage_was_proc = false
 	var now := Time.get_ticks_msec() / 1000.0
 	if has(&"executioner") and _health_ratio(target) < 0.3:
 		amount *= 1.0 + value(&"executioner") / 100.0
+		last_damage_was_proc = true
 	if has(&"first_strike") and now - last_damage_time >= 4.0:
 		amount *= 1.0 + value(&"first_strike") / 100.0
 	if has(&"relentless") and target != null:
@@ -115,6 +120,8 @@ func modify_damage(base_damage: float, target: Node, headshot: bool, is_melee: b
 		amount *= 1.0 + value(&"berserker") / 100.0 * (1.0 - _health_ratio(wielder))
 	if has(&"gambler") and random.randf() < value(&"gambler") / 100.0:
 		amount *= 1.65
+		last_damage_was_critical = true
+		last_damage_was_proc = true
 	if has(&"reckless") and is_instance_valid(wielder) and not wielder.is_on_floor():
 		amount *= 1.0 + value(&"reckless") / 100.0
 	if has(&"predator") and is_melee and target is Node3D and wielder is Node3D:
@@ -138,6 +145,7 @@ func modify_damage(base_damage: float, target: Node, headshot: bool, is_melee: b
 	if special_effect_id == &"trident" and empowered_attacks > 0:
 		amount *= 1.12
 		empowered_attacks -= 1
+		last_damage_was_proc = true
 	last_damage_time = now
 	return amount
 
@@ -174,6 +182,7 @@ func on_damage_dealt(target: Node, info: DamageInfo, result: Dictionary, heavy_a
 	if has(&"flow") and wielder.has_method("refund_recent_skill"):
 		wielder.refund_recent_skill(value(&"flow") / 100.0)
 	if has(&"echo") and random.randf() < value(&"echo") / 100.0:
+		_notify_combat(&"affix_proc", target, {"affix": &"echo"})
 		_echo_damage(target, applied * 0.3, info.is_melee)
 	if has(&"shock"):
 		var target_id := target.get_instance_id()
@@ -182,10 +191,12 @@ func on_damage_dealt(target: Node, info: DamageInfo, result: Dictionary, heavy_a
 		if shock_hits >= 3:
 			shock_hits = 0
 			if target.has_method("apply_stagger"): target.apply_stagger(0.18 + value(&"shock") * 0.005)
+			_notify_combat(&"affix_proc", target, {"affix": &"shock"})
 	if special_effect_id == &"bloodrush" and heavy_attack:
 		special_counter = mini(special_counter + 1, 2)
 	if special_effect_id == &"skybreaker" and info.headshot:
 		special_window = 1.0
+		_notify_combat(&"mythic_ready", target, {"mythic": &"skybreaker", "duration": special_window})
 	if special_effect_id == &"rushfang":
 		var rush_target_id := target.get_instance_id()
 		if rush_target_id != special_target_id or now - special_last_hit_time > 1.1:
@@ -197,6 +208,7 @@ func on_damage_dealt(target: Node, info: DamageInfo, result: Dictionary, heavy_a
 			special_counter = 0
 			special_buff_remaining = 3.0
 			wielder.apply_temporary_movement_buff(1.18, 3.0)
+			_notify_combat(&"mythic_proc", target, {"mythic": &"rushfang", "duration": special_buff_remaining})
 	if special_effect_id == &"trident":
 		var trident_target_id := target.get_instance_id()
 		if trident_target_id != special_target_id or now - special_last_hit_time > 0.55:
@@ -208,6 +220,7 @@ func on_damage_dealt(target: Node, info: DamageInfo, result: Dictionary, heavy_a
 			special_counter = 0
 			empowered_attacks = 3
 			special_window = 3.0
+			_notify_combat(&"mythic_ready", target, {"mythic": &"trident", "duration": special_window})
 	if special_effect_id == &"kingslayer" and info.headshot:
 		special_window = 1.2
 	if special_effect_id == &"quickfang":
@@ -221,6 +234,7 @@ func on_damage_dealt(target: Node, info: DamageInfo, result: Dictionary, heavy_a
 			special_counter = 0
 			special_buff_remaining = 2.5
 			wielder.apply_temporary_movement_buff(1.14, 2.5)
+			_notify_combat(&"mythic_proc", target, {"mythic": &"quickfang", "duration": special_buff_remaining})
 	if bool(result.get("killed", false)):
 		on_kill(target, info)
 
@@ -231,10 +245,13 @@ func on_kill(target: Node, info: DamageInfo) -> void:
 	if has(&"bloodlust"): bloodlust_remaining = 3.0
 	if has(&"adrenaline"): wielder.reduce_movement_skill_cooldowns(value(&"adrenaline") / 100.0)
 	if has(&"chain_reaction"): _transfer_elemental(target)
-	if special_effect_id == &"phantom": special_window = 5.0
+	if special_effect_id == &"phantom":
+		special_window = 5.0
+		_notify_combat(&"mythic_ready", target, {"mythic": &"phantom", "duration": special_window})
 	if special_effect_id == &"hell_twins":
 		special_buff_remaining = 2.0
 		wielder.apply_temporary_air_control_buff(1.5, 2.0)
+		_notify_combat(&"mythic_proc", target, {"mythic": &"hell_twins", "duration": special_buff_remaining})
 
 
 func on_block(perfect: bool) -> void:
@@ -243,6 +260,7 @@ func on_block(perfect: bool) -> void:
 	if perfect and special_effect_id == &"oathbreaker":
 		empowered_attacks = 1
 		special_window = 2.0
+		_notify_combat(&"mythic_ready", wielder, {"mythic": &"oathbreaker", "duration": special_window})
 
 
 func on_traversal(event_name: StringName) -> void:
@@ -307,6 +325,7 @@ func get_status_hint() -> String:
 	if special_effect_id == &"kingslayer" and special_window > 0.0: return "KINGSLAYER LUNGE  /  R"
 	if special_effect_id == &"rift_wand" and is_instance_valid(rift_orb) and rift_cooldown <= 0.0: return "RIFT ANCHOR  /  R"
 	if special_effect_id == &"trident" and empowered_attacks > 0: return "EMPOWERED BURST"
+	if special_effect_id == &"oathbreaker" and empowered_attacks > 0: return "EMPOWERED HEAVY"
 	if special_effect_id in [&"rushfang", &"quickfang", &"hell_twins"] and special_buff_remaining > 0.0: return "MYTHIC SURGE %.1fs" % special_buff_remaining
 	return ""
 
@@ -333,27 +352,33 @@ func request_special() -> bool:
 	if special_effect_id == &"phantom" and special_window > 0.0:
 		special_window = 0.0
 		wielder.activate_phantom_state(5.0)
+		_notify_combat(&"mythic_proc", wielder, {"mythic": &"phantom", "duration": 5.0})
 		return true
 	if special_effect_id == &"skybreaker" and special_window > 0.0:
 		special_window = 0.0
 		wielder.apply_special_dash(20.0)
 		wielder.apply_temporary_movement_buff(2.0, 1.0)
+		_notify_combat(&"mythic_proc", wielder, {"mythic": &"skybreaker", "duration": 1.0})
 		return true
 	if special_effect_id == &"kingslayer" and special_window > 0.0:
 		special_window = 0.0
 		wielder.apply_special_dash(7.0)
+		_notify_combat(&"mythic_proc", wielder, {"mythic": &"kingslayer", "duration": 0.45})
 		return true
 	if special_effect_id == &"rift_wand" and is_instance_valid(rift_orb) and rift_cooldown <= 0.0:
 		if wielder.teleport_to_safe_point(rift_orb.global_position):
 			rift_orb.queue_free()
 			rift_orb = null
 			rift_cooldown = 8.0
+			_notify_combat(&"mythic_proc", wielder, {"mythic": &"rift_wand", "duration": rift_cooldown})
 			return true
 	return false
 
 
 func track_projectile(projectile: Node3D) -> void:
-	if special_effect_id == &"rift_wand": rift_orb = projectile
+	if special_effect_id == &"rift_wand":
+		rift_orb = projectile
+		_notify_combat(&"mythic_ready", projectile, {"mythic": &"rift_wand", "duration": projectile.get("remaining_life")})
 
 
 func incoming_damage_multiplier() -> float:
@@ -383,11 +408,11 @@ func slide_multiplier() -> float:
 func _apply_elemental(target: Node) -> void:
 	var status := target.get_node_or_null("StatusEffects") as StatusEffectComponent
 	if status == null: return
-	if has(&"burning") and random.randf() < value(&"burning") / 100.0: status.apply_status(&"burning", 2.5, value(&"burning"), wielder)
-	if has(&"frost"): status.apply_status(&"frost", 1.4, value(&"frost"), wielder)
-	if has(&"poisoned") and random.randf() < value(&"poisoned") / 100.0: status.apply_status(&"poisoned", 4.0, value(&"poisoned"), wielder)
-	if has(&"bleeding") and random.randf() < value(&"bleeding") / 100.0: status.apply_status(&"bleeding", 3.2, value(&"bleeding"), wielder)
-	if has(&"void"): status.apply_status(&"void", 3.0, value(&"void"), wielder)
+	if has(&"burning") and random.randf() < value(&"burning") / 100.0: _apply_status_proc(status, target, &"burning", 2.5)
+	if has(&"frost"): _apply_status_proc(status, target, &"frost", 1.4)
+	if has(&"poisoned") and random.randf() < value(&"poisoned") / 100.0: _apply_status_proc(status, target, &"poisoned", 4.0)
+	if has(&"bleeding") and random.randf() < value(&"bleeding") / 100.0: _apply_status_proc(status, target, &"bleeding", 3.2)
+	if has(&"void"): _apply_status_proc(status, target, &"void", 3.0)
 
 
 func force_apply_elemental_for_test(target: Node, affix_id: StringName) -> void:
@@ -402,7 +427,26 @@ func force_echo_for_test(target: Node, amount: float, melee: bool = false) -> vo
 func _echo_damage(target: Node, amount: float, melee: bool) -> void:
 	await weapon.get_tree().create_timer(0.4).timeout
 	if is_instance_valid(target) and target.has_method("receive_damage"):
-		target.receive_damage(DamageInfo.new(amount, wielder, &"echo", false, melee, (target as Node3D).global_position, Vector3.ZERO, false, true))
+		var info := DamageInfo.new(amount, wielder, &"echo", false, melee, (target as Node3D).global_position, Vector3.ZERO, false, true)
+		var result: Dictionary = target.receive_damage(info)
+		result["proc"] = true
+		if is_instance_valid(wielder) and wielder.has_method("on_status_damage_feedback"):
+			wielder.on_status_damage_feedback(target, info, result)
+		_notify_combat(&"affix_impact", target, {"affix": &"echo", "position": info.hit_position})
+
+
+func _apply_status_proc(status: StatusEffectComponent, target: Node, status_id: StringName, duration: float) -> void:
+	status.apply_status(status_id, duration, value(status_id), wielder)
+	_notify_combat(&"affix_proc", target, {"affix": status_id, "duration": duration})
+
+
+func _notify_combat(event_name: StringName, target: Node, data: Dictionary) -> void:
+	if not is_instance_valid(wielder) or not wielder.has_method("emit_combat_feedback"):
+		return
+	var payload := data.duplicate()
+	if target is Node3D:
+		payload["position"] = (target as Node3D).global_position
+	wielder.emit_combat_feedback(event_name, payload)
 
 
 func _transfer_elemental(target: Node) -> void:

@@ -39,8 +39,7 @@ func request_primary() -> void:
 	if not equipped or is_reloading or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder) or not can_operate():
 		return
 	if ammo <= 0:
-		if wielder.has_method("on_empty_weapon"):
-			wielder.on_empty_weapon()
+		notify_dry_fire()
 		return
 	ammo -= 1
 	spend_shot_durability()
@@ -62,16 +61,17 @@ func fire_hitscan() -> void:
 			right = Vector3.RIGHT
 		direction = direction.rotated(Vector3.UP, yaw_error).rotated(right, pitch_error).normalized()
 
-	if wielder.has_method("on_sniper_fired"):
-		wielder.on_sniper_fired(is_ads)
+	notify_weapon_fired(is_ads)
 
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * max_range, 1 | 2 | 4, get_query_exclusions())
 	query.collide_with_areas = true
 	query.collide_with_bodies = true
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
+		notify_weapon_trace(origin + direction * max_range, false)
 		effects.on_attack_missed()
 		return
+	notify_weapon_trace(hit.get("position", origin + direction * max_range), true)
 	var collider := hit.get("collider") as Node
 	if collider != null and not collider.has_method("get_damage_receiver") and not collider.has_method("receive_damage"):
 		var ricochet_hit := try_ricochet_hit(origin, hit, max_range)
@@ -140,6 +140,13 @@ func reset_weapon() -> void:
 	is_reloading = false
 	is_ads = false
 	state_changed.emit()
+
+
+func cancel_combat() -> void:
+	is_reloading = false
+	is_ads = false
+	reload_remaining = 0.0
+	super.cancel_combat()
 
 
 func is_aiming_down_sights() -> bool:

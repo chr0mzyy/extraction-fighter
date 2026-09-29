@@ -22,6 +22,8 @@ var base_rotation: Vector3
 var swing_remaining: float = 0.0
 var swing_total: float = 0.24
 var swing_strength: float = 0.85
+var windup_remaining: float = 0.0
+var windup_total: float = 0.0
 
 
 func _ready() -> void:
@@ -34,10 +36,14 @@ func _process(delta: float) -> void:
 	recovery_remaining = maxf(0.0, recovery_remaining - delta)
 	deflect_remaining = maxf(0.0, deflect_remaining - delta)
 	swing_remaining = maxf(0.0, swing_remaining - delta)
+	windup_remaining = maxf(0.0, windup_remaining - delta)
 	var swing_offset := 0.0
 	if swing_remaining > 0.0:
 		var swing_progress := 1.0 - swing_remaining / swing_total
 		swing_offset = sin(swing_progress * PI) * swing_strength
+	elif windup_remaining > 0.0:
+		var windup_progress := 1.0 - windup_remaining / maxf(windup_total, 0.001)
+		swing_offset = -smoothstep(0.0, 1.0, windup_progress) * 0.46
 	var target_roll := -0.75 if is_blocking and equipped else 0.0
 	rotation.z = lerpf(rotation.z, base_rotation.z + target_roll, minf(1.0, delta * 18.0))
 	rotation.y = lerpf(rotation.y, base_rotation.y + swing_offset, minf(1.0, delta * 28.0))
@@ -66,17 +72,21 @@ func request_heavy() -> void:
 	effects.on_shot_fired()
 	attack_serial += 1
 	swing_total = 0.46
-	swing_remaining = swing_total
+	swing_remaining = 0.0
 	swing_strength = 1.35
 	var this_attack := attack_serial
 	if wielder.has_method("on_melee_swing"):
 		wielder.on_melee_swing(true)
+	windup_total = heavy_windup * effects.get_heavy_windup_multiplier()
+	windup_remaining = windup_total
 	state_changed.emit()
 	var special_lunge := effects.get_lunge_multiplier()
 	if item_definition != null and item_definition.special_effect_id == &"oathbreaker" and special_lunge > 1.0 and wielder.has_method("apply_weapon_lunge"):
 		wielder.apply_weapon_lunge(4.5 * special_lunge)
-	await get_tree().create_timer(heavy_windup * effects.get_heavy_windup_multiplier()).timeout
+	await get_tree().create_timer(windup_total).timeout
 	if equipped and is_instance_valid(wielder) and not bool(wielder.get("is_dead")) and this_attack == attack_serial:
+		windup_remaining = 0.0
+		swing_remaining = swing_total
 		perform_attack(heavy_damage, heavy_range, true, this_attack)
 
 
@@ -176,5 +186,16 @@ func reset_weapon() -> void:
 	attack_serial += 1
 	recovery_remaining = 0.0
 	swing_remaining = 0.0
+	windup_remaining = 0.0
 	secondary_released()
 	rotation = base_rotation
+
+
+func cancel_combat() -> void:
+	attack_serial += 1
+	recovery_remaining = 0.0
+	swing_remaining = 0.0
+	windup_remaining = 0.0
+	is_blocking = false
+	deflect_remaining = 0.0
+	super.cancel_combat()

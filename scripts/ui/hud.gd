@@ -45,6 +45,9 @@ var crosshair_root: Control
 var damage_edges: Array[ColorRect] = []
 var status_effect_label: Label
 var damage_number_root: Control
+var damage_number_pool: Array[Label] = []
+var damage_number_cursor: int = 0
+var damage_edge_values: Array[float] = [0.0, 0.0, 0.0, 0.0]
 
 var hitmarker_remaining: float = 0.0
 var hitmarker_duration: float = 0.16
@@ -98,6 +101,7 @@ func _process(delta: float) -> void:
 	_update_header()
 	_update_crosshair(delta)
 	_update_status_effects()
+	_update_damage_numbers(delta)
 	if debug_visible:
 		_update_debug_overlay()
 
@@ -125,10 +129,12 @@ func _update_feedback_animation(delta: float) -> void:
 	else:
 		status_label.text = ""
 
-	var damage_alpha := 0.16 * clampf(damage_flash_remaining / 0.34, 0.0, 1.0)
-	for edge in damage_edges:
+	var vignette := 0.025 * GameSettings.hit_effects_intensity * clampf(damage_flash_remaining / 0.34, 0.0, 1.0)
+	for index: int in damage_edges.size():
+		damage_edge_values[index] = move_toward(damage_edge_values[index], 0.0, delta * 2.8)
+		var edge := damage_edges[index]
 		var edge_color := edge.color
-		edge_color.a = damage_alpha
+		edge_color.a = (vignette + damage_edge_values[index] * 0.19) * GameSettings.hit_effects_intensity
 		edge.color = edge_color
 
 
@@ -193,7 +199,7 @@ func _update_skills() -> void:
 		var skill: SkillBase = player.equipped_skills[index] if index < player.equipped_skills.size() else null
 		if skill == null:
 			skill_name_labels[index].text = "EMPTY"
-			skill_key_labels[index].text = "Q" if index == 0 else "E"
+			skill_key_labels[index].text = GameSettings.get_binding_text(&"skill_slot_1" if index == 0 else &"skill_slot_2")
 			skill_state_labels[index].text = "--"
 			skill_panels[index].add_theme_stylebox_override("panel", cooling_skill_style)
 			continue
@@ -219,10 +225,14 @@ func _update_header() -> void:
 
 
 func _update_crosshair(delta: float) -> void:
-	crosshair_root.visible = GameSettings.crosshair_enabled
+	crosshair_root.visible = GameSettings.crosshair_enabled and not player.should_hide_crosshair()
 	var target_scale := 1.0 + player.get_crosshair_spread() * 0.055
 	crosshair_root.scale = crosshair_root.scale.lerp(Vector2.ONE * target_scale, minf(1.0, delta * 18.0))
-	crosshair_root.modulate.a = 0.38 if player.current_weapon != null and player.current_weapon.is_aiming_down_sights() else 1.0
+	crosshair_root.modulate.a = 0.30 if player.current_weapon != null and player.current_weapon.is_aiming_down_sights() else (0.72 if player.uses_simple_crosshair() else 1.0)
+	for index: int in crosshair_root.get_child_count():
+		var part := crosshair_root.get_child(index) as CanvasItem
+		if part != null:
+			part.visible = not player.uses_simple_crosshair() or index == crosshair_root.get_child_count() - 1
 
 
 func _update_status_effects() -> void:
@@ -316,17 +326,23 @@ func _on_kill_feed(message: String) -> void:
 func _on_player_feedback(event_name: StringName, _data: Dictionary) -> void:
 	match event_name:
 		&"hitmarker":
-			_show_hitmarker(false)
+			_show_hitmarker_kind(&"normal")
 		&"headshot":
-			_show_hitmarker(true)
+			_show_hitmarker_kind(&"headshot")
 		&"damage_dealt":
 			_show_damage_feedback(_data)
 		&"damage_taken":
-			damage_flash_remaining = 0.34
+			_show_directional_damage(_data)
 		&"block":
 			_show_status("BLOCKED", Color(0.38, 0.78, 1.0), 0.34)
 		&"deflect":
 			_show_status("PERFECT DEFLECT", Color(0.25, 1.0, 0.86), 0.76)
+			_show_hitmarker_kind(&"deflect")
+		&"affix_proc", &"affix_impact":
+			_show_hitmarker_kind(&"proc")
+		&"mythic_ready", &"mythic_proc":
+			var mythic_name := String(_data.get("mythic", "mythic")).replace("_", " ").to_upper()
+			_show_status("%s  %s" % [mythic_name, "READY" if event_name == &"mythic_ready" else "ACTIVE"], Color(0.76, 0.48, 1.0), 0.62)
 		&"launch":
 			_show_status("LAUNCHED", Color(0.35, 0.86, 1.0), 0.50)
 		&"double_jump":
@@ -360,41 +376,116 @@ func _show_damage_feedback(data: Dictionary) -> void:
 	var headshot := bool(data.get("headshot", false))
 	var killed := bool(data.get("killed", false))
 	var elite := bool(data.get("elite", false))
+	var armor_hit := bool(data.get("armor_hit", false))
+	var critical := bool(data.get("critical", false))
+	var proc := bool(data.get("proc", false))
+	var dot := bool(data.get("dot", false))
+	var marker_kind: StringName = &"parry" if parried else (&"blocked" if blocked else (&"armor" if armor_hit else (&"kill" if killed else (&"headshot" if headshot else (&"critical" if critical else (&"proc" if proc else (&"dot" if dot else &"normal")))))))
+	_show_hitmarker_kind(marker_kind)
 	if parried:
 		_show_status("PARRIED", Color(0.25, 1.0, 0.86), 0.6)
 	elif blocked:
 		_show_status("BLOCKED HIT", Color(0.38, 0.78, 1.0), 0.42)
+	elif armor_hit:
+		_show_status("ARMOR HIT", Color(0.42, 0.76, 1.0), 0.30)
 	elif elite:
 		_show_status("WARDEN HIT" if killed else "ELITE HIT", Color(0.94, 0.63, 0.28), 0.34)
 	if GameSettings.damage_numbers and amount > 0.0:
-		_spawn_damage_number(amount, headshot, blocked, killed)
+		_spawn_damage_number(amount, marker_kind)
 
 
-func _spawn_damage_number(amount: float, headshot: bool, blocked: bool, killed: bool) -> void:
-	var label := _make_label(damage_number_root, str(roundi(amount)), 19 if headshot or killed else 15, Color(0.4, 0.78, 1.0) if blocked else (Color(1.0, 0.38, 0.22) if headshot else Color(0.95, 0.94, 0.82)))
-	label.set_anchors_preset(Control.PRESET_CENTER)
-	label.position = Vector2(randf_range(25.0, 48.0), randf_range(-52.0, -34.0))
-	label.size = Vector2(90, 32)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(label, "position:y", label.position.y - 42.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "modulate:a", 0.0, 0.55).set_delay(0.12)
-	tween.set_parallel(false)
-	tween.tween_callback(label.queue_free)
+func _spawn_damage_number(amount: float, kind: StringName) -> void:
+	if damage_number_pool.is_empty():
+		return
+	var label := damage_number_pool[damage_number_cursor]
+	damage_number_cursor = (damage_number_cursor + 1) % damage_number_pool.size()
+	var colors := {
+		&"normal": Color(0.95, 0.94, 0.82), &"headshot": Color(1.0, 0.34, 0.18),
+		&"blocked": Color(0.40, 0.78, 1.0), &"armor": Color(0.34, 0.68, 1.0),
+		&"dot": Color(0.74, 0.58, 1.0), &"critical": Color(1.0, 0.82, 0.22),
+		&"proc": Color(0.86, 0.42, 1.0), &"kill": Color(1.0, 0.22, 0.14),
+		&"parry": Color(0.28, 1.0, 0.86),
+	}
+	label.text = ("+" if kind in [&"critical", &"proc"] else "") + str(roundi(amount))
+	label.add_theme_color_override("font_color", colors.get(kind, colors[&"normal"]))
+	label.add_theme_font_size_override("font_size", 20 if kind in [&"headshot", &"critical", &"kill"] else 15)
+	var lane := damage_number_cursor % 5
+	label.position = Vector2(-45.0 + lane * 19.0, -48.0 - (damage_number_cursor % 3) * 8.0)
+	label.modulate.a = 1.0
+	label.visible = true
+	label.set_meta("remaining", 0.62)
+	label.set_meta("duration", 0.62)
+	label.set_meta("drift", Vector2((lane - 2) * 7.0, -58.0))
 
 
-func _show_hitmarker(headshot: bool) -> void:
-	hitmarker.text = "X"
-	hitmarker.add_theme_color_override("font_color", Color(1.0, 0.32, 0.20) if headshot else Color.WHITE)
-	hitmarker.add_theme_font_size_override("font_size", 30 if headshot else 24)
-	hitmarker_duration = 0.30 if headshot else 0.17
+func _update_damage_numbers(delta: float) -> void:
+	for label: Label in damage_number_pool:
+		if not label.visible:
+			continue
+		var remaining := maxf(0.0, float(label.get_meta("remaining", 0.0)) - delta)
+		label.set_meta("remaining", remaining)
+		var drift: Vector2 = label.get_meta("drift", Vector2(0.0, -55.0))
+		label.position += drift * delta
+		var duration := maxf(0.01, float(label.get_meta("duration", 0.62)))
+		label.modulate.a = clampf(remaining / duration * 1.55, 0.0, 1.0)
+		if remaining <= 0.0:
+			label.visible = false
+
+
+func _show_hitmarker_kind(kind: StringName) -> void:
+	var styles := {
+		&"normal": ["X", Color.WHITE, 24, 0.17, ""],
+		&"headshot": ["><", Color(1.0, 0.30, 0.16), 29, 0.28, "HEADSHOT"],
+		&"armor": ["[]", Color(0.34, 0.72, 1.0), 23, 0.20, "ARMOR"],
+		&"blocked": ["/\\", Color(0.42, 0.82, 1.0), 22, 0.20, "BLOCKED"],
+		&"parry": ["<>", Color(0.25, 1.0, 0.86), 27, 0.28, "PARRIED"],
+		&"deflect": ["<>", Color(0.22, 1.0, 0.82), 29, 0.30, "DEFLECT"],
+		&"critical": ["*", Color(1.0, 0.82, 0.18), 32, 0.27, "CRITICAL"],
+		&"proc": ["+", Color(0.84, 0.42, 1.0), 28, 0.22, "PROC"],
+		&"dot": [".", Color(0.72, 0.54, 1.0), 30, 0.14, ""],
+		&"kill": ["#", Color(1.0, 0.20, 0.12), 31, 0.34, "KILL"],
+	}
+	var style: Array = styles.get(kind, styles[&"normal"])
+	hitmarker.text = String(style[0])
+	hitmarker.add_theme_color_override("font_color", style[1] as Color)
+	hitmarker.add_theme_font_size_override("font_size", int(style[2]))
+	hitmarker_duration = float(style[3])
 	hitmarker_remaining = hitmarker_duration
 	hitmarker.visible = true
 	hitmarker.modulate.a = 1.0
-	if headshot:
+	headshot_label.text = String(style[4])
+	if not headshot_label.text.is_empty():
 		headshot_label.visible = true
 		headshot_label.modulate.a = 1.0
+
+
+func _show_hitmarker(headshot: bool) -> void:
+	_show_hitmarker_kind(&"headshot" if headshot else &"normal")
+
+
+func _show_directional_damage(data: Dictionary) -> void:
+	damage_flash_remaining = 0.34
+	var source: Variant = data.get("source_position", null)
+	if not source is Vector3 or not is_instance_valid(player):
+		for index: int in damage_edge_values.size():
+			damage_edge_values[index] = maxf(damage_edge_values[index], 0.45)
+		return
+	var to_source := (source as Vector3) - player.global_position
+	to_source.y = 0.0
+	if to_source.length_squared() < 0.01:
+		return
+	to_source = to_source.normalized()
+	var forward := -player.global_basis.z
+	var right := player.global_basis.x
+	var forward_amount := forward.dot(to_source)
+	var right_amount := right.dot(to_source)
+	var edge_index := 0 if forward_amount >= 0.0 else 1
+	if absf(right_amount) > absf(forward_amount):
+		edge_index = 3 if right_amount > 0.0 else 2
+	damage_edge_values[edge_index] = 1.0
+	for index: int in damage_edge_values.size():
+		if index != edge_index:
+			damage_edge_values[index] = maxf(damage_edge_values[index], 0.12)
 
 
 func _show_status(message: String, color: Color, duration: float) -> void:
@@ -490,7 +581,7 @@ func _build_health_panel() -> void:
 func _build_weapon_panel() -> void:
 	weapon_panel = _make_panel("WeaponPanel", _make_style(COLOR_PANEL, Color(0.18, 0.25, 0.32), 1, 6))
 	weapon_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	weapon_panel.offset_left = -326
+	weapon_panel.offset_left = -380
 	weapon_panel.offset_right = -20
 	weapon_panel.offset_top = -146
 	weapon_panel.offset_bottom = -20
@@ -500,11 +591,12 @@ func _build_weapon_panel() -> void:
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(column)
 	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 10)
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(header)
-	weapon_name_label = _make_label(header, "KATANA", 20, COLOR_TEXT)
+	weapon_name_label = _make_label(header, "KATANA", 18, COLOR_TEXT)
 	weapon_name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ammo_label = _make_label(header, "MELEE", 22, COLOR_ACCENT)
+	ammo_label = _make_label(header, "MELEE", 18, COLOR_ACCENT)
 	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	reload_label = _make_label(column, "RMB  BLOCK / DEFLECT", 11, COLOR_MUTED)
 	durability_label = _make_label(column, "DURABILITY  100 / 100", 10, COLOR_MUTED)
@@ -515,9 +607,9 @@ func _build_weapon_panel() -> void:
 	slots.add_theme_constant_override("separation", 18)
 	slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(slots)
-	slot_one_label = _make_label(slots, "[1]  KATANA", 12, COLOR_ACCENT)
+	slot_one_label = _make_label(slots, "[1]  KATANA", 11, COLOR_ACCENT)
 	slot_one_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slot_two_label = _make_label(slots, "[2]  SNIPER", 12, COLOR_MUTED)
+	slot_two_label = _make_label(slots, "[2]  SNIPER", 11, COLOR_MUTED)
 
 
 func _build_skill_panel() -> void:
@@ -531,9 +623,9 @@ func _build_skill_panel() -> void:
 	skills.add_theme_constant_override("separation", 10)
 	skills.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_root.add_child(skills)
-	dash_panel = _make_skill_card(skills, "Q", "DASH")
+	dash_panel = _make_skill_card(skills, GameSettings.get_binding_text(&"skill_slot_1"), "DASH")
 	dash_state_label = dash_panel.get_node("Margin/VBox/State") as Label
-	jump_panel = _make_skill_card(skills, "E", "DOUBLE JUMP")
+	jump_panel = _make_skill_card(skills, GameSettings.get_binding_text(&"skill_slot_2"), "DOUBLE JUMP")
 	jump_state_label = jump_panel.get_node("Margin/VBox/State") as Label
 	skill_panels = [dash_panel, jump_panel]
 	skill_state_labels = [dash_state_label, jump_state_label]
@@ -635,6 +727,14 @@ func _build_notifications() -> void:
 	damage_number_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	damage_number_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_root.add_child(damage_number_root)
+	for index: int in 14:
+		var damage_label := _make_label(damage_number_root, "", 15, COLOR_TEXT)
+		damage_label.name = "DamageNumber%02d" % index
+		damage_label.set_anchors_preset(Control.PRESET_CENTER)
+		damage_label.size = Vector2(90, 32)
+		damage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		damage_label.visible = false
+		damage_number_pool.append(damage_label)
 
 
 func _build_debug_panel() -> void:

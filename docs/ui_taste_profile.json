@@ -1,0 +1,119 @@
+{
+  "profile_version": "1.0",
+  "source": {
+    "ref_id": "REF-20260928",
+    "label": "Two user-supplied tactical game UI references",
+    "kind": "image",
+    "ownership": "unknown"
+  },
+  "jobs": [
+    "hierarchy",
+    "composition",
+    "grid",
+    "spacing",
+    "color",
+    "material",
+    "texture",
+    "restraint"
+  ],
+  "context": {
+    "product": "Extraction Fighter browser-style FPS prototype",
+    "surface": "main menu, loadout and pause menu",
+    "target": "1280x720 minimum"
+  },
+  "tags": [
+    "tactical",
+    "industrial",
+    "high-contrast",
+    "cyan-yellow",
+    "modular-panels"
+  ],
+  "observations": [
+    {
+      "dimension": "hierarchy",
+      "evidence": "The first reference uses an oversized title, one large operator silhouette and a compact diagonal action stack.",
+      "interpretation": "Keep one dominant operative and one obvious action rail instead of distributing attention evenly.",
+      "confidence": 0.97
+    },
+    {
+      "dimension": "color",
+      "evidence": "Both references are mostly charcoal and black, with rare saturated status accents.",
+      "interpretation": "Use cyan for system identity and yellow only for action, readiness and separators.",
+      "confidence": 0.96
+    },
+    {
+      "dimension": "grid",
+      "evidence": "The second reference groups equipment in rigid framed modules and consistent cells.",
+      "interpretation": "Treat loadout and pause information as separate technical cards with strong alignment.",
+      "confidence": 0.95
+    },
+    {
+      "dimension": "material",
+      "evidence": "Dark metal frames, fine lines and worn overlays create a utilitarian field rather than a glossy consumer UI.",
+      "interpretation": "Prefer square panels, thin borders and low-contrast technical lines over rounded glass cards.",
+      "confidence": 0.93
+    }
+  ],
+  "signature": {
+    "contrast": 92,
+    "density": 72,
+    "asymmetry": 70,
+    "texture": 52,
+    "accent_saturation": 84,
+    "corner_rounding": 2,
+    "whitespace": 42
+  },
+  "rules": [
+    {
+      "job": "composition",
+      "rule": "Use a split hero field with the operative on the left and the action rail on the right.",
+      "evidence": "The first reference separates a dominant character mass from its navigation stack.",
+      "strength": "high",
+      "transferable": true
+    },
+    {
+      "job": "grid",
+      "rule": "Group loadout, status and controls into bordered modules sharing a common alignment system.",
+      "evidence": "The inventory reference is legible because each information family owns one bounded panel.",
+      "strength": "high",
+      "transferable": true
+    },
+    {
+      "job": "color",
+      "rule": "Reserve yellow for primary interaction and cyan for identity or live-system state.",
+      "evidence": "Rare color accents direct attention against an almost monochrome field.",
+      "strength": "high",
+      "transferable": true
+    },
+    {
+      "job": "restraint",
+      "rule": "Keep decorative graphics behind information and below text contrast thresholds.",
+      "evidence": "Reference textures establish mood without replacing the main navigation hierarchy.",
+      "strength": "medium",
+      "transferable": true
+    }
+  ],
+  "anti_rules": [
+    "Do not copy a reference logo, title treatment, operator identity or exact wording.",
+    "Do not reproduce the inventory item artwork or the exact three-window arrangement.",
+    "Do not cover every surface in bright accent color.",
+    "Do not use rounded mobile-style cards for the tactical shell."
+  ],
+  "similarity_guard": {
+    "copy_risk": "high",
+    "protected_elements": [
+      "reference game logo and typography lockup",
+      "recognisable operator artwork",
+      "specific inventory objects and icons",
+      "exact menu wording and screen composition"
+    ],
+    "must_transform": [
+      "brand name and title construction",
+      "operator silhouette and equipment",
+      "menu geometry and information order",
+      "accent roles and technical graphics",
+      "loadout panel proportions"
+    ]
+  },
+  "confidence": 0.95
+}

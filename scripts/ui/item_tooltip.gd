@@ -8,8 +8,13 @@ const RARITY_COLORS: Array[Color] = [
 
 var current_item: ItemDefinition
 var current_instance: ItemInstance
+var preview_frame: PanelContainer
 var preview_texture: TextureRect
 var preview_glyph: Label
+var weapon_preview_container: SubViewportContainer
+var weapon_preview_viewport: SubViewport
+var weapon_preview_world: Node3D
+var weapon_preview_model: Node3D
 var name_label: Label
 var rarity_label: Label
 var flavor_label: Label
@@ -71,10 +76,11 @@ func _build() -> void:
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 12)
 	root.add_child(top)
-	var preview_frame := PanelContainer.new()
+	preview_frame = PanelContainer.new()
 	preview_frame.custom_minimum_size = Vector2(104, 104)
-	preview_frame.add_theme_stylebox_override("panel", _panel_style(Color(0.055, 0.071, 0.09), Color(0.2, 0.3, 0.36)))
+	preview_frame.add_theme_stylebox_override("panel", _preview_style(Color(0.055, 0.071, 0.09), Color(0.2, 0.3, 0.36)))
 	top.add_child(preview_frame)
+	_build_weapon_preview(preview_frame)
 	preview_texture = TextureRect.new()
 	preview_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	preview_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -113,11 +119,98 @@ func _update_content(definition: ItemDefinition, instance: ItemInstance) -> void
 	stats_label.add_theme_color_override("font_color", Color(1.0, 0.34, 0.25) if low_durability else Color(0.88, 0.9, 0.91))
 	preview_texture.texture = definition.preview_icon
 	preview_texture.visible = definition.preview_icon != null
-	preview_glyph.visible = definition.preview_icon == null
+	var has_weapon_preview := definition.preview_icon == null and _show_weapon_preview(definition)
+	weapon_preview_container.visible = has_weapon_preview
+	preview_glyph.visible = definition.preview_icon == null and not has_weapon_preview
 	preview_glyph.text = _glyph_for(definition)
 	preview_glyph.add_theme_color_override("font_color", accent)
+	var preview_background := Color(0.012, 0.017, 0.021).lerp(accent, 0.12)
+	preview_frame.add_theme_stylebox_override("panel", _preview_style(preview_background, accent))
 	add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.034, 0.047, 0.985), accent.darkened(0.25)))
 	reset_size()
+
+
+func _build_weapon_preview(parent: PanelContainer) -> void:
+	weapon_preview_container = SubViewportContainer.new()
+	weapon_preview_container.stretch = true
+	weapon_preview_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	weapon_preview_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 7)
+	weapon_preview_container.visible = false
+	parent.add_child(weapon_preview_container)
+	weapon_preview_viewport = SubViewport.new()
+	weapon_preview_viewport.size = Vector2i(256, 256)
+	weapon_preview_viewport.transparent_bg = true
+	weapon_preview_viewport.own_world_3d = true
+	weapon_preview_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	weapon_preview_viewport.msaa_3d = Viewport.MSAA_4X
+	weapon_preview_container.add_child(weapon_preview_viewport)
+	weapon_preview_world = Node3D.new()
+	weapon_preview_world.name = "WeaponPreviewWorld"
+	weapon_preview_viewport.add_child(weapon_preview_world)
+	var environment_node := WorldEnvironment.new()
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color(0.0, 0.0, 0.0, 0.0)
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color(0.46, 0.55, 0.62)
+	environment.ambient_light_energy = 0.95
+	environment_node.environment = environment
+	weapon_preview_world.add_child(environment_node)
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-42.0, -35.0, 0.0)
+	key_light.light_color = Color(0.82, 0.91, 1.0)
+	key_light.light_energy = 2.4
+	weapon_preview_world.add_child(key_light)
+	var rim_light := OmniLight3D.new()
+	rim_light.position = Vector3(-1.8, 1.2, -1.8)
+	rim_light.light_color = Color(0.10, 0.78, 1.0)
+	rim_light.light_energy = 3.2
+	rim_light.omni_range = 5.0
+	weapon_preview_world.add_child(rim_light)
+	var camera := Camera3D.new()
+	camera.name = "WeaponPreviewCamera"
+	camera.position = Vector3(2.35, 1.55, 2.55)
+	camera.fov = 28.0
+	weapon_preview_world.add_child(camera)
+	camera.look_at(Vector3(0.0, -0.04, -0.48), Vector3.UP)
+	camera.current = true
+
+
+func _show_weapon_preview(definition: ItemDefinition) -> bool:
+	if definition.item_type != ItemDefinition.ItemType.WEAPON or definition.gameplay_scene == null:
+		_clear_weapon_preview()
+		return false
+	_clear_weapon_preview()
+	var preview := definition.gameplay_scene.instantiate() as Node3D
+	if preview == null:
+		return false
+	preview.name = "Preview_%s" % String(definition.id)
+	preview.process_mode = Node.PROCESS_MODE_DISABLED
+	preview.position = Vector3(0.0, 0.04, 0.40)
+	preview.rotation = Vector3(-0.10, -0.32, -0.20)
+	preview.scale = Vector3.ONE * _weapon_preview_scale(definition.weapon_family)
+	weapon_preview_world.add_child(preview)
+	weapon_preview_model = preview
+	var generated_visual := preview.find_child("PlaceholderModel", true, false)
+	if generated_visual != null and generated_visual.has_method("configure_variant"):
+		generated_visual.call("configure_variant", definition)
+	return true
+
+
+func _clear_weapon_preview() -> void:
+	if is_instance_valid(weapon_preview_model):
+		weapon_preview_model.queue_free()
+	weapon_preview_model = null
+
+
+func _weapon_preview_scale(family: StringName) -> float:
+	if family in [&"pistol", &"akimbo_pistols"]:
+		return 1.75
+	if family == &"magic":
+		return 1.22
+	if family in [&"katana", &"nodachi", &"sword"]:
+		return 0.92
+	return 0.88
 
 
 func _type_line(definition: ItemDefinition) -> String:
@@ -284,4 +377,13 @@ func _panel_style(background: Color, border: Color) -> StyleBoxFlat:
 	style.border_color = border
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(5)
+	return style
+
+
+func _preview_style(background: Color, border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(3)
+	style.set_corner_radius_all(0)
 	return style

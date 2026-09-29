@@ -16,6 +16,9 @@ var pause_layer: CanvasLayer
 var pause_panel: PanelContainer
 var pause_menu_column: VBoxContainer
 var pause_settings_column: VBoxContainer
+var pause_health_label: Label
+var pause_armor_label: Label
+var pause_weapon_labels: Array[Label] = []
 
 
 func _ready() -> void:
@@ -41,6 +44,8 @@ func _ready() -> void:
 		_capture_validation_frame.call_deferred()
 	elif "--capture-tpp" in OS.get_cmdline_user_args():
 		_capture_validation_frame.bind(true).call_deferred()
+	elif "--capture-pause" in OS.get_cmdline_user_args():
+		_capture_pause_menu.call_deferred()
 	elif "--loadout-integration-test" in OS.get_cmdline_user_args():
 		_run_loadout_integration_test.call_deferred()
 	elif "--content-arena-test" in OS.get_cmdline_user_args():
@@ -51,6 +56,8 @@ func _ready() -> void:
 		_run_pause_flow_test.call_deferred()
 	elif "--polish-self-test" in OS.get_cmdline_user_args():
 		_run_polish_self_test.call_deferred()
+	elif "--combat-feel-test" in OS.get_cmdline_user_args():
+		_run_combat_feel_test.call_deferred()
 	elif "--scene-flow-test" in OS.get_cmdline_user_args():
 		_run_scene_flow_arena_leg.call_deferred()
 
@@ -85,60 +92,200 @@ func _build_pause_menu() -> void:
 	pause_layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(pause_layer)
 	var shade := ColorRect.new()
-	shade.color = Color(0.01, 0.015, 0.022, 0.82)
+	shade.color = Color(0.005, 0.008, 0.01, 0.88)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	pause_layer.add_child(shade)
+	var cyan_band := ColorRect.new()
+	cyan_band.color = Color(0.02, 0.72, 0.88, 0.18)
+	cyan_band.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	cyan_band.offset_right = 260
+	cyan_band.rotation = -0.04
+	cyan_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_layer.add_child(cyan_band)
+	var yellow_band := ColorRect.new()
+	yellow_band.color = Color(1.0, 0.76, 0.08, 0.18)
+	yellow_band.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	yellow_band.offset_left = -420
+	yellow_band.offset_top = -120
+	yellow_band.rotation = 0.08
+	yellow_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_layer.add_child(yellow_band)
 	pause_panel = PanelContainer.new()
 	pause_panel.set_anchors_preset(Control.PRESET_CENTER)
-	pause_panel.offset_left = -190
-	pause_panel.offset_right = 190
-	pause_panel.offset_top = -235
-	pause_panel.offset_bottom = 235
+	pause_panel.offset_left = -470
+	pause_panel.offset_right = 470
+	pause_panel.offset_top = -280
+	pause_panel.offset_bottom = 280
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.035, 0.046, 0.061, 0.98)
-	style.border_color = Color(0.28, 0.58, 0.64)
+	style.bg_color = Color(0.018, 0.024, 0.027, 0.99)
+	style.border_color = Color(0.98, 0.76, 0.08)
 	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(24)
+	style.set_content_margin_all(22)
 	pause_panel.add_theme_stylebox_override("panel", style)
 	pause_layer.add_child(pause_panel)
+	var pause_root := VBoxContainer.new()
+	pause_root.add_theme_constant_override("separation", 10)
+	pause_panel.add_child(pause_root)
 	pause_menu_column = VBoxContainer.new()
-	pause_menu_column.add_theme_constant_override("separation", 12)
-	pause_panel.add_child(pause_menu_column)
+	pause_menu_column.add_theme_constant_override("separation", 14)
+	pause_menu_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pause_root.add_child(pause_menu_column)
+	var header := HBoxContainer.new()
+	pause_menu_column.add_child(header)
 	var title := Label.new()
-	title.text = "ARENA PAUSED"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 25)
-	title.add_theme_color_override("font_color", Color(0.91, 0.93, 0.95))
-	pause_menu_column.add_child(title)
+	title.text = "[ TACTICAL PAUSE ]"
+	title.add_theme_font_size_override("font_size", 31)
+	title.add_theme_color_override("font_color", Color(0.96, 0.97, 0.95))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = "Your selected loadout remains saved"
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_color_override("font_color", Color(0.54, 0.62, 0.68))
-	pause_menu_column.add_child(subtitle)
-	var spacer := Control.new()
-	spacer.custom_minimum_size.y = 18
-	pause_menu_column.add_child(spacer)
-	_add_pause_button(pause_menu_column, "RESUME", _toggle_pause)
-	_add_pause_button(pause_menu_column, "SETTINGS", _show_pause_settings)
-	_add_pause_button(pause_menu_column, "RETURN TO LOBBY", _return_to_lobby)
-	_add_pause_button(pause_menu_column, "QUIT", _quit_game)
-	_build_pause_settings()
+	subtitle.text = "MATCH 01  //  LOCAL 1V1\nINPUT RELEASED"
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	subtitle.add_theme_color_override("font_color", Color(0.02, 0.74, 0.90))
+	header.add_child(subtitle)
+	var separator := ColorRect.new()
+	separator.color = Color(0.98, 0.76, 0.08)
+	separator.custom_minimum_size.y = 3
+	separator.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_menu_column.add_child(separator)
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 16)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pause_menu_column.add_child(body)
+	var navigation_panel := PanelContainer.new()
+	navigation_panel.custom_minimum_size.x = 310
+	navigation_panel.add_theme_stylebox_override("panel", _pause_style(Color(0.03, 0.038, 0.041), Color(0.18, 0.22, 0.23), 1))
+	body.add_child(navigation_panel)
+	var navigation_margin := MarginContainer.new()
+	navigation_margin.add_theme_constant_override("margin_left", 14)
+	navigation_margin.add_theme_constant_override("margin_top", 14)
+	navigation_margin.add_theme_constant_override("margin_right", 14)
+	navigation_margin.add_theme_constant_override("margin_bottom", 14)
+	navigation_panel.add_child(navigation_margin)
+	var navigation := VBoxContainer.new()
+	navigation.add_theme_constant_override("separation", 9)
+	navigation_margin.add_child(navigation)
+	var navigation_title := Label.new()
+	navigation_title.text = "// MATCH CONTROL"
+	navigation_title.add_theme_color_override("font_color", Color(1.0, 0.78, 0.08))
+	navigation_title.add_theme_font_size_override("font_size", 12)
+	navigation.add_child(navigation_title)
+	_add_pause_button(navigation, "RESUME", _toggle_pause)
+	_add_pause_button(navigation, "SETTINGS", _show_pause_settings)
+	_add_pause_button(navigation, "RETURN TO LOBBY", _return_to_lobby)
+	var nav_fill := Control.new()
+	nav_fill.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	navigation.add_child(nav_fill)
+	_add_pause_button(navigation, "QUIT", _quit_game)
+
+	var tactical_column := VBoxContainer.new()
+	tactical_column.add_theme_constant_override("separation", 12)
+	tactical_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(tactical_column)
+	var loadout_panel := PanelContainer.new()
+	loadout_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	loadout_panel.add_theme_stylebox_override("panel", _pause_style(Color(0.025, 0.032, 0.034), Color(0.24, 0.30, 0.31), 1))
+	tactical_column.add_child(loadout_panel)
+	var loadout_margin := MarginContainer.new()
+	loadout_margin.add_theme_constant_override("margin_left", 16)
+	loadout_margin.add_theme_constant_override("margin_top", 14)
+	loadout_margin.add_theme_constant_override("margin_right", 16)
+	loadout_margin.add_theme_constant_override("margin_bottom", 14)
+	loadout_panel.add_child(loadout_margin)
+	var loadout := VBoxContainer.new()
+	loadout.add_theme_constant_override("separation", 10)
+	loadout_margin.add_child(loadout)
+	var loadout_header := HBoxContainer.new()
+	loadout.add_child(loadout_header)
+	var loadout_title := Label.new()
+	loadout_title.text = "ACTIVE LOADOUT"
+	loadout_title.add_theme_color_override("font_color", Color(0.02, 0.74, 0.90))
+	loadout_title.add_theme_font_size_override("font_size", 13)
+	loadout_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	loadout_header.add_child(loadout_title)
+	var power := Label.new()
+	power.text = "%03d/%03d POWER" % [PlayerProfile.get_skill_power(), PlayerProfile.POWER_LIMIT]
+	power.add_theme_color_override("font_color", Color(0.35, 0.92, 0.64))
+	loadout_header.add_child(power)
+	var weapon_grid := GridContainer.new()
+	weapon_grid.columns = 2
+	weapon_grid.add_theme_constant_override("h_separation", 10)
+	loadout.add_child(weapon_grid)
+	pause_weapon_labels.clear()
+	for index: int in range(2):
+		var weapon_card := PanelContainer.new()
+		weapon_card.custom_minimum_size = Vector2(270, 92)
+		weapon_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		weapon_card.add_theme_stylebox_override("panel", _pause_style(Color(0.045, 0.055, 0.058), Color(0.26, 0.31, 0.32), 1))
+		weapon_grid.add_child(weapon_card)
+		var weapon_label := Label.new()
+		weapon_label.text = "[%d]  %s\n%s" % [index + 1, _pause_definition_name(PlayerProfile.weapon_slots[index]).to_upper(), "PRIMARY" if index == 0 else "SECONDARY"]
+		weapon_label.add_theme_color_override("font_color", Color(0.96, 0.97, 0.95))
+		weapon_label.add_theme_font_size_override("font_size", 14)
+		weapon_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		weapon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		weapon_card.add_child(weapon_label)
+		pause_weapon_labels.append(weapon_label)
+	var skill_line := Label.new()
+	skill_line.text = "SKILLS   %s  %s   //   %s  %s" % [GameSettings.get_binding_text(&"skill_slot_1"), _pause_definition_name(PlayerProfile.skill_slots[0]).to_upper(), GameSettings.get_binding_text(&"skill_slot_2"), _pause_definition_name(PlayerProfile.skill_slots[1]).to_upper()]
+	skill_line.add_theme_color_override("font_color", Color(0.68, 0.72, 0.72))
+	loadout.add_child(skill_line)
+	var briefing_spacer := Control.new()
+	briefing_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	loadout.add_child(briefing_spacer)
+	var briefing_rule := ColorRect.new()
+	briefing_rule.color = Color(0.02, 0.74, 0.90, 0.55)
+	briefing_rule.custom_minimum_size.y = 1
+	loadout.add_child(briefing_rule)
+	var briefing := Label.new()
+	briefing.text = "MOVEMENT BRIEF  //  HOLD SPACE + A/D TO CHAIN BHOPS\nLEAN  %s / %s   •   FOLLOW THE CAMERA IN AIR" % [GameSettings.get_binding_text(&"peek_left"), GameSettings.get_binding_text(&"peek_right")]
+	briefing.add_theme_color_override("font_color", Color(0.63, 0.67, 0.67))
+	briefing.add_theme_font_size_override("font_size", 11)
+	loadout.add_child(briefing)
+
+	var status_panel := PanelContainer.new()
+	status_panel.add_theme_stylebox_override("panel", _pause_style(Color(0.025, 0.032, 0.034), Color(0.24, 0.30, 0.31), 1))
+	tactical_column.add_child(status_panel)
+	var status_margin := MarginContainer.new()
+	status_margin.add_theme_constant_override("margin_left", 16)
+	status_margin.add_theme_constant_override("margin_top", 12)
+	status_margin.add_theme_constant_override("margin_right", 16)
+	status_margin.add_theme_constant_override("margin_bottom", 12)
+	status_panel.add_child(status_margin)
+	var status_grid := GridContainer.new()
+	status_grid.columns = 2
+	status_grid.add_theme_constant_override("h_separation", 28)
+	status_margin.add_child(status_grid)
+	pause_health_label = Label.new()
+	pause_health_label.add_theme_color_override("font_color", Color(0.35, 0.92, 0.64))
+	pause_health_label.add_theme_font_size_override("font_size", 17)
+	status_grid.add_child(pause_health_label)
+	pause_armor_label = Label.new()
+	pause_armor_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.08))
+	pause_armor_label.add_theme_font_size_override("font_size", 17)
+	status_grid.add_child(pause_armor_label)
+	_build_pause_settings(pause_root)
+	_refresh_pause_status()
 	pause_layer.visible = false
 
 
-func _build_pause_settings() -> void:
+func _build_pause_settings(parent: Control) -> void:
 	pause_settings_column = VBoxContainer.new()
-	pause_settings_column.add_theme_constant_override("separation", 9)
-	pause_panel.add_child(pause_settings_column)
+	pause_settings_column.add_theme_constant_override("separation", 8)
+	parent.add_child(pause_settings_column)
 	var title := Label.new()
-	title.text = "GAMEPLAY SETTINGS"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 22)
+	title.text = "[ GAMEPLAY SETTINGS ]"
+	title.add_theme_color_override("font_color", Color(0.96, 0.97, 0.95))
+	title.add_theme_font_size_override("font_size", 28)
 	pause_settings_column.add_child(title)
+	var rule := ColorRect.new()
+	rule.color = Color(0.02, 0.74, 0.90)
+	rule.custom_minimum_size.y = 3
+	pause_settings_column.add_child(rule)
 	_add_pause_slider("FOV", GameSettings.base_fov, 70.0, 110.0, 1.0, &"base_fov")
 	_add_pause_slider("CAMERA SHAKE", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
+	_add_pause_slider("HIT EFFECTS", GameSettings.hit_effects_intensity, 0.0, 1.0, 0.05, &"hit_effects_intensity")
 	_add_pause_slider("HEADBOB", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
 	_add_pause_slider("TPP SMOOTHING", GameSettings.tpp_camera_smoothing, 6.0, 30.0, 1.0, &"tpp_camera_smoothing")
 	var damage_numbers := CheckButton.new()
@@ -186,9 +333,15 @@ func _hide_pause_settings() -> void:
 
 func _add_pause_button(parent: Control, text: String, callback: Callable) -> void:
 	var button := Button.new()
-	button.text = text
+	button.text = "//  " + text
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.custom_minimum_size.y = 48
-	button.add_theme_font_size_override("font_size", 15)
+	button.add_theme_font_size_override("font_size", 16)
+	button.add_theme_color_override("font_color", Color(0.94, 0.95, 0.93))
+	button.add_theme_color_override("font_hover_color", Color(0.01, 0.02, 0.02))
+	button.add_theme_stylebox_override("normal", _pause_style(Color(0.055, 0.064, 0.067), Color(0.24, 0.29, 0.30), 1))
+	button.add_theme_stylebox_override("hover", _pause_style(Color(1.0, 0.78, 0.08), Color(1.0, 0.78, 0.08), 2))
+	button.add_theme_stylebox_override("pressed", _pause_style(Color(0.02, 0.74, 0.90), Color(0.02, 0.74, 0.90), 2))
 	button.mouse_entered.connect(func() -> void: AudioEvents.play(&"ui_hover"))
 	button.pressed.connect(func() -> void: AudioEvents.play(&"ui_click"))
 	button.pressed.connect(callback)
@@ -200,6 +353,7 @@ func _toggle_pause() -> void:
 	get_tree().paused = should_pause
 	pause_layer.visible = should_pause
 	if should_pause:
+		_refresh_pause_status()
 		_hide_pause_settings()
 	else:
 		MouseModeService.capture_gameplay(player)
@@ -214,6 +368,43 @@ func _return_to_lobby() -> void:
 func _quit_game() -> void:
 	get_tree().paused = false
 	get_tree().quit()
+
+
+func _pause_style(background: Color, border: Color, width: int) -> StyleBoxFlat:
+	var result := StyleBoxFlat.new()
+	result.bg_color = background
+	result.border_color = border
+	result.set_border_width_all(width)
+	result.content_margin_left = 13
+	result.content_margin_right = 13
+	result.content_margin_top = 9
+	result.content_margin_bottom = 9
+	return result
+
+
+func _pause_definition_name(item_id: String) -> String:
+	var definition := PlayerProfile.get_definition(item_id)
+	return definition.display_name if definition != null else "EMPTY"
+
+
+func _refresh_pause_status() -> void:
+	if pause_health_label != null:
+		pause_health_label.text = "HEALTH   %03d / %03d" % [roundi(player.health.current_health), roundi(player.health.max_health)]
+	if pause_armor_label != null:
+		pause_armor_label.text = "ARMOR   %03d" % roundi(player.get_total_armor())
+	for index: int in mini(2, pause_weapon_labels.size()):
+		pause_weapon_labels[index].text = "[%d]  %s\n%s" % [index + 1, _pause_definition_name(PlayerProfile.weapon_slots[index]).to_upper(), "PRIMARY" if index == 0 else "SECONDARY"]
+
+
+func _capture_pause_menu() -> void:
+	_toggle_pause()
+	for frame: int in 20:
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://validation_pause.png")
+	print("PAUSE_CAPTURE_OK: res://validation_pause.png" if error == OK else "PAUSE_CAPTURE_FAILED")
+	get_tree().paused = false
+	get_tree().quit(0 if error == OK else 1)
 
 
 func _run_loadout_integration_test() -> void:
@@ -575,6 +766,8 @@ func _run_pause_flow_test() -> void:
 
 func _run_polish_self_test() -> void:
 	var failures: Array[String] = []
+	if player.visual_body.get_child_count() < 30 or bot.visual_body.get_child_count() < 30:
+		failures.append("Tactical character models did not generate their detail layers")
 	var settings_snapshot := GameSettings.to_dictionary()
 	GameSettings.set_value(&"base_fov", 101.0, false)
 	GameSettings.set_value(&"mouse_sensitivity", 0.0031, false)
@@ -584,8 +777,11 @@ func _run_polish_self_test() -> void:
 	if player.get_crosshair_spread() < 5.0:
 		failures.append("Dynamic crosshair did not respond to weapon impulse")
 	hud._show_damage_feedback({"amount": 42.0, "headshot": true, "blocked": false, "killed": false})
-	if hud.damage_number_root.get_child_count() != 1:
-		failures.append("Damage number feedback did not instantiate")
+	var visible_damage_numbers := 0
+	for label: Label in hud.damage_number_pool:
+		visible_damage_numbers += int(label.visible)
+	if hud.damage_number_pool.size() != 14 or visible_damage_numbers != 1:
+		failures.append("Pooled damage number feedback did not activate exactly one slot")
 	var audio_before := AudioEvents.emitted_count
 	player.on_empty_weapon()
 	if AudioEvents.emitted_count != audio_before + 1:
@@ -611,6 +807,150 @@ func _run_polish_self_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("POLISH_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_combat_feel_test() -> void:
+	print("COMBAT_FEEL_TEST_START")
+	await get_tree().physics_frame
+	await get_tree().process_frame
+	bot.set_physics_process(false)
+	player.set_physics_process(false)
+	var failures: Array[String] = []
+	var families: Array[StringName] = [&"katana", &"nodachi", &"sniper", &"assault_rifle", &"burst_rifle", &"battle_rifle", &"sword", &"magic", &"pistol", &"akimbo_pistols"]
+	var profile_signatures: Dictionary = {}
+	for family: StringName in families:
+		var profile := WeaponPresentationLibrary.for_family(family)
+		if not profile.is_valid():
+			failures.append("Invalid presentation profile: %s" % family)
+		profile_signatures["%s:%s:%s" % [family, profile.hip_position, profile.fire_kick_distance]] = true
+		if profile.hip_position == profile.tpp_position:
+			failures.append("FPP and TPP offsets are identical: %s" % family)
+	if profile_signatures.size() != families.size():
+		failures.append("Weapon family presentation profiles are not distinct")
+	var configured_families: Dictionary = {}
+	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
+		if definition.item_type != ItemDefinition.ItemType.WEAPON:
+			continue
+		var weapon := definition.gameplay_scene.instantiate() as WeaponBase
+		if weapon == null:
+			failures.append("Weapon scene failed to instantiate for combat feel: %s" % definition.id)
+			continue
+		weapon.setup(player)
+		weapon.configure_from_item(definition, ItemInstance.create(definition, "combat-feel:%s" % definition.id))
+		configured_families[weapon.get_presentation_profile().family] = true
+		weapon.free()
+	for family: StringName in families:
+		if not configured_families.has(family):
+			failures.append("No configured weapon covered family: %s" % family)
+
+	var original_weapon := player.current_weapon
+	var original_index := player.current_weapon_index
+	var test_sniper_definition := PlayerProfile.get_definition("huntsman_rifle")
+	var test_sniper := test_sniper_definition.gameplay_scene.instantiate() as SniperWeapon
+	player.weapon_mount.add_child(test_sniper)
+	test_sniper.setup(player)
+	test_sniper.configure_from_item(test_sniper_definition, ItemInstance.create(test_sniper_definition, "combat-sniper"))
+	test_sniper.equip()
+	player.current_weapon = test_sniper
+	test_sniper.secondary_pressed()
+	if not test_sniper.is_aiming_down_sights() or not player.should_hide_crosshair():
+		failures.append("Sniper ADS did not activate its precise hidden-crosshair state")
+	var audio_before := AudioEvents.emitted_count
+	var recoil_before := player.weapon_fire_offset
+	player.on_weapon_fired(&"sniper", true)
+	if player.weapon_fire_offset <= recoil_before or AudioEvents.emitted_count <= audio_before:
+		failures.append("Sniper firing feedback did not produce recoil and audio")
+	test_sniper.secondary_released()
+	test_sniper.ammo = 0
+	test_sniper.fire_cooldown_remaining = 0.0
+	audio_before = AudioEvents.emitted_count
+	test_sniper.request_primary()
+	if AudioEvents.emitted_count <= audio_before:
+		failures.append("Dry-fire feedback did not emit audio")
+	test_sniper.request_reload()
+	if not test_sniper.is_reloading or test_sniper.reload_remaining <= 0.0:
+		failures.append("Reload state did not begin")
+
+	var katana_definition := PlayerProfile.get_definition("ronin_katana")
+	var test_katana := katana_definition.gameplay_scene.instantiate() as KatanaWeapon
+	player.weapon_mount.add_child(test_katana)
+	test_katana.setup(player)
+	test_katana.configure_from_item(katana_definition, ItemInstance.create(katana_definition, "combat-katana"))
+	test_katana.equip()
+	player.current_weapon = test_katana
+	test_katana.request_primary()
+	if test_katana.recovery_remaining <= 0.0 or test_katana.swing_remaining <= 0.0:
+		failures.append("Melee light attack did not enter swing/recovery")
+	test_katana.reset_weapon()
+	test_katana.request_heavy()
+	if test_katana.windup_remaining <= 0.0 or test_katana.recovery_remaining <= 0.0:
+		failures.append("Melee heavy attack did not enter windup/recovery")
+	test_katana.reset_weapon()
+	test_katana.secondary_pressed()
+	var parry_response := test_katana.get_damage_response(DamageInfo.new(20.0, bot, &"test_projectile", false, false))
+	if not bool(parry_response.get("negate", false)) or not bool(parry_response.get("reflect", false)):
+		failures.append("Perfect deflect window did not negate and reflect")
+	test_katana.deflect_remaining = 0.0
+	var block_response := test_katana.get_damage_response(DamageInfo.new(20.0, bot, &"test_melee", false, true))
+	if float(block_response.get("damage_multiplier", 1.0)) >= 1.0:
+		failures.append("Melee block did not reduce damage")
+	player.request_combat_hit_stop(0.04)
+	if not player.hit_stop_active or Engine.time_scale >= 1.0:
+		failures.append("Strong melee hit-stop did not activate")
+	player.hit_stop_until_msec = Time.get_ticks_msec() - 1
+	player._update_hit_stop()
+	if player.hit_stop_active or not is_equal_approx(Engine.time_scale, 1.0):
+		failures.append("Hit-stop did not restore normal time")
+
+	var marker_cases := [
+		{"amount": 20.0, "headshot": false, "blocked": false, "killed": false},
+		{"amount": 30.0, "headshot": true, "blocked": false, "killed": false},
+		{"amount": 10.0, "armor_hit": true, "blocked": false, "killed": false},
+		{"amount": 4.0, "blocked": true, "killed": false},
+		{"amount": 38.0, "critical": true, "killed": false},
+		{"amount": 3.0, "dot": true, "killed": false},
+		{"amount": 60.0, "killed": true},
+	]
+	for marker_data: Dictionary in marker_cases:
+		hud._show_damage_feedback(marker_data)
+	if hud.damage_number_pool.size() != 14 or hud.damage_number_root.get_child_count() != 14:
+		failures.append("Damage number pool is not fixed at 14 reusable labels")
+	hud._on_player_feedback(&"damage_taken", {"damage": 12.0, "source_position": player.global_position - player.global_basis.z * 4.0})
+	var direction_visible := false
+	for edge_value: float in hud.damage_edge_values:
+		direction_visible = direction_visible or edge_value > 0.0
+	if not direction_visible:
+		failures.append("Directional player damage indicator did not activate")
+
+	bot._on_damage_resolved(DamageInfo.new(60.0, player, &"sniper"), 60.0, {})
+	if bot.hit_reaction_strength < 0.20 or bot.hit_reaction_remaining <= 0.0:
+		failures.append("Strong enemy hit reaction did not activate")
+	player.current_weapon = original_weapon
+	player.current_weapon_index = original_index
+	if original_weapon != null:
+		original_weapon.equip()
+	test_sniper.queue_free()
+	test_katana.queue_free()
+	player.set_camera_mode(true, false)
+	player._update_weapon_presentation(0.08, 0.0, false, 0.0, 0.0)
+	var fpp_position := player.weapon_mount.position
+	player.set_camera_mode(false, false)
+	player._update_weapon_presentation(0.12, 0.0, false, 0.0, 0.0)
+	var tpp_position := player.weapon_mount.position
+	if fpp_position.distance_to(tpp_position) < 0.03 or tpp_position.length() > 1.5:
+		failures.append("FPP/TPP weapon positions did not transition to bounded distinct offsets")
+	bot.health.kill(player, &"combat_feel_test")
+	await get_tree().process_frame
+	var dead_weapon_held: Variant = bot.current_weapon.get("primary_held") if bot.current_weapon != null else false
+	if not bot.is_dead or bot.collision_layer != 0 or bot.weapon_mount.visible or bot.current_weapon == null or dead_weapon_held == true:
+		failures.append("Enemy death did not immediately disable combat/collision")
+	if failures.is_empty():
+		print("COMBAT_FEEL_TEST_OK: 10 families, firing, recoil, ADS, reload, dry fire, melee, block/deflect, hit types, pooled numbers, directional damage, reactions, death and FPP/TPP passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("COMBAT_FEEL_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
 
 
@@ -641,17 +981,39 @@ func _run_self_test() -> void:
 		failures.append("Bot tactical arena hints did not generate")
 	if get_tree().get_nodes_in_group("bot_vertical_route").size() < 3:
 		failures.append("Bot vertical route hints did not generate")
+	if get_tree().get_nodes_in_group("peek_training_spot").size() < 12:
+		failures.append("1v1 peek training spots did not generate")
 	if bot.movement == null:
 		failures.append("Bot movement component did not initialize")
 	failures.append_array(hud.get_layout_validation_errors())
 	if get_tree().get_nodes_in_group("player").size() != 1 or get_tree().get_nodes_in_group("bot").size() != 1:
 		failures.append("Character groups are invalid")
-	for action in ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "skill_slot_1", "skill_slot_2", "toggle_camera", "weapon_1", "weapon_2", "primary_attack", "secondary_attack", "heavy_attack", "reload", "menu_toggle", "debug_toggle"]:
+	for action in ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "peek_left", "peek_right", "skill_slot_1", "skill_slot_2", "toggle_camera", "weapon_1", "weapon_2", "primary_attack", "secondary_attack", "heavy_attack", "reload", "menu_toggle", "debug_toggle"]:
 		if not InputMap.has_action(action):
 			failures.append("Missing input action: " + action)
+	# The known-open movement lane lets this validate both lean directions without
+	# intentionally triggering the camera's wall clamp at the spawn cover.
+	player.global_position = Vector3(-25.0, 0.15, 24.0)
+	await get_tree().physics_frame
+	Input.action_press("peek_right")
+	for frame: int in range(24):
+		await get_tree().process_frame
+	Input.action_release("peek_right")
+	if player.get_peek_amount() < 0.45:
+		failures.append("Right peek did not shift and roll the camera")
+	for frame: int in range(24):
+		await get_tree().process_frame
+	Input.action_press("peek_left")
+	for frame: int in range(24):
+		await get_tree().process_frame
+	Input.action_release("peek_left")
+	if player.get_peek_amount() > -0.35:
+		failures.append("Left peek did not shift and roll the camera")
+	for frame: int in range(24):
+		await get_tree().process_frame
 
 	print("SELF_TEST_SECTION: locomotion")
-	# Real player physics: compare walk/sprint movement, then trigger jump and dash.
+	# Real player physics: compare constant Kour run with crouch movement, then jump and dash.
 	player.global_position = Vector3(-25, 0.15, 24)
 	player.rotation = Vector3.ZERO
 	player.velocity = Vector3.ZERO
@@ -661,7 +1023,7 @@ func _run_self_test() -> void:
 	for frame in range(12):
 		await get_tree().physics_frame
 	Input.action_release("move_forward")
-	var walk_distance := movement_start.distance_to(player.global_position)
+	var run_distance := movement_start.distance_to(player.global_position)
 	player.global_position = movement_start
 	player.velocity = Vector3.ZERO
 	Input.action_press("move_forward")
@@ -670,9 +1032,9 @@ func _run_self_test() -> void:
 		await get_tree().physics_frame
 	Input.action_release("move_forward")
 	Input.action_release("sprint")
-	var sprint_distance := movement_start.distance_to(player.global_position)
-	if walk_distance < 0.35 or sprint_distance <= walk_distance * 1.18:
-		failures.append("Walk/sprint physics response failed (walk %.2f, sprint %.2f)" % [walk_distance, sprint_distance])
+	var crouch_distance := movement_start.distance_to(player.global_position)
+	if run_distance < 0.35 or not player.movement.is_crouching:
+		failures.append("Kour run/crouch response failed (run %.2f, crouch %.2f, lowered %s)" % [run_distance, crouch_distance, player.movement.is_crouching])
 	player.global_position = movement_start
 	player.velocity = Vector3.ZERO
 	for frame in range(4):
@@ -702,7 +1064,6 @@ func _run_self_test() -> void:
 	for frame in range(4):
 		await get_tree().physics_frame
 	Input.action_press("move_forward")
-	Input.action_press("sprint")
 	for frame in range(30):
 		await get_tree().physics_frame
 	Input.action_press("jump")
@@ -710,7 +1071,6 @@ func _run_self_test() -> void:
 	await get_tree().physics_frame
 	Input.action_release("jump")
 	Input.action_release("move_forward")
-	Input.action_release("sprint")
 	var release_speed := player.movement.get_horizontal_speed()
 	for frame in range(12):
 		await get_tree().physics_frame
@@ -718,7 +1078,7 @@ func _run_self_test() -> void:
 	if release_speed < 7.0 or preserved_air_speed < release_speed * 0.98:
 		failures.append("Air momentum was not preserved after releasing W (%.2f -> %.2f)" % [release_speed, preserved_air_speed])
 
-	# Air strafing must curve velocity without an instant reversal or uncapped growth.
+	# A/D without matching mouse movement must not alter airborne momentum.
 	player.global_position = Vector3(-25, 8, 20)
 	player.velocity = Vector3(0, 0, -10)
 	await get_tree().physics_frame
@@ -726,8 +1086,8 @@ func _run_self_test() -> void:
 	for frame in range(16):
 		await get_tree().physics_frame
 	Input.action_release("move_right")
-	if player.velocity.x < 1.0 or player.velocity.z > -7.0:
-		failures.append("Air strafe did not curve while preserving forward travel (%s)" % str(player.velocity))
+	if absf(player.velocity.x) > 0.1 or absf(player.velocity.z + 10.0) > 0.1:
+		failures.append("Unsynchronized airborne A/D altered momentum (%s)" % str(player.velocity))
 	player.global_position = Vector3(-25, 12, 20)
 	player.velocity = Vector3(0, 0, -15.8)
 	Input.action_press("move_right")
@@ -749,14 +1109,19 @@ func _run_self_test() -> void:
 	await get_tree().physics_frame
 	Input.action_release("jump")
 	if player.velocity.y <= 0.0 or player.double_jump_skill.used_this_airborne_sequence:
-		failures.append("Coyote jump failed or incorrectly consumed double jump")
+		failures.append("Coyote jump failed or incorrectly consumed double jump (velocity %s, double %s, coyote %.3f)" % [player.velocity, player.double_jump_skill.used_this_airborne_sequence, player.movement.coyote_remaining])
+	# Let one full physics tick observe the key release before the next press.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 	var speed_before_double_jump := player.movement.get_horizontal_speed()
 	Input.action_press("jump")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	Input.action_release("jump")
 	if not player.double_jump_skill.used_this_airborne_sequence or absf(player.movement.get_horizontal_speed() - speed_before_double_jump) > 0.1:
-		failures.append("Double jump did not preserve horizontal momentum")
+		failures.append("Double jump failed (used %s, speed %.3f -> %.3f, velocity %s, held %s)" % [player.double_jump_skill.used_this_airborne_sequence, speed_before_double_jump, player.movement.get_horizontal_speed(), player.velocity, player.movement.jump_was_held])
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 
 	# Jump buffer must fire a normal jump as soon as a descending player lands.
 	player.movement.normal_jump_available = false
@@ -821,10 +1186,10 @@ func _run_self_test() -> void:
 	await get_tree().physics_frame
 	if not player.movement.is_sliding:
 		failures.append("Fast grounded crouch did not start a slide")
-	for frame in range(72):
+	for frame in range(48):
 		await get_tree().physics_frame
 	if not player.movement.is_sliding:
-		failures.append("Sprint-entry slide ended before the 1.2 second target")
+		failures.append("Kour slide ended before the 0.8 second slide-hop window")
 	if player.movement.get_horizontal_speed() >= 10.9:
 		failures.append("Extended slide did not naturally lose horizontal speed")
 	Input.action_press("jump")
@@ -834,6 +1199,8 @@ func _run_self_test() -> void:
 	Input.action_release("crouch")
 	if player.movement.is_sliding or player.velocity.y <= 0.0 or player.movement.get_horizontal_speed() < 7.0:
 		failures.append("Slide jump failed to preserve useful momentum (%s)" % str(player.velocity))
+
+	await _check_arena_movement_profile(failures)
 
 	var preserved_velocity := Vector3(2, 3, 4)
 	player.velocity = preserved_velocity
@@ -1001,12 +1368,132 @@ func _run_self_test() -> void:
 	if (player.weapons[1] as SniperWeapon).ammo != (player.weapons[1] as SniperWeapon).magazine_size:
 		failures.append("Player sniper ammo did not reset on respawn")
 	if failures.is_empty():
-		print("SELF_TEST_OK: movement, runtime, arena, combat, skills, HUD, death, score and respawn passed")
+		print("SELF_TEST_OK: movement, peeking, 1v1 training arena, combat, skills, HUD, death, score and respawn passed")
 		get_tree().quit(0)
 	else:
 		for failure in failures:
 			push_error("SELF_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
+
+
+func _check_arena_movement_profile(failures: Array[String]) -> void:
+	print("SELF_TEST_SECTION: arena_movement_profile")
+	player.movement.reset()
+	player.dash_skill.reset()
+	player.double_jump_skill.reset()
+	player.global_position = Vector3(-25, 0.05, 24)
+	player.rotation = Vector3.ZERO
+	player.velocity = Vector3.ZERO
+	for frame in range(5):
+		await get_tree().physics_frame
+	Input.action_press("move_forward")
+	Input.action_press("move_right")
+	for frame in range(20):
+		await get_tree().physics_frame
+	if absf(player.movement.get_horizontal_speed() - player.movement.walk_speed) > 0.05:
+		failures.append("Diagonal movement did not respect walk speed")
+	Input.action_release("move_forward")
+	Input.action_release("move_right")
+	for frame in range(15):
+		await get_tree().physics_frame
+	if player.movement.get_horizontal_speed() > 0.05:
+		failures.append("Ground movement did not stop promptly after release")
+
+	var events: Array[StringName] = []
+	var record_event := func(event_name: StringName) -> void: events.append(event_name)
+	player.movement.movement_event.connect(record_event)
+	Input.action_press("move_forward")
+	for frame in range(20):
+		await get_tree().physics_frame
+	Input.action_press("jump")
+	for frame in range(100):
+		await get_tree().physics_frame
+	Input.action_release("jump")
+	Input.action_release("move_forward")
+	player.movement.movement_event.disconnect(record_event)
+	if events.count(&"jump") < 3 or events.has(&"double_jump") or player.double_jump_skill.used_this_airborne_sequence:
+		failures.append("Held jump did not chain ground hops independently of Double Jump")
+	if player.movement.get_horizontal_speed() > player.movement.bhop_speed_cap + 0.05:
+		failures.append("Unsteered held jumps exceeded the bhop speed cap")
+
+	# Each qualified landing adds speed, while an invalid hop breaks the chain.
+	player.movement.reset()
+	player.velocity = Vector3(0, 0, -player.movement.run_speed)
+	player.movement.jump_was_held = true
+	player.movement.bhop_landing_qualified = true
+	player.movement._perform_ground_jump(false)
+	var first_chain_speed := player.movement.get_horizontal_speed()
+	player.movement.bhop_landing_qualified = true
+	player.movement._perform_ground_jump(false)
+	var second_chain_speed := player.movement.get_horizontal_speed()
+	if first_chain_speed <= player.movement.run_speed or second_chain_speed <= first_chain_speed or player.movement.bhop_chain_count != 2:
+		failures.append("Qualified consecutive bhops did not build speed (%.2f -> %.2f, chain %d)" % [first_chain_speed, second_chain_speed, player.movement.bhop_chain_count])
+	player.velocity = Vector3(0, 0, -(player.movement.bhop_speed_cap - 0.2))
+	player.movement.bhop_landing_qualified = true
+	player.movement._perform_ground_jump(false)
+	if player.movement.get_horizontal_speed() > player.movement.bhop_speed_cap + 0.01:
+		failures.append("Bhop chain boost exceeded its speed cap")
+	player.movement.bhop_landing_qualified = false
+	player.movement._perform_ground_jump(false)
+	if player.movement.bhop_chain_count != 0:
+		failures.append("Invalid bhop did not reset the speed chain")
+
+	# Bhop steering requires Space plus matching mouse-right and D input.
+	player.movement.reset()
+	player.global_position = Vector3(-25, 10, 20)
+	player.rotation = Vector3.ZERO
+	player.velocity = Vector3(0, 0, -10)
+	Input.action_press("jump")
+	Input.action_press("move_right")
+	for frame in range(12):
+		player.rotate_y(deg_to_rad(-7.5))
+		await get_tree().physics_frame
+	Input.action_release("move_right")
+	Input.action_release("jump")
+	var camera_forward := -player.global_basis.z
+	camera_forward.y = 0.0
+	var flight_direction := player.movement.get_horizontal_velocity().normalized()
+	if flight_direction.dot(camera_forward.normalized()) < 0.72:
+		failures.append("Space + mouse-right + D did not steer bhop (%s vs %s)" % [flight_direction, camera_forward])
+	if not player.movement.air_control_active:
+		# Input is released above; state should clear on the next physics frame.
+		pass
+	player.rotation = Vector3.ZERO
+
+	# Skills must tick once per physics frame, owned by PlayerController.
+	player.dash_skill.cooldown_remaining = 3.0
+	player.double_jump_skill.cooldown_remaining = 3.0
+	for frame in range(12):
+		await get_tree().physics_frame
+	if player.dash_skill.cooldown_remaining < 2.7 or player.double_jump_skill.cooldown_remaining < 2.7:
+		failures.append("Movement ticked equipped skill cooldowns twice")
+	player.dash_skill.reset()
+	player.double_jump_skill.reset()
+
+	# Locomotion and landing also work for loadouts without these contextual skills.
+	player.movement.dash_skill = null
+	player.movement.double_jump_skill = null
+	player.global_position = Vector3(-25, 0.2, 24)
+	player.velocity = Vector3(0, -2, 0)
+	player.movement.reset()
+	for frame in range(10):
+		await get_tree().physics_frame
+	Input.action_press("jump")
+	for frame in range(3):
+		await get_tree().physics_frame
+	Input.action_release("jump")
+	if player.velocity.y <= 0.0:
+		failures.append("Base jump required an equipped movement skill")
+	player.movement.dash_skill = player.dash_skill
+	player.movement.double_jump_skill = player.double_jump_skill
+
+	player.velocity = Vector3(0, 0, -24)
+	player.movement._start_slide()
+	player.movement._perform_ground_jump(true)
+	if player.movement.get_horizontal_speed() < 23.99:
+		failures.append("Slide entry/jump erased incoming dash momentum")
+	player.movement.reset()
+	player.velocity = Vector3.ZERO
 
 
 func _run_ai_soak_test() -> void:

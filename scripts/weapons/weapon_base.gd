@@ -3,6 +3,7 @@ extends Node3D
 
 signal hit_confirmed(headshot: bool)
 signal state_changed
+signal presentation_fired
 
 @export var weapon_display_name: String = "Weapon"
 @export var automatic_fire: bool = false
@@ -13,19 +14,26 @@ var item_definition: ItemDefinition
 var item_instance: ItemInstance
 var effects := WeaponEffectRuntime.new()
 var last_melee_wear_frame: int = -1
+var presentation_profile := WeaponPresentationLibrary.for_family(&"generic")
+var last_dry_fire_msec: int = -10000
 
 
 func setup(actor: CharacterBody3D) -> void:
 	wielder = actor
+	presentation_profile = WeaponPresentationLibrary.for_family(_infer_family())
 
 
 func configure_from_item(definition: ItemDefinition, instance: ItemInstance) -> void:
 	item_definition = definition
 	item_instance = instance
 	weapon_display_name = definition.display_name
+	presentation_profile = WeaponPresentationLibrary.for_family(definition.weapon_family)
 	_apply_definition_stats(definition)
 	effects.configure(self, wielder, definition, instance)
 	effects.apply_static_stats()
+	for child: Node in get_children():
+		if child.has_method("configure_variant"):
+			child.configure_variant(definition)
 
 
 func equip() -> void:
@@ -70,6 +78,11 @@ func reset_weapon() -> void:
 	pass
 
 
+func cancel_combat() -> void:
+	set_primary_held(false)
+	secondary_released()
+
+
 func get_damage_response(_info: DamageInfo) -> Dictionary:
 	return {}
 
@@ -90,6 +103,41 @@ func get_weapon_status() -> String:
 	if is_broken():
 		return "BROKEN"
 	return effect_status_or("READY")
+
+
+func get_presentation_profile() -> WeaponPresentationProfile:
+	return presentation_profile
+
+
+func notify_weapon_fired(ads: bool = false) -> void:
+	presentation_fired.emit()
+	if not is_instance_valid(wielder):
+		return
+	if wielder.has_method("on_weapon_fired"):
+		wielder.on_weapon_fired(presentation_profile.family, ads)
+	elif presentation_profile.family == &"sniper" and wielder.has_method("on_sniper_fired"):
+		wielder.on_sniper_fired(ads)
+	elif wielder.has_method("on_rifle_fired"):
+		wielder.on_rifle_fired(ads)
+
+
+func notify_weapon_trace(end_position: Vector3, hit: bool = false) -> void:
+	if is_instance_valid(wielder) and wielder.has_method("emit_combat_feedback"):
+		wielder.emit_combat_feedback(&"weapon_trace", {
+			"position": end_position,
+			"hit": hit,
+			"family": presentation_profile.family,
+			"duration": presentation_profile.tracer_duration,
+		})
+
+
+func notify_dry_fire() -> void:
+	var now := Time.get_ticks_msec()
+	if now - last_dry_fire_msec < 150:
+		return
+	last_dry_fire_msec = now
+	if is_instance_valid(wielder) and wielder.has_method("on_empty_weapon"):
+		wielder.on_empty_weapon()
 
 
 func can_operate() -> bool:
@@ -162,6 +210,10 @@ func make_damage_info(base_damage: float, target: Node, damage_type: StringName,
 
 func resolve_damage(target: Node, info: DamageInfo, heavy_attack: bool = false) -> Dictionary:
 	var result: Dictionary = target.receive_damage(info)
+	result["armor_hit"] = target.has_method("has_armor_feedback") and bool(target.has_armor_feedback()) and float(result.get("applied", 0.0)) > 0.0
+	result["heavy_attack"] = heavy_attack
+	result["critical"] = effects.last_damage_was_critical
+	result["proc"] = effects.last_damage_was_proc
 	if is_instance_valid(wielder) and wielder.has_method("on_damage_dealt_feedback"):
 		wielder.on_damage_dealt_feedback(target, info, result)
 	if float(result.get("applied", 0.0)) > 0.0:
@@ -169,6 +221,8 @@ func resolve_damage(target: Node, info: DamageInfo, heavy_attack: bool = false) 
 			spend_melee_hit_durability()
 		hit_confirmed.emit(info.headshot)
 		effects.on_damage_dealt(target, info, result, heavy_attack)
+		if info.is_melee and heavy_attack and is_instance_valid(wielder) and wielder.has_method("request_combat_hit_stop"):
+			wielder.request_combat_hit_stop(0.042)
 		if is_instance_valid(wielder) and wielder.has_method("notify_gear_damage_dealt"):
 			wielder.notify_gear_damage_dealt(target, info, result, heavy_attack)
 	return result
@@ -220,3 +274,17 @@ func _has_property(property_name: StringName) -> bool:
 	for property: Dictionary in get_property_list():
 		if property.name == property_name: return true
 	return false
+
+
+func _infer_family() -> StringName:
+	if self is WarNodachiWeapon: return &"nodachi"
+	if self is KnightSwordWeapon: return &"sword"
+	if self is KatanaWeapon: return &"katana"
+	if self is FalconBurstWeapon: return &"burst_rifle"
+	if self is IroncladRifleWeapon: return &"battle_rifle"
+	if self is ServiceGlockWeapon: return &"pistol"
+	if self is TwinGlockWeapon: return &"akimbo_pistols"
+	if self is SniperWeapon: return &"sniper"
+	if self is ArcaneWandWeapon: return &"magic"
+	if self is VanguardRifleWeapon: return &"assault_rifle"
+	return &"generic"

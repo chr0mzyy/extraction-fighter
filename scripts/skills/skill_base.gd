@@ -47,7 +47,7 @@ func can_activate() -> bool:
 
 
 func get_input_hint() -> String:
-	return "Q" if slot_index == 0 else "E"
+	return GameSettings.get_binding_text(&"skill_slot_1" if slot_index == 0 else &"skill_slot_2")
 
 
 func get_status_text() -> String:

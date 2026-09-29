@@ -1,15 +1,17 @@
 class_name LobbyController
 extends Control
 
-const COLOR_BG := Color(0.018, 0.024, 0.034)
-const COLOR_PANEL := Color(0.035, 0.046, 0.061, 0.96)
-const COLOR_PANEL_LIGHT := Color(0.065, 0.081, 0.101, 0.96)
-const COLOR_BORDER := Color(0.22, 0.31, 0.38)
-const COLOR_TEXT := Color(0.90, 0.92, 0.93)
-const COLOR_MUTED := Color(0.54, 0.60, 0.65)
-const COLOR_ACCENT := Color(0.34, 0.77, 0.84)
-const COLOR_READY := Color(0.36, 0.84, 0.66)
-const COLOR_WARNING := Color(0.96, 0.35, 0.27)
+const COLOR_BG := Color(0.012, 0.015, 0.018)
+const COLOR_PANEL := Color(0.025, 0.032, 0.037, 0.97)
+const COLOR_PANEL_LIGHT := Color(0.055, 0.065, 0.070, 0.98)
+const COLOR_BORDER := Color(0.25, 0.29, 0.30)
+const COLOR_TEXT := Color(0.96, 0.97, 0.95)
+const COLOR_MUTED := Color(0.52, 0.56, 0.56)
+const COLOR_ACCENT := Color(0.02, 0.74, 0.90)
+const COLOR_YELLOW := Color(1.0, 0.78, 0.08)
+const COLOR_READY := Color(0.35, 0.92, 0.64)
+const COLOR_WARNING := Color(0.94, 0.22, 0.18)
+const HUMANOID_VISUAL_SCRIPT := preload("res://scripts/visuals/humanoid_placeholder.gd")
 
 var screen_host: Control
 var footer_label: Label
@@ -21,8 +23,20 @@ var stash_sort: int = 0
 var details_label: Label
 var feedback_label: Label
 var item_tooltip: ItemTooltip
+var pending_bind_action: StringName = &""
+var pending_bind_button: Button
+var keybind_feedback: Label
+var operative_preview: Node3D
+var preview_time: float = 0.0
 
 const RESTART_TEST_PATH := "user://extraction_fighter_restart_test.json"
+
+
+func _process(delta: float) -> void:
+	if is_instance_valid(operative_preview):
+		preview_time += delta
+		operative_preview.rotation.y = -0.24 + sin(preview_time * 0.72) * 0.055
+		operative_preview.position.y = 0.91 + sin(preview_time * 1.15) * 0.012
 
 
 func _ready() -> void:
@@ -77,8 +91,25 @@ func _ready() -> void:
 		_capture_lobby.bind("lobby").call_deferred()
 
 
+func _input(event: InputEvent) -> void:
+	if pending_bind_action == &"":
+		return
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if not key_event.pressed or key_event.echo:
+			return
+		get_viewport().set_input_as_handled()
+		if key_event.physical_keycode == KEY_ESCAPE or key_event.keycode == KEY_ESCAPE:
+			_finish_rebind(false, "Binding cancelled")
+			return
+		_accept_rebind(key_event)
+	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		get_viewport().set_input_as_handled()
+		_accept_rebind(event)
+
+
 func _should_route_to_arena(args: PackedStringArray) -> bool:
-	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test"]:
+	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test"]:
 		if flag in args:
 			return true
 	return false
@@ -150,41 +181,48 @@ func _build_shell() -> void:
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 
-	var glow := ColorRect.new()
-	glow.color = Color(0.08, 0.18, 0.22, 0.24)
-	glow.set_anchors_preset(Control.PRESET_CENTER)
-	glow.offset_left = -420
-	glow.offset_right = 420
-	glow.offset_top = -260
-	glow.offset_bottom = 300
-	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(glow)
+	_add_shell_graphics()
 
 	var top := PanelContainer.new()
 	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top.offset_bottom = 76
-	top.add_theme_stylebox_override("panel", _style(COLOR_PANEL, COLOR_BORDER, 0, 0))
+	top.offset_bottom = 96
+	top.add_theme_stylebox_override("panel", _style(Color(0.0, 0.0, 0.0, 0.96), COLOR_YELLOW, 0, 0))
 	add_child(top)
-	var top_margin := _margin(top, 28, 12, 28, 10)
+	var top_margin := _margin(top, 34, 10, 34, 9)
 	var title_row := HBoxContainer.new()
 	top_margin.add_child(title_row)
-	var title := _label(title_row, "EXTRACTION FIGHTER", 25, COLOR_TEXT)
+	var brand_mark := _label(title_row, "EF//", 18, COLOR_YELLOW)
+	brand_mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var title := _label(title_row, " EXTRACTION FIGHTER", 38, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var milestone := _label(title_row, "MVP 0.4.0  /  POLISH BUILD", 12, COLOR_ACCENT)
+	var milestone := _label(title_row, "LOCAL BUILD  //  01\nCOMBAT SYSTEM ONLINE", 11, COLOR_ACCENT)
+	milestone.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	milestone.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var yellow_rule := ColorRect.new()
+	yellow_rule.color = COLOR_YELLOW
+	yellow_rule.anchor_left = 0.0
+	yellow_rule.anchor_top = 0.0
+	yellow_rule.anchor_right = 1.0
+	yellow_rule.anchor_bottom = 0.0
+	yellow_rule.offset_left = 0.0
+	yellow_rule.offset_top = 92.0
+	yellow_rule.offset_right = 0.0
+	yellow_rule.offset_bottom = 96.0
+	yellow_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(yellow_rule)
 
 	screen_host = Control.new()
 	screen_host.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	screen_host.offset_top = 76
-	screen_host.offset_bottom = -38
+	screen_host.offset_top = 96
+	screen_host.offset_bottom = -42
 	add_child(screen_host)
 
-	footer_label = _label(self, "LOCAL COMBAT PROFILE  •  SAVE VERSION 2", 11, COLOR_MUTED)
+	footer_label = _label(self, "[ESC] BACK   //   LOCAL COMBAT PROFILE   //   SAVE VERSION 2", 11, COLOR_YELLOW)
 	footer_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	footer_label.offset_left = 24
-	footer_label.offset_right = -24
-	footer_label.offset_top = -32
-	footer_label.offset_bottom = -8
+	footer_label.offset_left = 30
+	footer_label.offset_right = -30
+	footer_label.offset_top = -34
+	footer_label.offset_bottom = -10
 	footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 	item_tooltip = ItemTooltip.new()
@@ -192,7 +230,51 @@ func _build_shell() -> void:
 	add_child(item_tooltip)
 
 
+func _add_shell_graphics() -> void:
+	var graphics := Control.new()
+	graphics.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	graphics.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(graphics)
+	var cyan_mass := ColorRect.new()
+	cyan_mass.color = Color(COLOR_ACCENT, 0.095)
+	cyan_mass.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	cyan_mass.offset_right = 440
+	cyan_mass.rotation = -0.035
+	cyan_mass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	graphics.add_child(cyan_mass)
+	for index: int in range(15):
+		var line := ColorRect.new()
+		line.color = Color(0.18, 0.22, 0.23, 0.22 if index % 3 else 0.38)
+		line.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		line.offset_left = index * 96
+		line.offset_right = line.offset_left + 1
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		graphics.add_child(line)
+	for index: int in range(9):
+		var line := ColorRect.new()
+		line.color = Color(0.18, 0.22, 0.23, 0.22)
+		line.set_anchors_preset(Control.PRESET_TOP_WIDE)
+		line.offset_top = 96 + index * 82
+		line.offset_bottom = line.offset_top + 1
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		graphics.add_child(line)
+	for index: int in range(5):
+		var hazard := ColorRect.new()
+		hazard.color = Color(COLOR_YELLOW, 0.16)
+		hazard.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		hazard.offset_left = -330 + index * 54
+		hazard.offset_right = hazard.offset_left + 22
+		hazard.offset_top = -170
+		hazard.offset_bottom = 30
+		hazard.rotation = 0.42
+		hazard.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		graphics.add_child(hazard)
+
+
 func _clear_screen() -> void:
+	pending_bind_action = &""
+	pending_bind_button = null
+	keybind_feedback = null
 	if item_tooltip != null:
 		item_tooltip.hide_item()
 	for child: Node in screen_host.get_children():
@@ -203,63 +285,61 @@ func _clear_screen() -> void:
 
 func _show_main() -> void:
 	_clear_screen()
-	var margin := _margin(screen_host, 44, 36, 44, 34)
+	var margin := _margin(screen_host, 34, 22, 34, 22)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 28)
+	row.add_theme_constant_override("separation", 24)
 	margin.add_child(row)
 
-	var menu_panel := _panel(row, Vector2(310, 0))
+	var operative_panel := _panel(row, Vector2(510, 0))
+	operative_panel.name = "OperativePreviewPanel"
+	operative_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var operative_margin := _margin(operative_panel, 4, 4, 4, 4)
+	var character_stage := _build_character_placeholder(operative_margin)
+	character_stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	character_stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var right_column := VBoxContainer.new()
+	right_column.custom_minimum_size.x = 500
+	right_column.add_theme_constant_override("separation", 12)
+	row.add_child(right_column)
+	_label(right_column, "// DEPLOYMENT TERMINAL", 13, COLOR_YELLOW)
+	var menu_panel := _panel(right_column)
 	menu_panel.name = "MainMenuPanel"
-	var menu_margin := _margin(menu_panel, 22, 22, 22, 22)
+	menu_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var menu_margin := _margin(menu_panel, 18, 14, 18, 14)
 	var menu := VBoxContainer.new()
-	menu.add_theme_constant_override("separation", 9)
+	menu.add_theme_constant_override("separation", 7)
 	menu_margin.add_child(menu)
-	_label(menu, "MAIN LOBBY", 13, COLOR_ACCENT)
-	var rule := HSeparator.new()
-	menu.add_child(rule)
+	_label(menu, "SELECT OPERATION", 11, COLOR_MUTED)
 	_add_menu_button(menu, "PLAY", _show_play)
 	_add_menu_button(menu, "LOADOUT", _show_loadout)
 	_add_menu_button(menu, "STASH", _show_stash)
 	_add_menu_button(menu, "CUSTOMIZATION", _show_customization)
 	_add_menu_button(menu, "SETTINGS", _show_settings)
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	menu.add_child(spacer)
 	_add_menu_button(menu, "QUIT", _quit_game, true)
 
-	var display_panel := _panel(row)
-	display_panel.name = "BuildSummaryPanel"
-	display_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var display_margin := _margin(display_panel, 28, 24, 28, 24)
-	var display_row := HBoxContainer.new()
-	display_row.add_theme_constant_override("separation", 32)
-	display_margin.add_child(display_row)
-	var character_stage := _build_character_placeholder(display_row)
-	character_stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var summary_panel := _panel(right_column)
+	summary_panel.name = "BuildSummaryPanel"
+	var summary_margin := _margin(summary_panel, 15, 11, 15, 11)
 	var summary := VBoxContainer.new()
-	summary.custom_minimum_size.x = 330
-	summary.add_theme_constant_override("separation", 9)
-	display_row.add_child(summary)
-	_label(summary, "CURRENT BUILD", 13, COLOR_ACCENT)
-	_label(summary, _definition_name(PlayerProfile.weapon_slots[0]), 22, COLOR_TEXT)
-	_label(summary, _definition_name(PlayerProfile.weapon_slots[1]), 18, COLOR_MUTED)
-	var separator := HSeparator.new()
-	summary.add_child(separator)
-	for index: int in PlayerProfile.skill_slots.size():
-		var definition := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
-		_label(summary, "SLOT %d  •  %s  •  %d POWER" % [index + 1, definition.display_name.to_upper(), definition.power_cost], 13, COLOR_TEXT)
-	var power := _label(summary, "%03d / %03d POWER" % [PlayerProfile.get_skill_power(), PlayerProfile.POWER_LIMIT], 24, COLOR_READY)
-	power.add_theme_color_override("font_color", COLOR_READY)
-	var fill := Control.new()
-	fill.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	summary.add_child(fill)
-	_label(summary, "ARENA READY", 12, COLOR_READY)
+	summary.add_theme_constant_override("separation", 4)
+	summary_margin.add_child(summary)
+	var summary_header := HBoxContainer.new()
+	summary.add_child(summary_header)
+	var current_build := _label(summary_header, "ACTIVE KIT", 11, COLOR_ACCENT)
+	current_build.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(summary_header, "%03d/%03d POWER" % [PlayerProfile.get_skill_power(), PlayerProfile.POWER_LIMIT], 11, COLOR_READY)
+	_label(summary, "%s  //  %s" % [_definition_name(PlayerProfile.weapon_slots[0]).to_upper(), _definition_name(PlayerProfile.weapon_slots[1]).to_upper()], 15, COLOR_TEXT)
+	var skills: Array[String] = []
+	for item_id: String in PlayerProfile.skill_slots:
+		skills.append(_definition_name(item_id).to_upper())
+	_label(summary, " + ".join(skills) + "   //   READY", 11, COLOR_MUTED)
 
 
 func _show_play() -> void:
-	_show_simple_screen("SELECT ACTIVITY", "Choose a deployment route.")
-	var content := screen_host.get_node("ScreenMargin/Content") as VBoxContainer
+	var content := _show_simple_screen("SELECT ACTIVITY", "Choose a deployment route.")
 	var cards := HBoxContainer.new()
+	cards.name = "ActivityCards"
 	cards.add_theme_constant_override("separation", 18)
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(cards)
@@ -267,6 +347,9 @@ func _show_play() -> void:
 	arena.pressed.connect(_launch_arena)
 	var dungeon := _activity_card(cards, "THE ARMORY", "15 minute extraction run\nLoot is lost on death", true)
 	dungeon.pressed.connect(_launch_dungeon)
+	var training := _activity_card(cards, "MOVEMENT TRAINING", "Third map slot\nCourse layout coming next", true)
+	training.name = "MovementTrainingCard"
+	training.pressed.connect(_show_training_placeholder)
 	_add_back_button(content)
 
 
@@ -305,7 +388,7 @@ func _show_loadout() -> void:
 	_label(equipped, "SKILLS", 12, COLOR_ACCENT)
 	for index: int in 2:
 		var definition := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
-		_add_slot_button(equipped, "[%s]  %s  •  %d" % ["Q" if index == 0 else "E", definition.display_name, definition.power_cost], "skill", index, definition)
+		_add_slot_button(equipped, "[%s]  %s  •  %d" % [GameSettings.get_binding_text(&"skill_slot_1" if index == 0 else &"skill_slot_2"), definition.display_name, definition.power_cost], "skill", index, definition)
 	_label(equipped, "GEAR", 12, COLOR_ACCENT)
 	for key: String in PlayerProfile.GEAR_KEYS:
 		var slot_title := key.capitalize().replace(" 1", " I").replace(" 2", " II")
@@ -430,7 +513,7 @@ func _show_stash() -> void:
 
 
 func _show_customization() -> void:
-	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.0.")
+	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.1.")
 
 
 func _repair_equipped() -> void:
@@ -478,12 +561,16 @@ func _show_settings() -> void:
 	_setting_toggle(gameplay, "Invert Y", GameSettings.invert_y, &"invert_y")
 	_setting_toggle(gameplay, "Damage Numbers", GameSettings.damage_numbers, &"damage_numbers")
 	_setting_slider(gameplay, "Camera Shake", GameSettings.camera_shake_strength, 0.0, 1.0, 0.05, &"camera_shake_strength")
+	_setting_slider(gameplay, "Hit Effects", GameSettings.hit_effects_intensity, 0.0, 1.0, 0.05, &"hit_effects_intensity")
 	_setting_slider(gameplay, "Headbob", GameSettings.headbob_strength, 0.0, 1.0, 0.05, &"headbob_strength")
 	_setting_slider(gameplay, "TPP Smoothing", GameSettings.tpp_camera_smoothing, 6.0, 30.0, 1.0, &"tpp_camera_smoothing")
 	_setting_toggle(gameplay, "Crosshair", GameSettings.crosshair_enabled, &"crosshair_enabled")
 	_label(gameplay, "CONTROLS", 12, COLOR_ACCENT)
-	var controls := _label(gameplay, "WASD  MOVE   SHIFT  SPRINT\nSPACE  JUMP   CTRL  CROUCH\nQ / E  SKILLS   1 / 2  WEAPONS\nLMB  ATTACK   RMB  ALT / ADS\nR  RELOAD   X  INTERACT   V  CAMERA\nESC  PAUSE   F3  DEBUG", 11, COLOR_MUTED)
+	var controls := _label(gameplay, "Movement, combat and camera keys can be changed and are saved automatically.", 11, COLOR_MUTED)
 	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var keybinds_button := _button(gameplay, "EDIT KEYBINDS", false)
+	keybinds_button.name = "EditKeybindsButton"
+	keybinds_button.pressed.connect(_show_keybinds)
 
 	var audio := _settings_column(columns, "AUDIO")
 	_setting_slider(audio, "Master", GameSettings.master_volume, 0.0, 1.0, 0.05, &"master_volume")
@@ -573,9 +660,86 @@ func _restore_setting_defaults() -> void:
 	_show_settings()
 
 
+func _show_keybinds() -> void:
+	var content := _show_simple_screen("KEYBINDS", "Click a binding, then press a keyboard or mouse button. Escape cancels.")
+	var scroll := ScrollContainer.new()
+	scroll.name = "KeybindsScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 18)
+	grid.add_theme_constant_override("v_separation", 5)
+	scroll.add_child(grid)
+	for action: StringName in GameSettings.REBINDABLE_ACTIONS:
+		var caption := _label(grid, GameSettings.get_action_label(action).to_upper(), 12, COLOR_TEXT)
+		caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var bind_button := _button(grid, GameSettings.get_binding_text(action), false)
+		bind_button.custom_minimum_size = Vector2(260, 34)
+		bind_button.pressed.connect(_begin_rebind.bind(action, bind_button))
+	keybind_feedback = _label(content, "", 11, COLOR_WARNING)
+	keybind_feedback.name = "KeybindFeedback"
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 10)
+	content.add_child(actions)
+	var reset := _button(actions, "RESET KEYBINDS", false)
+	reset.pressed.connect(_reset_keybinds)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	actions.add_child(spacer)
+	var back := _button(actions, "BACK TO SETTINGS", false)
+	back.set_meta("audio_event", &"ui_back")
+	back.pressed.connect(_show_settings)
+
+
+func _begin_rebind(action: StringName, button: Button) -> void:
+	if pending_bind_button != null:
+		pending_bind_button.text = GameSettings.get_binding_text(pending_bind_action)
+	pending_bind_action = action
+	pending_bind_button = button
+	button.text = "PRESS A KEY..."
+	if keybind_feedback != null:
+		keybind_feedback.text = "Waiting for %s" % GameSettings.get_action_label(action)
+
+
+func _accept_rebind(event: InputEvent) -> void:
+	var conflict := GameSettings.find_binding_conflict(pending_bind_action, event)
+	if conflict != &"":
+		_finish_rebind(false, "%s is already assigned to %s" % [event.as_text().to_upper(), GameSettings.get_action_label(conflict)])
+		return
+	var action := pending_bind_action
+	if GameSettings.set_binding(action, event):
+		_finish_rebind(true, "%s updated" % GameSettings.get_action_label(action))
+	else:
+		_finish_rebind(false, "This input cannot be assigned")
+
+
+func _finish_rebind(success: bool, message: String) -> void:
+	if pending_bind_button != null:
+		pending_bind_button.text = GameSettings.get_binding_text(pending_bind_action)
+	pending_bind_action = &""
+	pending_bind_button = null
+	if keybind_feedback != null:
+		keybind_feedback.text = message
+		keybind_feedback.add_theme_color_override("font_color", COLOR_READY if success else COLOR_WARNING)
+
+
+func _reset_keybinds() -> void:
+	GameSettings.reset_keybinds()
+	_show_keybinds()
+	if keybind_feedback != null:
+		keybind_feedback.text = "Default keybinds restored"
+		keybind_feedback.add_theme_color_override("font_color", COLOR_READY)
+
+
+func _show_training_placeholder() -> void:
+	_show_placeholder("MOVEMENT TRAINING", "MAP SLOT READY", "The third activity is reserved for movement training. Its course and obstacles will be built from your next instructions.")
+
+
 func _show_placeholder(title: String, status: String, body: String) -> void:
-	_show_simple_screen(title, body)
-	var content := screen_host.get_node("ScreenMargin/Content") as VBoxContainer
+	var content := _show_simple_screen(title, body)
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(spacer)
@@ -587,7 +751,7 @@ func _show_placeholder(title: String, status: String, body: String) -> void:
 	_add_back_button(content)
 
 
-func _show_simple_screen(title: String, subtitle: String) -> void:
+func _show_simple_screen(title: String, subtitle: String) -> VBoxContainer:
 	_clear_screen()
 	var margin := _margin(screen_host, 44, 32, 44, 32)
 	margin.name = "ScreenMargin"
@@ -597,6 +761,7 @@ func _show_simple_screen(title: String, subtitle: String) -> void:
 	margin.add_child(content)
 	_label(content, title, 26, COLOR_TEXT)
 	_label(content, subtitle, 13, COLOR_MUTED)
+	return content
 
 
 func _add_slot_button(parent: Control, text: String, kind: String, slot: int, definition: ItemDefinition = null, instance: ItemInstance = null) -> void:
@@ -797,8 +962,9 @@ func _is_instance_equipped(instance_id: String) -> bool:
 
 
 func _add_menu_button(parent: Control, text: String, callable: Callable, danger: bool = false) -> void:
-	var button := _button(parent, text, danger)
-	button.custom_minimum_size.y = 48
+	var button := _button(parent, "//  " + text, danger)
+	button.custom_minimum_size.y = 46
+	button.add_theme_font_size_override("font_size", 17)
 	button.pressed.connect(callable)
 
 
@@ -825,49 +991,84 @@ func _activity_card(parent: Control, title: String, subtitle: String, enabled: b
 
 func _build_character_placeholder(parent: Control) -> Control:
 	var stage := Control.new()
-	stage.custom_minimum_size = Vector2(360, 420)
+	stage.custom_minimum_size = Vector2(430, 500)
 	parent.add_child(stage)
-	var halo := ColorRect.new()
-	halo.color = Color(0.18, 0.45, 0.50, 0.16)
-	halo.set_anchors_preset(Control.PRESET_CENTER)
-	halo.offset_left = -120
-	halo.offset_right = 120
-	halo.offset_top = -170
-	halo.offset_bottom = 170
-	halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(halo)
-	var head := ColorRect.new()
-	head.color = Color(0.18, 0.22, 0.25)
-	head.set_anchors_preset(Control.PRESET_CENTER)
-	head.offset_left = -38
-	head.offset_right = 38
-	head.offset_top = -158
-	head.offset_bottom = -82
-	stage.add_child(head)
-	var body := ColorRect.new()
-	body.color = Color(0.11, 0.25, 0.31)
-	body.set_anchors_preset(Control.PRESET_CENTER)
-	body.offset_left = -74
-	body.offset_right = 74
-	body.offset_top = -78
-	body.offset_bottom = 142
-	stage.add_child(body)
-	var blade := ColorRect.new()
-	blade.color = Color(0.56, 0.65, 0.68)
-	blade.set_anchors_preset(Control.PRESET_CENTER)
-	blade.offset_left = 78
-	blade.offset_right = 86
-	blade.offset_top = -114
-	blade.offset_bottom = 142
-	blade.rotation = 0.28
-	stage.add_child(blade)
-	var caption := _label(stage, "ARENA OPERATIVE", 11, COLOR_MUTED)
-	caption.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	caption.offset_left = -120
-	caption.offset_right = 120
-	caption.offset_top = -32
-	caption.offset_bottom = -8
-	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var viewport_container := SubViewportContainer.new()
+	viewport_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	viewport_container.stretch = true
+	viewport_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(viewport_container)
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(620, 680)
+	viewport.transparent_bg = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport_container.add_child(viewport)
+	var world := Node3D.new()
+	viewport.add_child(world)
+	var pedestal := MeshInstance3D.new()
+	var pedestal_mesh := CylinderMesh.new()
+	pedestal_mesh.top_radius = 0.78
+	pedestal_mesh.bottom_radius = 0.94
+	pedestal_mesh.height = 0.13
+	pedestal_mesh.radial_segments = 32
+	pedestal_mesh.material = PlaceholderParts.material(Color(0.04, 0.06, 0.07), 0.72)
+	pedestal.mesh = pedestal_mesh
+	pedestal.position = Vector3(0.0, -0.02, 0.0)
+	world.add_child(pedestal)
+	var ring := MeshInstance3D.new()
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = 0.83
+	ring_mesh.outer_radius = 0.88
+	ring_mesh.rings = 32
+	ring_mesh.ring_segments = 8
+	ring_mesh.material = PlaceholderParts.material(COLOR_ACCENT, 0.0, true)
+	ring.mesh = ring_mesh
+	ring.position.y = 0.055
+	world.add_child(ring)
+	operative_preview = MeshInstance3D.new()
+	operative_preview.name = "OperativePreviewModel"
+	operative_preview.set_script(HUMANOID_VISUAL_SCRIPT)
+	operative_preview.set("accent", COLOR_ACCENT)
+	operative_preview.set("show_preview_weapon", true)
+	operative_preview.position = Vector3(0.0, 0.91, 0.0)
+	operative_preview.rotation.y = -0.24
+	world.add_child(operative_preview)
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-48.0, -28.0, 0.0)
+	key_light.light_color = Color(0.70, 0.88, 1.0)
+	key_light.light_energy = 2.5
+	key_light.shadow_enabled = true
+	world.add_child(key_light)
+	var rim_light := OmniLight3D.new()
+	rim_light.position = Vector3(-1.6, 1.6, 0.9)
+	rim_light.light_color = COLOR_ACCENT
+	rim_light.light_energy = 5.0
+	rim_light.omni_range = 4.5
+	world.add_child(rim_light)
+	var warm_light := OmniLight3D.new()
+	warm_light.position = Vector3(1.8, 1.1, -1.0)
+	warm_light.light_color = COLOR_YELLOW
+	warm_light.light_energy = 2.2
+	warm_light.omni_range = 4.0
+	world.add_child(warm_light)
+	var camera := Camera3D.new()
+	camera.position = Vector3(2.55, 1.45, -4.8)
+	camera.fov = 34.0
+	world.add_child(camera)
+	camera.look_at(Vector3(0.0, 0.93, 0.0), Vector3.UP)
+	var tag := _label(stage, "OPERATIVE // EF-01", 12, COLOR_YELLOW)
+	tag.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	tag.offset_left = 16
+	tag.offset_top = 14
+	tag.offset_right = 250
+	tag.offset_bottom = 42
+	var status := _label(stage, "COMBAT READY", 12, COLOR_READY)
+	status.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	status.offset_left = -190
+	status.offset_right = -16
+	status.offset_top = -42
+	status.offset_bottom = -14
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	return stage
 
 
@@ -941,9 +1142,13 @@ func _run_settings_self_test() -> void:
 	var snapshot := GameSettings.to_dictionary()
 	var test_path := "user://extraction_fighter_settings_test.json"
 	GameSettings.reset_defaults(false)
+	var test_binding := InputEventKey.new()
+	test_binding.physical_keycode = KEY_Z
+	GameSettings.set_binding(&"move_forward", test_binding, false)
 	GameSettings.set_value(&"base_fov", 104.0, false)
 	GameSettings.set_value(&"mouse_sensitivity", 0.0034, false)
 	GameSettings.set_value(&"damage_numbers", false, false)
+	GameSettings.set_value(&"hit_effects_intensity", 0.35, false)
 	GameSettings.set_value(&"headbob_strength", 0.2, false)
 	GameSettings.set_value(&"resolution", Vector2i(1920, 1080), false)
 	if not GameSettings.save_settings(test_path):
@@ -951,8 +1156,11 @@ func _run_settings_self_test() -> void:
 	GameSettings.reset_defaults(false)
 	if not GameSettings.load_settings(test_path, false):
 		failures.append("Settings load failed")
-	if not is_equal_approx(GameSettings.base_fov, 104.0) or not is_equal_approx(GameSettings.mouse_sensitivity, 0.0034) or GameSettings.damage_numbers or GameSettings.resolution != Vector2i(1920, 1080):
+	if not is_equal_approx(GameSettings.base_fov, 104.0) or not is_equal_approx(GameSettings.mouse_sensitivity, 0.0034) or GameSettings.damage_numbers or not is_equal_approx(GameSettings.hit_effects_intensity, 0.35) or GameSettings.resolution != Vector2i(1920, 1080):
 		failures.append("Settings round trip changed persisted values")
+	var loaded_forward := InputMap.action_get_events(&"move_forward")
+	if loaded_forward.is_empty() or not loaded_forward[0] is InputEventKey or (loaded_forward[0] as InputEventKey).physical_keycode != KEY_Z:
+		failures.append("Custom keybind did not survive settings round trip")
 	var corrupt := FileAccess.open(test_path, FileAccess.WRITE)
 	if corrupt != null:
 		corrupt.store_string("{ invalid settings")
@@ -967,8 +1175,12 @@ func _run_settings_self_test() -> void:
 	await get_tree().process_frame
 	if screen_host.find_child("SettingsRoot", true, false) == null:
 		failures.append("Settings UI did not instantiate")
+	_show_keybinds()
+	await get_tree().process_frame
+	if screen_host.find_child("KeybindsScroll", true, false) == null:
+		failures.append("Keybind editor did not instantiate")
 	if failures.is_empty():
-		print("SETTINGS_TEST_OK: video, gameplay, audio values, persistence and corrupt-save fallback passed")
+		print("SETTINGS_TEST_OK: video, gameplay, audio, keybind persistence and corrupt-save fallback passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -992,6 +1204,41 @@ func _run_content_self_test() -> void:
 		if not instance is WeaponBase:
 			failures.append("Weapon scene does not instantiate WeaponBase: " + item_id)
 		instance.free()
+	var visual_signatures: Dictionary = {}
+	var tested_weapon_count := 0
+	var scoped_families: Array[StringName] = [&"sniper", &"assault_rifle", &"burst_rifle", &"battle_rifle"]
+	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
+		if definition.item_type != ItemDefinition.ItemType.WEAPON:
+			continue
+		tested_weapon_count += 1
+		var weapon := definition.gameplay_scene.instantiate() as WeaponBase
+		if weapon == null:
+			continue
+		add_child(weapon)
+		weapon.configure_from_item(definition, ItemInstance.create(definition, "visual-test:%s" % definition.id))
+		var visual: Node = null
+		for child: Node in weapon.get_children():
+			if child.has_method("configure_variant"):
+				visual = child
+				break
+		var generated: Node = visual.get("generated_root") if visual != null else null
+		if generated == null or String(generated.get_meta("variant_id", "")) != String(definition.id):
+			failures.append("Missing unique generated model: %s" % definition.id)
+		else:
+			var family := String(definition.weapon_family)
+			if not visual_signatures.has(family):
+				visual_signatures[family] = []
+			(visual_signatures[family] as Array).append(int(generated.get_meta("part_count", 0)))
+			if definition.weapon_family in scoped_families and (not bool(generated.get_meta("has_scope", false)) or not bool(generated.get_meta("has_sight", false))):
+				failures.append("Rifle variant lacks scope or backup sight: %s" % definition.id)
+		remove_child(weapon)
+		weapon.free()
+	if tested_weapon_count != 30:
+		failures.append("Expected 30 generated weapon variants, got %d" % tested_weapon_count)
+	for family: String in visual_signatures:
+		var signatures := visual_signatures[family] as Array
+		if signatures.size() != 3 or signatures[0] == signatures[1] or signatures[1] == signatures[2] or signatures[0] == signatures[2]:
+			failures.append("Weapon variants do not have three distinct silhouettes: %s %s" % [family, str(signatures)])
 	for item_id: String in expected_skills:
 		var definition := PlayerProfile.get_definition(item_id)
 		if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or definition.gameplay_scene == null:
@@ -1024,7 +1271,7 @@ func _run_content_self_test() -> void:
 		failures.append("Legacy profile migration did not preserve selected loadout")
 	PlayerProfile.apply_save_data(snapshot, false)
 	if failures.is_empty():
-		print("CONTENT_TEST_OK: 30 weapon variants, 10 skills, 27 gear items, Power rules, gameplay scenes and save migration passed")
+		print("CONTENT_TEST_OK: 30 distinct weapon models, rifle optics, 10 skills, 27 gear items, Power rules, gameplay scenes and save migration passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -1055,6 +1302,8 @@ func _run_tooltip_self_test() -> void:
 	await get_tree().process_frame
 	if not item_tooltip.get_stats_text().contains("Magazine") or not item_tooltip.get_stats_text().contains("Headshot"):
 		failures.append("Ranged tooltip omitted magazine or headshot data")
+	if not item_tooltip.weapon_preview_container.visible or item_tooltip.weapon_preview_model == null:
+		failures.append("Weapon tooltip did not render the selected 3D weapon model")
 	item_tooltip.show_item(PlayerProfile.get_definition("grapple"))
 	await get_tree().process_frame
 	if not item_tooltip.get_stats_text().contains("Power") or not item_tooltip.get_stats_text().contains("Cooldown") or not item_tooltip.get_stats_text().contains("ACTIVATION"):
@@ -1065,6 +1314,17 @@ func _run_tooltip_self_test() -> void:
 		failures.append("Gear tooltip omitted slot or armor")
 	if item_tooltip.preview_glyph == null or not item_tooltip.preview_glyph.visible:
 		failures.append("Generated placeholder preview is not visible")
+	var previewed_weapon_count := 0
+	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
+		if definition.item_type != ItemDefinition.ItemType.WEAPON:
+			continue
+		item_tooltip.show_item(definition)
+		await get_tree().process_frame
+		previewed_weapon_count += 1
+		if not item_tooltip.weapon_preview_container.visible or item_tooltip.weapon_preview_model == null:
+			failures.append("Missing 3D tooltip preview for %s" % String(definition.id))
+	if previewed_weapon_count != 30:
+		failures.append("Expected 30 weapon tooltip previews, got %d" % previewed_weapon_count)
 	for test_size: Vector2i in [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)]:
 		get_window().size = test_size
 		await get_tree().process_frame
@@ -1180,6 +1440,7 @@ func _run_affix_self_test() -> void:
 
 
 func _run_profile_restart_write() -> void:
+	PlayerProfile.reset_to_defaults(false)
 	_configure_integration_loadout()
 	PlayerProfile.set_inventory_item(7, "basic_charm", false)
 	if PlayerProfile.save_profile(RESTART_TEST_PATH):
@@ -1213,6 +1474,9 @@ func _run_lobby_layout_test() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		_validate_controls_in_view(["MainMenuPanel", "BuildSummaryPanel"], test_size, failures)
+		var operative_model := find_child("OperativePreviewModel", true, false)
+		if operative_model == null or operative_model.get_child_count() < 30:
+			failures.append("%dx%d main menu operative model is missing or lacks detail" % [test_size.x, test_size.y])
 		_show_loadout()
 		await get_tree().process_frame
 		await get_tree().process_frame
@@ -1225,8 +1489,19 @@ func _run_lobby_layout_test() -> void:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		_validate_controls_in_view(["SettingsRoot", "VIDEOGRAPHICSPanel", "GAMEPLAYPanel", "AUDIOPanel"], test_size, failures)
+		_show_keybinds()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_validate_controls_in_view(["KeybindsScroll", "KeybindFeedback"], test_size, failures)
+		_show_play()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_validate_controls_in_view(["ActivityCards"], test_size, failures)
+		var activity_cards := find_child("ActivityCards", true, false) as HBoxContainer
+		if activity_cards == null or activity_cards.get_child_count() != 3:
+			failures.append("%dx%d play screen did not contain three activity cards" % [test_size.x, test_size.y])
 	if failures.is_empty():
-		print("LOBBY_LAYOUT_OK: lobby, loadout, stash, settings and inventory fit 1280x720, 1920x1080 and 2560x1440")
+		print("LOBBY_LAYOUT_OK: lobby, loadout, stash, settings, keybinds and three activity cards fit 1280x720, 1920x1080 and 2560x1440")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -1256,7 +1531,7 @@ func _capture_lobby(screen_name: String) -> void:
 
 
 func _capture_tooltip() -> void:
-	item_tooltip.show_item(PlayerProfile.get_definition("falcon_burst"))
+	item_tooltip.show_item(PlayerProfile.get_definition("worn_assault_rifle"), PlayerProfile.get_instance_for_definition("worn_assault_rifle"))
 	for frame: int in 20:
 		await get_tree().process_frame
 	item_tooltip.reposition_for_test(Vector2(get_viewport_rect().size) - Vector2(16, 16), get_viewport_rect().size)
@@ -1278,7 +1553,7 @@ func _definition_name(item_id: String) -> String:
 func _panel(parent: Control, minimum: Vector2 = Vector2.ZERO) -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = minimum
-	panel.add_theme_stylebox_override("panel", _style(COLOR_PANEL, COLOR_BORDER, 1, 7))
+	panel.add_theme_stylebox_override("panel", _style(COLOR_PANEL, COLOR_BORDER, 1, 0))
 	parent.add_child(panel)
 	return panel
 
@@ -1291,10 +1566,11 @@ func _button(parent: Control, text: String, danger: bool) -> Button:
 	button.add_theme_color_override("font_color", COLOR_WARNING if danger else COLOR_TEXT)
 	button.add_theme_color_override("font_hover_color", Color.WHITE)
 	button.add_theme_color_override("font_disabled_color", COLOR_MUTED)
-	button.add_theme_stylebox_override("normal", _style(COLOR_PANEL_LIGHT, COLOR_BORDER, 1, 4))
-	button.add_theme_stylebox_override("hover", _style(Color(0.09, 0.16, 0.19), COLOR_ACCENT, 2, 4))
-	button.add_theme_stylebox_override("pressed", _style(Color(0.05, 0.22, 0.24), COLOR_ACCENT, 2, 4))
-	button.add_theme_stylebox_override("disabled", _style(Color(0.03, 0.04, 0.05), Color(0.11, 0.13, 0.15), 1, 4))
+	button.add_theme_color_override("font_hover_color", Color(0.01, 0.02, 0.025))
+	button.add_theme_stylebox_override("normal", _style(COLOR_PANEL_LIGHT, COLOR_BORDER, 1, 0))
+	button.add_theme_stylebox_override("hover", _style(COLOR_YELLOW, COLOR_YELLOW, 2, 0))
+	button.add_theme_stylebox_override("pressed", _style(COLOR_ACCENT, COLOR_ACCENT, 2, 0))
+	button.add_theme_stylebox_override("disabled", _style(Color(0.025, 0.03, 0.032), Color(0.10, 0.12, 0.12), 1, 0))
 	parent.add_child(button)
 	button.pressed.connect(func() -> void: AudioEvents.play(StringName(button.get_meta("audio_event", &"ui_click"))))
 	button.mouse_entered.connect(func() -> void: AudioEvents.play(&"ui_hover"))
@@ -1330,8 +1606,8 @@ func _style(color: Color, border: Color, width: int, radius: int) -> StyleBoxFla
 	style.border_color = border
 	style.set_border_width_all(width)
 	style.set_corner_radius_all(radius)
-	style.content_margin_left = 12
-	style.content_margin_right = 12
+	style.content_margin_left = 14
+	style.content_margin_right = 14
 	style.content_margin_top = 9
 	style.content_margin_bottom = 9
 	return style

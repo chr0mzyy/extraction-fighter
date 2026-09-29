@@ -1,4 +1,4 @@
-; Extraction Fighter MVP 0.4.0 - Godot 4.7.2
+; Extraction Fighter MVP 0.4.1 - Godot 4.7.2
 config_version=5
 
 [application]
@@ -48,7 +48,7 @@ sprint={
 }
 crouch={
 "deadzone": 0.2,
-"events": [Object(InputEventKey,"physical_keycode":4194326)]
+"events": [Object(InputEventKey,"physical_keycode":4194326), Object(InputEventKey,"physical_keycode":67,"unicode":99)]
 }
 jump={
 "deadzone": 0.2,
@@ -56,9 +56,17 @@ jump={
 }
 skill_slot_1={
 "deadzone": 0.2,
-"events": [Object(InputEventKey,"physical_keycode":81,"unicode":113)]
+"events": [Object(InputEventKey,"physical_keycode":51,"unicode":51)]
 }
 skill_slot_2={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":52,"unicode":52)]
+}
+peek_left={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":81,"unicode":113)]
+}
+peek_right={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":69,"unicode":101)]
 }

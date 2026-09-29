@@ -37,7 +37,7 @@ func apply_damage(info: DamageInfo) -> Dictionary:
 			if info.attacker.has_method("receive_damage"):
 				info.attacker.receive_damage(info.make_reflection(actor))
 		damage_resolved.emit(info, 0.0, response)
-		return {"applied": 0.0, "negated": true, "deflected": true}
+		return {"applied": 0.0, "negated": true, "deflected": true, "blocked": false}
 
 	var multiplier := float(response.get("damage_multiplier", 1.0))
 	var applied := maxf(0.0, info.amount * multiplier)
@@ -54,7 +54,7 @@ func apply_damage(info: DamageInfo) -> Dictionary:
 	if current_health <= 0.0:
 		is_dead = true
 		died.emit(info)
-	return {"applied": applied, "negated": false, "killed": is_dead}
+	return {"applied": applied, "negated": false, "killed": is_dead, "blocked": multiplier < 0.999}
 
 
 func heal(amount: float) -> float:

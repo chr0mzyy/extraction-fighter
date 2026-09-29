@@ -6,6 +6,7 @@ extends VanguardRifleWeapon
 @export var burst_delay: float = 0.48
 
 var is_bursting: bool = false
+var burst_serial: int = 0
 
 
 func _ready() -> void:
@@ -26,17 +27,17 @@ func request_primary() -> void:
 	if not equipped or is_bursting or is_reloading or fire_cooldown_remaining > 0.0 or not is_instance_valid(wielder) or not can_operate():
 		return
 	if ammo <= 0:
-		if wielder.has_method("on_empty_weapon"):
-			wielder.on_empty_weapon()
+		notify_dry_fire()
 		return
 	is_bursting = true
+	burst_serial += 1
 	fire_cooldown_remaining = burst_delay / effects.get_rate_multiplier()
-	_fire_burst()
+	_fire_burst(burst_serial)
 
 
-func _fire_burst() -> void:
+func _fire_burst(serial: int) -> void:
 	for shot: int in burst_size:
-		if not equipped or is_reloading or ammo <= 0 or not is_instance_valid(wielder):
+		if not equipped or not is_bursting or serial != burst_serial or is_reloading or ammo <= 0 or not is_instance_valid(wielder):
 			break
 		ammo -= 1
 		spend_shot_durability()
@@ -50,7 +51,14 @@ func _fire_burst() -> void:
 
 func reset_weapon() -> void:
 	super.reset_weapon()
+	burst_serial += 1
 	is_bursting = false
+
+
+func cancel_combat() -> void:
+	burst_serial += 1
+	is_bursting = false
+	super.cancel_combat()
 
 
 func get_weapon_status() -> String:

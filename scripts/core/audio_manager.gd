@@ -121,19 +121,31 @@ func _build_stream_library() -> void:
 		&"grapple": [330.0, 0.22, 0.18, 780.0],
 		&"blink": [520.0, 0.22, 0.12, 1300.0],
 		&"gunshot": [105.0, 0.13, 0.86, -170.0],
+		&"sniper_shot": [58.0, 0.21, 0.88, -95.0],
+		&"ar_shot": [122.0, 0.105, 0.80, -190.0],
+		&"burst_shot": [148.0, 0.095, 0.70, -225.0],
+		&"battle_shot": [76.0, 0.165, 0.84, -120.0],
+		&"pistol_shot": [190.0, 0.085, 0.64, -260.0],
+		&"akimbo_shot": [172.0, 0.082, 0.72, -245.0],
+		&"magic_shot": [430.0, 0.18, 0.14, 720.0],
 		&"reload": [410.0, 0.15, 0.28, -240.0],
 		&"empty": [760.0, 0.065, 0.12, -100.0],
+		&"dry_fire": [820.0, 0.058, 0.10, -140.0],
 		&"melee_swing": [165.0, 0.17, 0.72, 720.0],
 		&"melee_hit": [92.0, 0.14, 0.68, -120.0],
 		&"heavy_hit": [58.0, 0.22, 0.72, -80.0],
 		&"block": [490.0, 0.15, 0.42, -300.0],
 		&"parry": [980.0, 0.24, 0.16, -900.0],
+		&"deflect": [1220.0, 0.20, 0.12, -1080.0],
 		&"hit": [610.0, 0.075, 0.05, 160.0],
 		&"headshot": [930.0, 0.14, 0.05, 420.0],
+		&"critical": [1060.0, 0.16, 0.06, 360.0],
+		&"proc": [720.0, 0.12, 0.08, 630.0],
 		&"kill": [280.0, 0.28, 0.12, 530.0],
 		&"player_damage": [72.0, 0.18, 0.58, -80.0],
 		&"enemy_damage": [125.0, 0.1, 0.42, -50.0],
 		&"armor_hit": [360.0, 0.16, 0.48, -280.0],
+		&"impact": [205.0, 0.09, 0.58, -180.0],
 		&"pickup": [620.0, 0.16, 0.08, 620.0],
 		&"key_pickup": [740.0, 0.3, 0.06, 820.0],
 		&"chest": [118.0, 0.3, 0.54, -80.0],
@@ -212,7 +224,7 @@ func _next_available_ui_player() -> AudioStreamPlayer:
 func _event_cooldown(event_name: StringName) -> float:
 	match event_name:
 		&"footstep": return 0.1
-		&"gunshot": return 0.035
+		&"gunshot", &"sniper_shot", &"ar_shot", &"burst_shot", &"battle_shot", &"pistol_shot", &"akimbo_shot", &"magic_shot": return 0.035
 		&"hit", &"enemy_damage", &"armor_hit": return 0.025
 		&"ui_hover": return 0.075
 		&"ui_click", &"ui_back", &"ui_invalid": return 0.045
@@ -226,7 +238,7 @@ func _event_volume(event_name: StringName) -> float:
 		&"ui_hover": return -13.0
 		&"ui_click", &"ui_back": return -9.0
 		&"hit", &"headshot": return -6.0
-		&"gunshot", &"heavy_hit", &"parry", &"boss_phase": return -2.0
+		&"gunshot", &"sniper_shot", &"ar_shot", &"burst_shot", &"battle_shot", &"pistol_shot", &"akimbo_shot", &"magic_shot", &"heavy_hit", &"parry", &"deflect", &"boss_phase": return -2.0
 		_: return -5.0
 
 
