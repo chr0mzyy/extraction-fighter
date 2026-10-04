@@ -34,6 +34,8 @@ var spawn_records: Array[Dictionary] = []
 var pause_layer: CanvasLayer
 var pause_menu: VBoxContainer
 var pause_settings: VBoxContainer
+var inventory_menu: DungeonInventoryMenu
+var dropped_pickups: Array[RunItemPickup] = []
 
 
 func _ready() -> void:
@@ -43,6 +45,10 @@ func _ready() -> void:
 	run_seed = int(Time.get_unix_time_from_system()) ^ Time.get_ticks_msec()
 	_setup_run(run_seed)
 	_build_pause_menu()
+	inventory_menu = DungeonInventoryMenu.new()
+	inventory_menu.name = "DungeonInventoryMenu"
+	add_child(inventory_menu)
+	inventory_menu.bind(run_inventory, player, _drop_run_item)
 	var args := OS.get_cmdline_user_args()
 	if "--dungeon-self-test" in args:
 		_run_dungeon_self_test.call_deferred()
@@ -52,6 +58,8 @@ func _ready() -> void:
 		_run_durability_self_test.call_deferred()
 	elif "--dungeon-soak-test" in args:
 		_run_dungeon_soak_test.call_deferred()
+	elif "--capture-dungeon-inventory" in args:
+		_capture_dungeon_inventory.call_deferred()
 	elif "--dungeon-scene-flow-test" in args:
 		_run_dungeon_scene_flow_test.call_deferred()
 
@@ -64,13 +72,22 @@ func _physics_process(delta: float) -> void:
 		_fail_run("TIME EXPIRED", true)
 		return
 	notice_remaining = maxf(0.0, notice_remaining - delta)
-	var prompt := _update_interactions(delta)
+	var prompt := "INVENTORY OPEN  //  TAB TO CLOSE" if inventory_menu != null and inventory_menu.visible else _update_interactions(delta)
 	if notice_remaining > 0.0:
 		prompt = notice_text
 	hud.update_run(time_remaining, run_inventory, player, prompt, _debug_data())
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if inventory_menu != null and inventory_menu.visible:
+		if event.is_action_pressed("inventory_toggle") or event.is_action_pressed("menu_toggle"):
+			inventory_menu.close()
+			get_viewport().set_input_as_handled()
+		return
+	if not get_tree().paused and event.is_action_pressed("inventory_toggle"):
+		inventory_menu.open()
+		get_viewport().set_input_as_handled()
+		return
 	if get_tree().paused and event.is_action_pressed("menu_toggle"):
 		_toggle_pause()
 		get_viewport().set_input_as_handled()
@@ -238,6 +255,25 @@ func _make_spawn_record(marker: Marker3D, role: String) -> Dictionary:
 func _update_interactions(delta: float) -> String:
 	if extraction_requires_release and not Input.is_action_pressed("interact"):
 		extraction_requires_release = false
+	var closest_pickup: RunItemPickup
+	var pickup_distance := 2.4
+	for pickup: RunItemPickup in dropped_pickups:
+		if not is_instance_valid(pickup) or pickup.item_instance == null:
+			continue
+		var distance := player.global_position.distance_to(pickup.global_position)
+		if distance < pickup_distance:
+			pickup_distance = distance
+			closest_pickup = pickup
+	if closest_pickup != null:
+		if Input.is_action_just_pressed("interact"):
+			var exact_instance := closest_pickup.item_instance
+			if run_inventory.add_item(exact_instance):
+				closest_pickup.take_item()
+				dropped_pickups.erase(closest_pickup)
+				AudioEvents.play(&"pickup", player.global_position)
+				return "ITEM RECOVERED"
+			return "INVENTORY FULL"
+		return closest_pickup.get_prompt()
 	var closest_chest: LootChest
 	var chest_distance := 2.5
 	for chest: LootChest in chests:
@@ -302,6 +338,26 @@ func _on_chest_opened(_chest: LootChest, items: Array[ItemInstance], gold_reward
 		AudioEvents.play(&"pickup", player.global_position, {"count": added})
 		if found_key:
 			AudioEvents.play(&"key_pickup", player.global_position)
+		elif best_definition != null and best_definition.rarity == ItemDefinition.Rarity.MYTHIC:
+			AudioEvents.play(&"mythic_acquired")
+
+
+func _drop_run_item(slot: int) -> void:
+	var instance := run_inventory.remove_at(slot)
+	if instance == null:
+		_show_notice("EMPTY SLOT")
+		return
+	var definition := PlayerProfile.get_definition(String(instance.definition_id))
+	var pickup := RunItemPickup.new()
+	pickup.name = "Dropped_%s" % instance.instance_id.replace(":", "_")
+	pickup.configure(instance, definition)
+	add_child(pickup)
+	var forward := -player.global_basis.z
+	pickup.global_position = player.global_position + forward * 1.35 + Vector3.UP * 0.18
+	pickup.base_height = pickup.position.y
+	dropped_pickups.append(pickup)
+	AudioEvents.play(&"item_drop", pickup.global_position)
+	_show_notice("DROPPED  %s" % definition.display_name.to_upper())
 
 
 func _on_extraction_completed(point: ExtractionPoint) -> void:
@@ -450,6 +506,8 @@ func _add_pause_setting_slider(caption: String, value: float, minimum: float, ma
 func _toggle_pause() -> void:
 	if run_finished:
 		return
+	if inventory_menu != null and inventory_menu.visible:
+		inventory_menu.close()
 	var paused := not get_tree().paused
 	get_tree().paused = paused
 	pause_layer.visible = paused
@@ -627,7 +685,29 @@ func _run_dungeon_self_test() -> void:
 	if channel_test.state != ExtractionPoint.State.USED:
 		failures.append("Completed extraction did not become single-use")
 	channel_test.queue_free()
-	_finish_test(failures, "DUNGEON_SELF_TEST_OK: layouts, extraction counts, key probability, enemies, chests and timer passed")
+	var dropped_instance := ItemInstance.create(PlayerProfile.get_definition("armory_scrap"), "test:drop:exact")
+	run_inventory.add_item(dropped_instance)
+	var dropped_slot := run_inventory.find_instance(dropped_instance.instance_id)
+	_drop_run_item(dropped_slot)
+	var pickup := dropped_pickups[-1] if not dropped_pickups.is_empty() else null
+	if pickup == null or pickup.item_instance != dropped_instance or run_inventory.find_instance(dropped_instance.instance_id) >= 0:
+		failures.append("Dungeon drop did not preserve the exact ItemInstance in the world pickup")
+	elif not run_inventory.add_item(pickup.item_instance):
+		failures.append("Dropped item could not be recovered")
+	else:
+		var recovered := pickup.take_item()
+		dropped_pickups.erase(pickup)
+		if recovered != dropped_instance or run_inventory.get_item(run_inventory.find_instance(dropped_instance.instance_id)) != dropped_instance:
+			failures.append("Recovered world pickup changed ItemInstance identity")
+		run_inventory.remove_at(run_inventory.find_instance(dropped_instance.instance_id))
+	inventory_menu.open()
+	await get_tree().process_frame
+	if not inventory_menu.visible or inventory_menu.grid.get_child_count() != RunInventory.SLOT_COUNT or not player.is_cursor_free:
+		failures.append("TAB inventory did not expose 24 slots and release camera input")
+	inventory_menu.close()
+	if player.is_cursor_free:
+		failures.append("Closing dungeon inventory did not restore gameplay mouse ownership")
+	_finish_test(failures, "DUNGEON_SELF_TEST_OK: layouts, extraction, enemies, timer, TAB inventory and exact world item drop/recovery passed")
 
 
 func _run_extraction_flow_test() -> void:
@@ -776,3 +856,20 @@ func _finish_test(failures: Array[String], success: String) -> void:
 		for failure: String in failures:
 			push_error(failure)
 		get_tree().quit(1)
+
+
+func _capture_dungeon_inventory() -> void:
+	get_window().mode = Window.MODE_WINDOWED
+	get_window().size = Vector2i(1280, 720)
+	var sample_ids: Array[String] = ["field_tonic", "armory_scrap", "worn_assault_rifle", "rusty_katana", "rusted_helmet", "torn_mail", "simple_ring"]
+	for index: int in sample_ids.size():
+		var definition := PlayerProfile.get_definition(sample_ids[index])
+		var instance := AffixRoller.roll_item(definition, 4200 + index, "capture:%d" % index) if definition.item_type == ItemDefinition.ItemType.WEAPON else ItemInstance.create(definition, "capture:%d" % index)
+		run_inventory.add_item(instance)
+	inventory_menu.open()
+	for frame: int in 20:
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var error := image.save_png("res://validation_dungeon_inventory.png")
+	print("DUNGEON_INVENTORY_CAPTURE_OK" if error == OK else "DUNGEON_INVENTORY_CAPTURE_FAILED")
+	get_tree().quit(0 if error == OK else 1)

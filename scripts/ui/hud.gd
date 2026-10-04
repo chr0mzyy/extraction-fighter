@@ -42,6 +42,7 @@ var debug_panel: PanelContainer
 var debug_label: Label
 var hitmarker: Label
 var crosshair_root: Control
+var ads_reticle_root: Control
 var damage_edges: Array[ColorRect] = []
 var status_effect_label: Label
 var damage_number_root: Control
@@ -225,7 +226,9 @@ func _update_header() -> void:
 
 
 func _update_crosshair(delta: float) -> void:
-	crosshair_root.visible = GameSettings.crosshair_enabled and not player.should_hide_crosshair()
+	var precise_ads := player.should_hide_crosshair()
+	crosshair_root.visible = GameSettings.crosshair_enabled and not precise_ads
+	ads_reticle_root.visible = GameSettings.crosshair_enabled and precise_ads
 	var target_scale := 1.0 + player.get_crosshair_spread() * 0.055
 	crosshair_root.scale = crosshair_root.scale.lerp(Vector2.ONE * target_scale, minf(1.0, delta * 18.0))
 	crosshair_root.modulate.a = 0.30 if player.current_weapon != null and player.current_weapon.is_aiming_down_sights() else (0.72 if player.uses_simple_crosshair() else 1.0)
@@ -517,6 +520,7 @@ func _build_interface() -> void:
 	_build_weapon_panel()
 	_build_skill_panel()
 	_build_crosshair()
+	_build_ads_reticle()
 	_build_notifications()
 	_build_debug_panel()
 
@@ -687,6 +691,30 @@ func _build_crosshair() -> void:
 	_make_crosshair_bar(Vector2(13, 13), Vector2(2, 2))
 
 
+func _build_ads_reticle() -> void:
+	ads_reticle_root = Control.new()
+	ads_reticle_root.name = "ADSReticle"
+	ads_reticle_root.set_anchors_preset(Control.PRESET_CENTER)
+	ads_reticle_root.offset_left = -34
+	ads_reticle_root.offset_right = 34
+	ads_reticle_root.offset_top = -34
+	ads_reticle_root.offset_bottom = 34
+	ads_reticle_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ads_reticle_root.visible = false
+	ui_root.add_child(ads_reticle_root)
+	var outline := Color(0.01, 0.02, 0.025, 0.92)
+	_make_ads_reticle_bar(Vector2(32, 2), Vector2(4, 27), outline)
+	_make_ads_reticle_bar(Vector2(32, 39), Vector2(4, 27), outline)
+	_make_ads_reticle_bar(Vector2(2, 32), Vector2(27, 4), outline)
+	_make_ads_reticle_bar(Vector2(39, 32), Vector2(27, 4), outline)
+	_make_ads_reticle_bar(Vector2(31, 31), Vector2(6, 6), outline)
+	_make_ads_reticle_bar(Vector2(33, 3), Vector2(2, 25), Color(0.78, 0.94, 1.0, 0.92))
+	_make_ads_reticle_bar(Vector2(33, 40), Vector2(2, 25), Color(0.78, 0.94, 1.0, 0.92))
+	_make_ads_reticle_bar(Vector2(3, 33), Vector2(25, 2), Color(0.78, 0.94, 1.0, 0.92))
+	_make_ads_reticle_bar(Vector2(40, 33), Vector2(25, 2), Color(0.78, 0.94, 1.0, 0.92))
+	_make_ads_reticle_bar(Vector2(33, 33), Vector2(2, 2), Color.WHITE)
+
+
 func _build_notifications() -> void:
 	hitmarker = _make_label(ui_root, "X", 24, Color.WHITE)
 	hitmarker.name = "Hitmarker"
@@ -808,6 +836,15 @@ func _make_crosshair_bar(position: Vector2, bar_size: Vector2) -> void:
 	bar.color = Color(0.94, 0.97, 1.0, 0.88)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	crosshair_root.add_child(bar)
+
+
+func _make_ads_reticle_bar(position: Vector2, bar_size: Vector2, color: Color) -> void:
+	var bar := ColorRect.new()
+	bar.position = position
+	bar.size = bar_size
+	bar.color = color
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ads_reticle_root.add_child(bar)
 
 
 func _make_style(background: Color, border: Color, border_width: int, corner_radius: int) -> StyleBoxFlat:

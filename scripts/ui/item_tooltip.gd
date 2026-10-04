@@ -20,6 +20,8 @@ var rarity_label: Label
 var flavor_label: Label
 var type_label: Label
 var stats_label: Label
+var comparison_label: RichTextLabel
+var comparison_provider: Callable
 
 
 func _ready() -> void:
@@ -30,13 +32,22 @@ func _ready() -> void:
 	_build()
 
 
-func show_item(definition: ItemDefinition, instance: ItemInstance = null) -> void:
+func set_comparison_provider(provider: Callable) -> void:
+	comparison_provider = provider
+
+
+func show_item(definition: ItemDefinition, instance: ItemInstance = null, comparison_definition: ItemDefinition = null, comparison_instance: ItemInstance = null) -> void:
 	if definition == null:
 		return
-	if current_item != definition or current_instance != instance:
-		current_item = definition
-		current_instance = instance
-		_update_content(definition, instance)
+	if comparison_definition == null and comparison_provider.is_valid():
+		comparison_instance = comparison_provider.call(definition) as ItemInstance
+		comparison_definition = PlayerProfile.get_definition(String(comparison_instance.definition_id)) if comparison_instance != null else null
+	if comparison_instance == instance:
+		comparison_instance = null
+		comparison_definition = null
+	current_item = definition
+	current_instance = instance
+	_update_content(definition, instance, comparison_definition, comparison_instance)
 	visible = true
 	_reposition(get_viewport().get_mouse_position(), get_viewport_rect().size)
 
@@ -105,9 +116,17 @@ func _build() -> void:
 	root.add_child(HSeparator.new())
 	stats_label = _make_label(root, 12, Color(0.88, 0.9, 0.91))
 	stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	comparison_label = RichTextLabel.new()
+	comparison_label.bbcode_enabled = true
+	comparison_label.fit_content = true
+	comparison_label.scroll_active = false
+	comparison_label.custom_minimum_size = Vector2(0, 0)
+	comparison_label.add_theme_font_size_override("normal_font_size", 12)
+	comparison_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(comparison_label)
 
 
-func _update_content(definition: ItemDefinition, instance: ItemInstance) -> void:
+func _update_content(definition: ItemDefinition, instance: ItemInstance, comparison_definition: ItemDefinition = null, comparison_instance: ItemInstance = null) -> void:
 	var accent := RARITY_COLORS[clampi(definition.rarity, 0, RARITY_COLORS.size() - 1)]
 	name_label.text = definition.display_name.to_upper()
 	rarity_label.text = definition.get_rarity_name().to_upper()
@@ -115,6 +134,8 @@ func _update_content(definition: ItemDefinition, instance: ItemInstance) -> void
 	type_label.text = _type_line(definition)
 	flavor_label.text = '"%s"' % (definition.flavor_text if not definition.flavor_text.is_empty() else definition.description)
 	stats_label.text = _build_stats(definition, instance)
+	comparison_label.text = _build_comparison(definition, instance, comparison_definition, comparison_instance)
+	comparison_label.visible = not comparison_label.text.is_empty()
 	var low_durability := instance != null and instance.max_durability > 0.0 and instance.current_durability / instance.max_durability <= 0.2
 	stats_label.add_theme_color_override("font_color", Color(1.0, 0.34, 0.25) if low_durability else Color(0.88, 0.9, 0.91))
 	preview_texture.texture = definition.preview_icon
@@ -128,6 +149,74 @@ func _update_content(definition: ItemDefinition, instance: ItemInstance) -> void
 	preview_frame.add_theme_stylebox_override("panel", _preview_style(preview_background, accent))
 	add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.034, 0.047, 0.985), accent.darkened(0.25)))
 	reset_size()
+
+
+func _build_comparison(definition: ItemDefinition, instance: ItemInstance, equipped_definition: ItemDefinition, equipped_instance: ItemInstance) -> String:
+	if equipped_definition == null or equipped_instance == null or not _items_are_comparable(definition, equipped_definition):
+		return ""
+	var candidate := _comparison_values(definition, instance)
+	var equipped := _comparison_values(equipped_definition, equipped_instance)
+	var lines: Array[String] = ["[color=#63cbd2]COMPARISON[/color]  [color=#7f8a8c]vs %s[/color]" % equipped_definition.display_name.to_upper()]
+	for key: String in candidate:
+		if not equipped.has(key):
+			continue
+		var candidate_data: Dictionary = candidate[key]
+		var equipped_data: Dictionary = equipped[key]
+		var candidate_value := float(candidate_data.value)
+		var equipped_value := float(equipped_data.value)
+		var difference := candidate_value - equipped_value
+		if is_zero_approx(difference):
+			continue
+		var lower_is_good := bool(candidate_data.get("lower_good", false))
+		var neutral := bool(candidate_data.get("neutral", false))
+		var better := difference < 0.0 if lower_is_good else difference > 0.0
+		var color := "#a9b0b0" if neutral else ("#55d69a" if better else "#ef6557")
+		var arrow := "•" if neutral else ("▲" if difference > 0.0 else "▼")
+		var suffix := String(candidate_data.get("suffix", ""))
+		lines.append("%s  [color=%s]%s %s%s[/color]" % [key, color, arrow, _signed_number(difference), suffix])
+	if lines.size() == 1:
+		lines.append("[color=#7f8a8c]No meaningful stat change[/color]")
+	return "\n".join(lines)
+
+
+func _items_are_comparable(a: ItemDefinition, b: ItemDefinition) -> bool:
+	if a.item_type != b.item_type:
+		return false
+	if a.item_type == ItemDefinition.ItemType.WEAPON:
+		return a.weapon_family == b.weapon_family
+	if a.item_type == ItemDefinition.ItemType.GEAR:
+		return a.gear_slot == b.gear_slot
+	return a.item_type == ItemDefinition.ItemType.SKILL
+
+
+func _comparison_values(definition: ItemDefinition, instance: ItemInstance) -> Dictionary:
+	var values: Dictionary = {}
+	if definition.item_type == ItemDefinition.ItemType.WEAPON:
+		if definition.damage > 0.0: values["Damage"] = {"value": _effective_damage(definition.damage, instance, false)}
+		if definition.heavy_damage > 0.0: values["Heavy Damage"] = {"value": _effective_damage(definition.heavy_damage, instance, false)}
+		if definition.fire_rate > 0.0: values["Fire Rate"] = {"value": _effective_fire_rate(definition.fire_rate, instance), "suffix": "/s"}
+		if definition.magazine_size > 0: values["Magazine"] = {"value": definition.magazine_size}
+		if definition.reload_time > 0.0: values["Reload"] = {"value": _effective_reload(definition.reload_time, instance), "lower_good": true, "suffix": "s"}
+		if definition.headshot_damage > 0.0: values["Headshot"] = {"value": _effective_damage(definition.headshot_damage, instance, true)}
+		if definition.block_reduction > 0.0: values["Block"] = {"value": definition.block_reduction * 100.0, "suffix": "%"}
+		if definition.deflect_window > 0.0: values["Parry Window"] = {"value": definition.deflect_window, "suffix": "s"}
+		if definition.weapon_family not in [&"katana", &"nodachi", &"sword", &"magic"]:
+			var profile := WeaponPresentationLibrary.for_family(definition.weapon_family)
+			values["Recoil"] = {"value": profile.fire_kick_distance, "lower_good": true}
+			values["Spread"] = {"value": profile.crosshair_multiplier, "lower_good": true}
+	elif definition.item_type == ItemDefinition.ItemType.GEAR:
+		values["Armor"] = {"value": definition.armor_value}
+	elif definition.item_type == ItemDefinition.ItemType.SKILL:
+		values["Power"] = {"value": definition.power_cost, "neutral": true}
+		values["Cooldown"] = {"value": definition.cooldown, "lower_good": true, "suffix": "s"}
+	if instance != null and instance.max_durability > 0.0:
+		values["Durability"] = {"value": instance.current_durability}
+	return values
+
+
+func _signed_number(value: float) -> String:
+	var prefix := "+" if value > 0.0 else ""
+	return prefix + (str(roundi(value)) if is_equal_approx(value, roundf(value)) else "%.2f" % value)
 
 
 func _build_weapon_preview(parent: PanelContainer) -> void:

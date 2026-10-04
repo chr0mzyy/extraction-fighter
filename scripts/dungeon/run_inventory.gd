@@ -32,6 +32,37 @@ func add_item(instance: ItemInstance) -> bool:
 	return false
 
 
+func get_item(slot: int) -> ItemInstance:
+	return slots[slot] if slot >= 0 and slot < slots.size() else null
+
+
+func move_item(source_slot: int, target_slot: int) -> bool:
+	if source_slot < 0 or source_slot >= slots.size() or target_slot < 0 or target_slot >= slots.size() or slots[source_slot] == null:
+		return false
+	var displaced := slots[target_slot]
+	slots[target_slot] = slots[source_slot]
+	slots[source_slot] = displaced
+	changed.emit()
+	return true
+
+
+func remove_at(slot: int) -> ItemInstance:
+	if slot < 0 or slot >= slots.size():
+		return null
+	var instance := slots[slot]
+	if instance != null:
+		slots[slot] = null
+		changed.emit()
+	return instance
+
+
+func find_instance(instance_id: String) -> int:
+	for slot: int in slots.size():
+		if slots[slot] != null and slots[slot].instance_id == instance_id:
+			return slot
+	return -1
+
+
 func add_gold(amount: int) -> void:
 	run_gold += maxi(0, amount)
 	changed.emit()

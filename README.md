@@ -1,4 +1,4 @@
-# Extraction Fighter - MVP 0.4.1
+# Extraction Fighter - MVP 0.4.2
 
 A local single-player Godot 4.7.2 combat prototype with a persistent lobby, data-driven loadouts, and a fast player-versus-bot arena.
 
@@ -27,6 +27,7 @@ The project starts in the lobby. `PLAY > ARENA` launches endless deathmatch and 
 - `F`: melee heavy attack
 - `R`: firearm reload / activate a ready Mythic weapon action
 - `Esc`: pause menu
+- `Tab`: open/close the simplified Armory run inventory
 - `F3`: debug overlay
 - `X`: open Armory chests / hold for 5 seconds at an extraction point
 
@@ -38,7 +39,11 @@ Items are stored as persistent instances separate from their reusable definition
 
 Armory runs generate exactly six normal extraction sites and two hidden key sites across eligible rooms. A run has a 42% chance to place one Extraction Key in a chest. Hidden extraction consumes it; defeating the Warden drops a boss chest but does not end the run. Successful extraction banks exact item instances and run gold, while death or timeout clears the run pack. F3 shows extraction/key telemetry during development.
 
-Hover any owned or equipped item in Loadout, Stash, or a populated Main Inventory slot to inspect its reusable rarity-colored tooltip. Tooltips show the exact instance's affix names, tiers, readable effect descriptions, unique Mythic mechanic, and base-to-effective damage/fire-rate/reload values where applicable.
+Loadout and Stash use reusable rarity-accented item slots with icons, selected/equipped/broken/new states, drag previews, compatible-target highlighting, safe invalid-drop rejection, double-click quick equip and relevant right-click context actions. The 24-slot inventory, loadout and stash exchange exact item instances atomically; a failed move never removes the source item. Stash browsing supports category/subcategory filters, name/type/affix search and identity-safe sorting.
+
+Hover any owned or equipped item in Loadout, Stash, or a populated Main Inventory slot to inspect its reusable rarity-colored tooltip. Tooltips show the exact instance's affix names, tiers, readable effect descriptions, unique Mythic mechanic, and base-to-effective damage/fire-rate/reload values where applicable. Compatible equipped items also produce direction-aware comparisons, including lower-is-better handling for reload, recoil, spread and cooldown.
+
+During an Armory run, `Tab` opens the lighter run inventory. Items can be inspected, compared, consumed or dropped. Dropping creates a world pickup that retains the exact `ItemInstance`, including affixes, variant and durability, and can be recovered if space remains.
 
 The arena remains an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character. Cameras, bot AI, combat, launch pads, scoring, and respawn behavior remain active.
 
@@ -56,7 +61,7 @@ Tune `Player > MovementController` in the Godot Inspector (`scripts/characters/p
 
 The `--self-test` suite additionally checks diagonal speed, stopping, held-jump chains, skill cooldown ownership, loadouts without Dash/Double Jump, and preservation of above-cap slide momentum.
 
-Profiles are stored as version-3 JSON at `user://player_profile.json`. Version-1/2 profiles migrate to current/max durability while preserving valid owned items and equipped slots. Missing, malformed, and unsupported profiles safely fall back to the default build.
+Profiles are stored as version-4 JSON at `user://player_profile.json`. Version-1/2/3 profiles migrate while preserving valid owned instances, affixes, durability, inventory and equipped slots. Missing, malformed, and unsupported profiles safely fall back to the default build.
 
 Video, graphics, gameplay, and audio preferences are stored independently at `user://game_settings.json`. The lobby and gameplay pause menus apply supported settings live, including FOV, sensitivity, camera effects, damage numbers, crosshair visibility, resolution, rendering scale, and volume buses.
 
@@ -74,6 +79,7 @@ Combat feedback distinguishes normal, headshot, armor, blocked, parry/deflect, c
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --ai-soak-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --hud-layout-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-self-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --inventory-ui-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --content-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --tooltip-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --affix-self-test

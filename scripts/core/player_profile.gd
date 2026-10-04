@@ -4,7 +4,7 @@ signal profile_changed
 signal loadout_changed
 signal validation_failed(message: String)
 
-const SAVE_VERSION := 3
+const SAVE_VERSION := 4
 const SAVE_PATH := "user://player_profile.json"
 const INVENTORY_SIZE := 24
 const POWER_LIMIT := 200
@@ -27,6 +27,7 @@ var last_load_used_defaults: bool = false
 var last_error: String = ""
 var catalog_migrated_last_load: bool = false
 var gold: int = 750
+var new_instance_ids: Dictionary = {}
 
 
 func _ready() -> void:
@@ -38,6 +39,7 @@ func reset_to_defaults(save_after: bool = true) -> void:
 	owned_item_ids.clear()
 	owned_item_instances.clear()
 	instance_index.clear()
+	new_instance_ids.clear()
 	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
 		if String(definition.id) in DEVELOPMENT_STASH_EXCLUDED:
 			continue
@@ -113,6 +115,73 @@ func get_owned_instances(type_filter: int = -1) -> Array[ItemInstance]:
 		if definition != null and (type_filter < 0 or definition.item_type == type_filter):
 			result.append(instance)
 	return result
+
+
+func get_inventory_instance(slot: int) -> ItemInstance:
+	if slot < 0 or slot >= main_inventory.size():
+		return null
+	var reference := main_inventory[slot]
+	if reference.is_empty():
+		return null
+	var instance := get_instance(reference)
+	return instance if instance != null else get_instance_for_definition(reference)
+
+
+func get_inventory_definition(slot: int) -> ItemDefinition:
+	var instance := get_inventory_instance(slot)
+	return get_definition(String(instance.definition_id)) if instance != null else null
+
+
+func find_inventory_slot(instance_id: String) -> int:
+	for slot: int in main_inventory.size():
+		var instance := get_inventory_instance(slot)
+		if instance != null and instance.instance_id == instance_id:
+			return slot
+	return -1
+
+
+func get_first_free_inventory_slot() -> int:
+	for slot: int in main_inventory.size():
+		if main_inventory[slot].is_empty():
+			return slot
+	return -1
+
+
+func is_instance_equipped(instance_id: String) -> bool:
+	return weapon_instance_slots.has(instance_id) or equipped_gear_instances.values().has(instance_id)
+
+
+func get_stash_instances(type_filter: int = -1) -> Array[ItemInstance]:
+	var result: Array[ItemInstance] = []
+	for instance: ItemInstance in get_owned_instances(type_filter):
+		if find_inventory_slot(instance.instance_id) >= 0 or is_instance_equipped(instance.instance_id):
+			continue
+		var definition_id := String(instance.definition_id)
+		if definition_id in skill_slots:
+			continue
+		result.append(instance)
+	return result
+
+
+func get_comparison_instance(definition: ItemDefinition) -> ItemInstance:
+	if definition == null:
+		return null
+	if definition.item_type == ItemDefinition.ItemType.WEAPON:
+		for slot: int in weapon_slots.size():
+			var equipped_definition := get_definition(weapon_slots[slot])
+			if equipped_definition != null and equipped_definition.weapon_family == definition.weapon_family:
+				return get_weapon_instance(slot)
+	elif definition.item_type == ItemDefinition.ItemType.GEAR:
+		for key: String in GEAR_KEYS:
+			var equipped_definition := get_definition(String(equipped_gear.get(key, "")))
+			if equipped_definition != null and equipped_definition.gear_slot == definition.gear_slot:
+				return get_gear_instance(key)
+	elif definition.item_type == ItemDefinition.ItemType.SKILL:
+		for item_id: String in skill_slots:
+			var equipped_definition := get_definition(item_id)
+			if equipped_definition != null:
+				return get_instance_for_definition(item_id)
+	return null
 
 
 func get_skill_power() -> int:
@@ -215,13 +284,127 @@ func equip_gear_instance(slot_key: String, instance_id: String, save_after: bool
 func set_inventory_item(slot: int, item_id: String, save_after: bool = true) -> bool:
 	if slot < 0 or slot >= main_inventory.size():
 		return _fail("Invalid inventory slot")
-	if not item_id.is_empty() and get_definition(item_id) == null:
+	if not item_id.is_empty() and get_definition(item_id) == null and get_instance(item_id) == null:
 		return _fail("Unknown inventory item")
 	main_inventory[slot] = item_id
 	profile_changed.emit()
 	if save_after:
 		save_profile()
 	return true
+
+
+func can_transfer_item(payload: Dictionary, target_kind: String, target_key: Variant) -> Dictionary:
+	var instance := get_instance(String(payload.get("instance_id", "")))
+	if instance == null:
+		return {"ok": false, "reason": "ITEM NOT FOUND"}
+	var origin_kind := String(payload.get("origin_kind", "stash"))
+	var origin_key: Variant = payload.get("origin_key", "")
+	if not _source_matches_instance(origin_kind, origin_key, instance):
+		return {"ok": false, "reason": "ITEM MOVED"}
+	if target_kind == origin_kind and str(target_key) == str(origin_key):
+		return {"ok": true, "reason": ""}
+	match target_kind:
+		"stash":
+			return {"ok": true, "reason": ""}
+		"inventory":
+			var target_slot := int(target_key)
+			if target_slot < 0 or target_slot >= main_inventory.size():
+				return {"ok": false, "reason": "INCOMPATIBLE SLOT"}
+			if origin_kind.begins_with("loadout_") and get_inventory_instance(target_slot) != null:
+				return {"ok": false, "reason": "NO FREE SLOT"}
+			return {"ok": true, "reason": ""}
+		"loadout_weapon":
+			return _can_equip_to_weapon(instance, int(target_key), origin_kind, origin_key)
+		"loadout_skill":
+			return _can_equip_to_skill(instance, int(target_key), origin_kind, origin_key)
+		"loadout_gear":
+			return _can_equip_to_gear(instance, String(target_key), origin_kind, origin_key)
+	return {"ok": false, "reason": "INCOMPATIBLE SLOT"}
+
+
+func transfer_item(payload: Dictionary, target_kind: String, target_key: Variant, save_after: bool = true) -> bool:
+	var allowed := can_transfer_item(payload, target_kind, target_key)
+	if not bool(allowed.get("ok", false)):
+		return _fail(String(allowed.get("reason", "INVALID DROP")))
+	var instance := get_instance(String(payload.get("instance_id", "")))
+	var origin_kind := String(payload.get("origin_kind", "stash"))
+	var origin_key: Variant = payload.get("origin_key", "")
+	if target_kind == origin_kind and str(target_key) == str(origin_key):
+		return true
+	var inventory_before := main_inventory.duplicate()
+	var weapons_before := weapon_slots.duplicate()
+	var weapon_instances_before := weapon_instance_slots.duplicate()
+	var skills_before := skill_slots.duplicate()
+	var gear_before := equipped_gear.duplicate(true)
+	var gear_instances_before := equipped_gear_instances.duplicate(true)
+
+	if origin_kind == "inventory" and target_kind == "inventory":
+		var source_slot := int(origin_key)
+		var destination_slot := int(target_key)
+		var displaced := main_inventory[destination_slot]
+		main_inventory[destination_slot] = instance.instance_id
+		main_inventory[source_slot] = displaced
+	elif origin_kind == target_kind and origin_kind.begins_with("loadout_"):
+		_swap_loadout_slots(origin_kind, origin_key, target_key)
+	elif target_kind == "stash":
+		_clear_item_origin(origin_kind, origin_key)
+	elif target_kind == "inventory":
+		main_inventory[int(target_key)] = instance.instance_id
+		_clear_item_origin(origin_kind, origin_key)
+	else:
+		_set_loadout_target(target_kind, target_key, instance)
+		_clear_item_origin(origin_kind, origin_key)
+
+	if _instance_reference_count(instance.instance_id) > 1:
+		main_inventory = inventory_before
+		weapon_slots = weapons_before
+		weapon_instance_slots = weapon_instances_before
+		skill_slots = skills_before
+		equipped_gear = gear_before
+		equipped_gear_instances = gear_instances_before
+		return _fail("TRANSFER REJECTED")
+	last_error = ""
+	new_instance_ids.erase(instance.instance_id)
+	profile_changed.emit()
+	loadout_changed.emit()
+	if save_after:
+		save_profile()
+	return true
+
+
+func quick_equip_instance(instance_id: String, save_after: bool = true) -> bool:
+	var instance := get_instance(instance_id)
+	var definition := get_definition(String(instance.definition_id)) if instance != null else null
+	if definition == null:
+		return _fail("ITEM NOT FOUND")
+	var origin_slot := find_inventory_slot(instance_id)
+	var payload := {"instance_id": instance_id, "origin_kind": "inventory" if origin_slot >= 0 else "stash", "origin_key": origin_slot if origin_slot >= 0 else ""}
+	match definition.item_type:
+		ItemDefinition.ItemType.WEAPON:
+			var slot := weapon_instance_slots.find("")
+			if slot < 0: slot = 0
+			return transfer_item(payload, "loadout_weapon", slot, save_after)
+		ItemDefinition.ItemType.SKILL:
+			var slot := skill_slots.find("")
+			if slot < 0: slot = 0
+			return transfer_item(payload, "loadout_skill", slot, save_after)
+		ItemDefinition.ItemType.GEAR:
+			var key := _preferred_gear_key(definition)
+			return transfer_item(payload, "loadout_gear", key, save_after)
+	return _fail("INCOMPATIBLE SLOT")
+
+
+func unequip_to_storage(kind: String, key: Variant, to_inventory: bool, save_after: bool = true) -> bool:
+	var instance := _get_loadout_instance(kind, key)
+	if instance == null:
+		return _fail("SLOT IS EMPTY")
+	var payload := {"instance_id": instance.instance_id, "origin_kind": kind, "origin_key": key}
+	if not to_inventory:
+		return transfer_item(payload, "stash", "", save_after)
+	var free_slot := get_first_free_inventory_slot()
+	if free_slot < 0:
+		return _fail("NO FREE SLOT")
+	return transfer_item(payload, "inventory", free_slot, save_after)
 
 
 func validate_loadout() -> Dictionary:
@@ -273,7 +456,7 @@ func to_save_data() -> Dictionary:
 
 func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 	var incoming_version := int(data.get("save_version", -1))
-	if incoming_version not in [1, 2, SAVE_VERSION]:
+	if incoming_version not in [1, 2, 3, SAVE_VERSION]:
 		last_error = "Unsupported save version"
 		return false
 	var incoming_owned := _string_array(data.get("owned_item_ids", []))
@@ -285,6 +468,7 @@ func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 		last_error = "Save data has an invalid shape"
 		return false
 	owned_item_ids = incoming_owned
+	new_instance_ids.clear()
 	catalog_migrated_last_load = _ensure_development_catalog_owned()
 	_rebuild_item_instances(data.get("owned_item_instances", []) if incoming_version >= 2 else [])
 	_remove_development_only_dungeon_items()
@@ -458,6 +642,7 @@ func add_owned_instance(instance: ItemInstance, add_to_inventory: bool = false) 
 		return _fail("Duplicate item instance")
 	owned_item_instances.append(instance)
 	instance_index[instance.instance_id] = instance
+	new_instance_ids[instance.instance_id] = true
 	var definition_id := String(instance.definition_id)
 	if not owned_item_ids.has(definition_id):
 		owned_item_ids.append(definition_id)
@@ -515,6 +700,29 @@ func repair_all_equipped(save_after: bool = true) -> bool:
 	return true
 
 
+func get_all_damaged_repair_cost() -> int:
+	var total := 0
+	for instance: ItemInstance in owned_item_instances:
+		total += DurabilityService.repair_cost(instance, get_definition(String(instance.definition_id)))
+	return total
+
+
+func repair_all_damaged(save_after: bool = true) -> bool:
+	var cost := get_all_damaged_repair_cost()
+	if cost <= 0:
+		return _fail("ALL ITEMS ARE FULLY REPAIRED")
+	if gold < cost:
+		return _fail("NOT ENOUGH GOLD")
+	gold -= cost
+	for instance: ItemInstance in owned_item_instances:
+		if instance.current_durability < instance.max_durability:
+			instance.repair_full()
+	profile_changed.emit()
+	if save_after:
+		save_profile()
+	return true
+
+
 func _get_unique_equipped_instances() -> Array[ItemInstance]:
 	var result: Array[ItemInstance] = []
 	var visited: Dictionary = {}
@@ -529,3 +737,172 @@ func _get_unique_equipped_instances() -> Array[ItemInstance]:
 			visited[instance.instance_id] = true
 			result.append(instance)
 	return result
+
+
+func _source_matches_instance(origin_kind: String, origin_key: Variant, instance: ItemInstance) -> bool:
+	match origin_kind:
+		"stash": return find_inventory_slot(instance.instance_id) < 0 and not is_instance_equipped(instance.instance_id) and String(instance.definition_id) not in skill_slots
+		"inventory": return get_inventory_instance(int(origin_key)) == instance
+		"loadout_weapon": return get_weapon_instance(int(origin_key)) == instance
+		"loadout_skill": return int(origin_key) >= 0 and int(origin_key) < skill_slots.size() and String(instance.definition_id) == skill_slots[int(origin_key)]
+		"loadout_gear": return get_gear_instance(String(origin_key)) == instance
+	return false
+
+
+func _can_equip_to_weapon(instance: ItemInstance, slot: int, origin_kind: String, origin_key: Variant) -> Dictionary:
+	var definition := get_definition(String(instance.definition_id))
+	if definition == null or definition.item_type != ItemDefinition.ItemType.WEAPON or slot < 0 or slot >= 2:
+		return {"ok": false, "reason": "INCOMPATIBLE SLOT"}
+	if instance.is_broken():
+		return {"ok": false, "reason": "ITEM BROKEN"}
+	var other_slot := 1 - slot
+	if weapon_instance_slots[other_slot] == instance.instance_id and not (origin_kind == "loadout_weapon" and int(origin_key) == other_slot):
+		return {"ok": false, "reason": "ITEM ALREADY EQUIPPED"}
+	return {"ok": true, "reason": ""}
+
+
+func _can_equip_to_skill(instance: ItemInstance, slot: int, origin_kind: String, origin_key: Variant) -> Dictionary:
+	var definition := get_definition(String(instance.definition_id))
+	if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or slot < 0 or slot >= 2:
+		return {"ok": false, "reason": "INCOMPATIBLE SLOT"}
+	var candidate := skill_slots.duplicate()
+	candidate[slot] = String(definition.id)
+	if candidate[1 - slot] == String(definition.id) and not (origin_kind == "loadout_skill" and int(origin_key) == 1 - slot):
+		return {"ok": false, "reason": "ITEM ALREADY EQUIPPED"}
+	var total := 0
+	for item_id: String in candidate:
+		var candidate_definition := get_definition(item_id)
+		if candidate_definition != null:
+			total += candidate_definition.power_cost
+	if total > POWER_LIMIT:
+		return {"ok": false, "reason": "POWER LIMIT EXCEEDED", "power": total}
+	return {"ok": true, "reason": "", "power": total}
+
+
+func _can_equip_to_gear(instance: ItemInstance, key: String, origin_kind: String, origin_key: Variant) -> Dictionary:
+	var definition := get_definition(String(instance.definition_id))
+	if definition == null or definition.item_type != ItemDefinition.ItemType.GEAR or not GEAR_KEYS.has(key) or not _gear_fits(key, definition.gear_slot):
+		return {"ok": false, "reason": "INCOMPATIBLE SLOT"}
+	if instance.is_broken():
+		return {"ok": false, "reason": "ITEM BROKEN"}
+	for equipped_key: String in GEAR_KEYS:
+		if equipped_key != key and String(equipped_gear_instances.get(equipped_key, "")) == instance.instance_id and not (origin_kind == "loadout_gear" and String(origin_key) == equipped_key):
+			return {"ok": false, "reason": "ITEM ALREADY EQUIPPED"}
+	return {"ok": true, "reason": ""}
+
+
+func _clear_item_origin(kind: String, key: Variant) -> void:
+	match kind:
+		"inventory": main_inventory[int(key)] = ""
+		"loadout_weapon":
+			weapon_slots[int(key)] = ""
+			weapon_instance_slots[int(key)] = ""
+		"loadout_skill": skill_slots[int(key)] = ""
+		"loadout_gear":
+			equipped_gear[String(key)] = ""
+			equipped_gear_instances[String(key)] = ""
+
+
+func _set_loadout_target(kind: String, key: Variant, instance: ItemInstance) -> void:
+	var definition_id := String(instance.definition_id)
+	match kind:
+		"loadout_weapon":
+			weapon_slots[int(key)] = definition_id
+			weapon_instance_slots[int(key)] = instance.instance_id
+		"loadout_skill": skill_slots[int(key)] = definition_id
+		"loadout_gear":
+			equipped_gear[String(key)] = definition_id
+			equipped_gear_instances[String(key)] = instance.instance_id
+
+
+func _swap_loadout_slots(kind: String, source_key: Variant, target_key: Variant) -> void:
+	match kind:
+		"loadout_weapon":
+			var source := int(source_key)
+			var target := int(target_key)
+			var item_id := weapon_slots[source]
+			var instance_id := weapon_instance_slots[source]
+			weapon_slots[source] = weapon_slots[target]
+			weapon_instance_slots[source] = weapon_instance_slots[target]
+			weapon_slots[target] = item_id
+			weapon_instance_slots[target] = instance_id
+		"loadout_skill":
+			var source := int(source_key)
+			var target := int(target_key)
+			var item_id := skill_slots[source]
+			skill_slots[source] = skill_slots[target]
+			skill_slots[target] = item_id
+		"loadout_gear":
+			var source := String(source_key)
+			var target := String(target_key)
+			var item_id := String(equipped_gear.get(source, ""))
+			var instance_id := String(equipped_gear_instances.get(source, ""))
+			equipped_gear[source] = String(equipped_gear.get(target, ""))
+			equipped_gear_instances[source] = String(equipped_gear_instances.get(target, ""))
+			equipped_gear[target] = item_id
+			equipped_gear_instances[target] = instance_id
+
+
+func _get_loadout_instance(kind: String, key: Variant) -> ItemInstance:
+	match kind:
+		"loadout_weapon": return get_weapon_instance(int(key))
+		"loadout_skill":
+			var slot := int(key)
+			return get_instance_for_definition(skill_slots[slot]) if slot >= 0 and slot < skill_slots.size() else null
+		"loadout_gear": return get_gear_instance(String(key))
+	return null
+
+
+func _preferred_gear_key(definition: ItemDefinition) -> String:
+	match definition.gear_slot:
+		ItemDefinition.GearSlot.HELMET: return "helmet"
+		ItemDefinition.GearSlot.CHEST: return "chest"
+		ItemDefinition.GearSlot.GLOVES: return "gloves"
+		ItemDefinition.GearSlot.BOOTS: return "boots"
+		ItemDefinition.GearSlot.NECKLACE: return "necklace"
+		ItemDefinition.GearSlot.CHARM: return "charm"
+		ItemDefinition.GearSlot.RING:
+			return "ring_1" if String(equipped_gear_instances.get("ring_1", "")).is_empty() else "ring_2"
+	return ""
+
+
+func _references_are_unique() -> bool:
+	var references: Dictionary = {}
+	for slot: int in main_inventory.size():
+		var instance := get_inventory_instance(slot)
+		if instance == null:
+			continue
+		if references.has(instance.instance_id):
+			return false
+		references[instance.instance_id] = true
+	for instance_id: String in weapon_instance_slots:
+		if instance_id.is_empty():
+			continue
+		if references.has(instance_id):
+			return false
+		references[instance_id] = true
+	for key: String in GEAR_KEYS:
+		var instance_id := String(equipped_gear_instances.get(key, ""))
+		if instance_id.is_empty():
+			continue
+		if references.has(instance_id):
+			return false
+		references[instance_id] = true
+	if not skill_slots[0].is_empty() and skill_slots[0] == skill_slots[1]:
+		return false
+	return true
+
+
+func _instance_reference_count(instance_id: String) -> int:
+	var count := 0
+	for slot: int in main_inventory.size():
+		var inventory_instance := get_inventory_instance(slot)
+		if inventory_instance != null and inventory_instance.instance_id == instance_id:
+			count += 1
+	for equipped_id: String in weapon_instance_slots:
+		if equipped_id == instance_id:
+			count += 1
+	for key: String in GEAR_KEYS:
+		if String(equipped_gear_instances.get(key, "")) == instance_id:
+			count += 1
+	return count

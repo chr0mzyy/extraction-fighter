@@ -15,6 +15,7 @@ const MYTHIC_IDS: Array[String] = [
 var flash: MeshInstance3D
 var flash_nodes: Array[MeshInstance3D] = []
 var smoke_nodes: Array[MeshInstance3D] = []
+var ads_occluders: Array[MeshInstance3D] = []
 var active_flash_index: int = 0
 var trail: MeshInstance3D
 var generated_root: Node3D
@@ -59,6 +60,7 @@ func _rebuild_model(item_id: String) -> void:
 	flash = null
 	flash_nodes.clear()
 	smoke_nodes.clear()
+	ads_occluders.clear()
 	trail = null
 	var palette := _make_palette()
 	match model:
@@ -163,20 +165,40 @@ func _build_rifle(p: Dictionary, rifle_kind: int) -> void:
 func _add_rifle_optics(p: Dictionary, rifle_kind: int) -> void:
 	var scope_length: float = float([0.58, 0.38, 0.42, 0.50][rifle_kind]) + 0.045 * variant_tier
 	var scope_z := -0.38
-	_box(Vector3(0.0, 0.145, -0.38), Vector3(0.09, 0.035, 0.76), p.dark).name = "OpticRail"
+	var optic_rail := _box(Vector3(0.0, 0.145, -0.38), Vector3(0.09, 0.035, 0.76), p.dark)
+	optic_rail.name = "OpticRail"
+	ads_occluders.append(optic_rail)
 	for mount_z: float in [-0.20, -0.52]:
-		_box(Vector3(0.0, 0.205, mount_z), Vector3(0.075, 0.12, 0.045), p.primary)
+		var mount := _box(Vector3(0.0, 0.205, mount_z), Vector3(0.075, 0.12, 0.045), p.primary)
+		mount.name = "ScopeMount"
+		ads_occluders.append(mount)
 	var scope := _cylinder(Vector3(0.0, 0.255, scope_z), 0.060 + rifle_kind * 0.003, scope_length, p.dark, Vector3(PI / 2.0, 0.0, 0.0))
 	scope.name = "Scope_%s" % variant_id
-	_cylinder(Vector3(0.0, 0.255, scope_z - scope_length * 0.51), 0.068, 0.04, p.secondary, Vector3(PI / 2.0, 0.0, 0.0))
+	_open_cylinder(scope)
+	ads_occluders.append(scope)
+	var scope_ring := _cylinder(Vector3(0.0, 0.255, scope_z - scope_length * 0.51), 0.068, 0.04, p.secondary, Vector3(PI / 2.0, 0.0, 0.0))
+	scope_ring.name = "ScopeFrontRing"
+	_open_cylinder(scope_ring)
+	ads_occluders.append(scope_ring)
 	var lens_z: float = scope_z - scope_length * 0.535
 	var lens := _cylinder(Vector3(0.0, 0.255, lens_z), 0.052, 0.012, p.lens, Vector3(PI / 2.0, 0.0, 0.0))
 	lens.name = "ScopeLens"
-	_box(Vector3(0.0, 0.255, lens_z - 0.009), Vector3(0.006, 0.084, 0.006), p.glow).name = "ReticleVertical"
-	_box(Vector3(0.0, 0.255, lens_z - 0.010), Vector3(0.084, 0.006, 0.006), p.glow).name = "ReticleHorizontal"
-	_box(Vector3(0.0, 0.19, -0.04), Vector3(0.10, 0.075, 0.032), p.accent).name = "RearSight"
-	_box(Vector3(0.0, 0.19, -0.94), Vector3(0.095, 0.082, 0.026), p.accent).name = "FrontSight"
-	_box(Vector3(0.0, 0.235, -0.94), Vector3(0.018, 0.055, 0.018), p.glow)
+	ads_occluders.append(lens)
+	var reticle_vertical := _box(Vector3(0.0, 0.255, lens_z - 0.009), Vector3(0.006, 0.084, 0.006), p.glow)
+	reticle_vertical.name = "ReticleVertical"
+	ads_occluders.append(reticle_vertical)
+	var reticle_horizontal := _box(Vector3(0.0, 0.255, lens_z - 0.010), Vector3(0.084, 0.006, 0.006), p.glow)
+	reticle_horizontal.name = "ReticleHorizontal"
+	ads_occluders.append(reticle_horizontal)
+	var rear_sight := _box(Vector3(0.0, 0.19, -0.04), Vector3(0.10, 0.075, 0.032), p.accent)
+	rear_sight.name = "RearSight"
+	ads_occluders.append(rear_sight)
+	var front_sight := _box(Vector3(0.0, 0.19, -0.94), Vector3(0.095, 0.082, 0.026), p.accent)
+	front_sight.name = "FrontSight"
+	ads_occluders.append(front_sight)
+	var front_post := _box(Vector3(0.0, 0.235, -0.94), Vector3(0.018, 0.055, 0.018), p.glow)
+	front_post.name = "FrontSightPost"
+	ads_occluders.append(front_post)
 	generated_root.set_meta("has_scope", true)
 	generated_root.set_meta("has_sight", true)
 
@@ -259,6 +281,14 @@ func _cylinder(at: Vector3, radius: float, height: float, surface: Material, par
 	return result
 
 
+func _open_cylinder(part: MeshInstance3D) -> void:
+	var cylinder := part.mesh as CylinderMesh
+	if cylinder == null:
+		return
+	cylinder.cap_top = false
+	cylinder.cap_bottom = false
+
+
 func _default_variant_id() -> String:
 	return ["ronin_katana", "huntsman_rifle", "vanguard_rifle", "knight_sword", "war_nodachi", "falcon_burst", "ironclad_rifle", "arcane_wand", "service_glock", "twin_glock"][clampi(model, 0, 9)]
 
@@ -267,6 +297,7 @@ func _process(delta: float) -> void:
 	var weapon := get_parent() as WeaponBase
 	if weapon == null:
 		return
+	_update_ads_occluders(weapon)
 	var profile := weapon.get_presentation_profile()
 	recoil_offset = move_toward(recoil_offset, 0.0, delta * profile.fire_recovery)
 	if not flash_nodes.is_empty():
@@ -300,6 +331,36 @@ func _process(delta: float) -> void:
 		if trail.visible:
 			var heavy_trail := weapon.get("swing_strength") != null and float(weapon.get("swing_strength")) > 1.0
 			trail.scale = Vector3(2.0, 2.0, 1.0) if heavy_trail else Vector3.ONE
+
+
+func _update_ads_occluders(weapon: WeaponBase) -> void:
+	var wielder_is_first_person := false
+	if is_instance_valid(weapon.wielder):
+		var first_person_value: Variant = weapon.wielder.get("is_first_person")
+		wielder_is_first_person = first_person_value is bool and first_person_value
+	var fpp_ads := weapon.equipped and weapon.is_aiming_down_sights() and wielder_is_first_person
+	for part: MeshInstance3D in ads_occluders:
+		if is_instance_valid(part):
+			part.visible = not fpp_ads
+
+
+func get_visible_ads_occluder_count() -> int:
+	var visible_count := 0
+	for part: MeshInstance3D in ads_occluders:
+		if is_instance_valid(part) and part.visible:
+			visible_count += 1
+	return visible_count
+
+
+func is_scope_tunnel_open() -> bool:
+	if not is_instance_valid(generated_root):
+		return false
+	for child: Node in generated_root.get_children():
+		if not String(child.name).begins_with("Scope_") or not (child is MeshInstance3D):
+			continue
+		var cylinder := (child as MeshInstance3D).mesh as CylinderMesh
+		return cylinder != null and not cylinder.cap_top and not cylinder.cap_bottom
+	return false
 
 
 func _on_weapon_fired() -> void:

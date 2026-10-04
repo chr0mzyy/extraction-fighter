@@ -136,6 +136,8 @@ func _ready() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("menu_toggle"):
+		if not get_tree().paused and MouseModeService.current_mode == MouseModeService.Mode.SETTINGS:
+			return
 		pause_requested.emit()
 		get_viewport().set_input_as_handled()
 		return

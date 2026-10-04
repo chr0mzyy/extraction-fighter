@@ -46,6 +46,8 @@ func _ready() -> void:
 		_capture_validation_frame.bind(true).call_deferred()
 	elif "--capture-pause" in OS.get_cmdline_user_args():
 		_capture_pause_menu.call_deferred()
+	elif "--capture-ads" in OS.get_cmdline_user_args():
+		_capture_ads_frame.call_deferred()
 	elif "--loadout-integration-test" in OS.get_cmdline_user_args():
 		_run_loadout_integration_test.call_deferred()
 	elif "--content-arena-test" in OS.get_cmdline_user_args():
@@ -856,12 +858,28 @@ func _run_combat_feel_test() -> void:
 	test_sniper.secondary_pressed()
 	if not test_sniper.is_aiming_down_sights() or not player.should_hide_crosshair():
 		failures.append("Sniper ADS did not activate its precise hidden-crosshair state")
+	var sniper_placeholder := test_sniper.get_node_or_null("PlaceholderModel")
+	if sniper_placeholder == null:
+		failures.append("Sniper presentation model was unavailable for ADS validation")
+	else:
+		sniper_placeholder.call("_process", 0.0)
+		if not bool(sniper_placeholder.call("is_scope_tunnel_open")):
+			failures.append("Sniper scope tunnel remained capped")
+		if int(sniper_placeholder.call("get_visible_ads_occluder_count")) != 0:
+			failures.append("Sniper lens or model reticle still occluded FPP ADS")
+	hud._update_crosshair(0.0)
+	if not hud.ads_reticle_root.visible or hud.crosshair_root.visible:
+		failures.append("Precise HUD reticle did not replace the hip-fire crosshair in sniper ADS")
 	var audio_before := AudioEvents.emitted_count
 	var recoil_before := player.weapon_fire_offset
 	player.on_weapon_fired(&"sniper", true)
 	if player.weapon_fire_offset <= recoil_before or AudioEvents.emitted_count <= audio_before:
 		failures.append("Sniper firing feedback did not produce recoil and audio")
 	test_sniper.secondary_released()
+	if sniper_placeholder != null:
+		sniper_placeholder.call("_process", 0.0)
+		if int(sniper_placeholder.call("get_visible_ads_occluder_count")) != 11:
+			failures.append("Sniper lens presentation did not return after leaving ADS")
 	test_sniper.ammo = 0
 	test_sniper.fire_cooldown_remaining = 0.0
 	audio_before = AudioEvents.emitted_count
@@ -1795,3 +1813,18 @@ func _capture_validation_frame(third_person: bool = false) -> void:
 	else:
 		push_error("CAPTURE_FAILED: %s" % error_string(error))
 		get_tree().quit(1)
+
+
+func _capture_ads_frame() -> void:
+	player.set_camera_mode(true, false)
+	if player.weapons.size() > 1:
+		player.equip_weapon(1)
+	if player.current_weapon != null:
+		player.current_weapon.secondary_pressed()
+	for frame: int in 30:
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	var capture_path := "res://validation_capture_ads.png"
+	var error := image.save_png(capture_path)
+	print("ADS_CAPTURE_OK: " + capture_path if error == OK else "ADS_CAPTURE_FAILED: %s" % error_string(error))
+	get_tree().quit(0 if error == OK else 1)

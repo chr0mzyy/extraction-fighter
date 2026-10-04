@@ -19,10 +19,22 @@ var selected_kind: String = "weapon"
 var selected_slot: int = 0
 var selected_gear_key: String = ""
 var stash_filter: int = -1
+var stash_subfilter: String = "all"
 var stash_sort: int = 0
+var stash_search: String = ""
+var selected_instance_id: String = ""
 var details_label: Label
+var comparison_details: RichTextLabel
 var feedback_label: Label
 var item_tooltip: ItemTooltip
+var context_menu: PopupMenu
+var context_payload: Dictionary = {}
+var repair_dialog: ConfirmationDialog
+var pending_repair: Dictionary = {}
+var top_gold_label: Label
+var current_screen: String = "main"
+var screen_tween: Tween
+var stash_search_timer: Timer
 var pending_bind_action: StringName = &""
 var pending_bind_button: Button
 var keybind_feedback: Label
@@ -76,6 +88,8 @@ func _ready() -> void:
 		_run_tooltip_self_test.call_deferred()
 	elif "--affix-self-test" in args:
 		_run_affix_self_test.call_deferred()
+	elif "--inventory-ui-test" in args:
+		_run_inventory_ui_test.call_deferred()
 	elif "--settings-self-test" in args:
 		_run_settings_self_test.call_deferred()
 	elif "--capture-loadout" in args:
@@ -93,6 +107,9 @@ func _ready() -> void:
 
 func _input(event: InputEvent) -> void:
 	if pending_bind_action == &"":
+		if event.is_action_pressed("menu_toggle") and current_screen != "main":
+			_show_main()
+			get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey:
 		var key_event := event as InputEventKey
@@ -109,14 +126,14 @@ func _input(event: InputEvent) -> void:
 
 
 func _should_route_to_arena(args: PackedStringArray) -> bool:
-	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test"]:
+	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--capture-ads", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test"]:
 		if flag in args:
 			return true
 	return false
 
 
 func _should_route_to_dungeon(args: PackedStringArray) -> bool:
-	for flag in ["--dungeon-self-test", "--extraction-flow-test", "--durability-self-test", "--dungeon-soak-test"]:
+	for flag in ["--dungeon-self-test", "--extraction-flow-test", "--durability-self-test", "--dungeon-soak-test", "--capture-dungeon-inventory"]:
 		if flag in args:
 			return true
 	return false
@@ -195,9 +212,13 @@ func _build_shell() -> void:
 	brand_mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	var title := _label(title_row, " EXTRACTION FIGHTER", 38, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var milestone := _label(title_row, "LOCAL BUILD  //  01\nCOMBAT SYSTEM ONLINE", 11, COLOR_ACCENT)
+	var milestone := _label(title_row, "MVP 0.4.2  //  LOCAL\nLOADOUT SYSTEM ONLINE", 11, COLOR_ACCENT)
 	milestone.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	milestone.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	top_gold_label = _label(title_row, "%d GOLD" % PlayerProfile.gold, 13, COLOR_YELLOW)
+	top_gold_label.custom_minimum_size.x = 120
+	top_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	top_gold_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	var yellow_rule := ColorRect.new()
 	yellow_rule.color = COLOR_YELLOW
 	yellow_rule.anchor_left = 0.0
@@ -217,7 +238,7 @@ func _build_shell() -> void:
 	screen_host.offset_bottom = -42
 	add_child(screen_host)
 
-	footer_label = _label(self, "[ESC] BACK   //   LOCAL COMBAT PROFILE   //   SAVE VERSION 2", 11, COLOR_YELLOW)
+	footer_label = _label(self, "[ESC] BACK   //   LOCAL COMBAT PROFILE   //   SAVE VERSION 4", 11, COLOR_YELLOW)
 	footer_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	footer_label.offset_left = 30
 	footer_label.offset_right = -30
@@ -228,6 +249,20 @@ func _build_shell() -> void:
 	item_tooltip = ItemTooltip.new()
 	item_tooltip.name = "ItemTooltip"
 	add_child(item_tooltip)
+	item_tooltip.set_comparison_provider(PlayerProfile.get_comparison_instance)
+	context_menu = PopupMenu.new()
+	context_menu.name = "ItemContextMenu"
+	context_menu.index_pressed.connect(_on_context_action)
+	add_child(context_menu)
+	repair_dialog = ConfirmationDialog.new()
+	repair_dialog.title = "CONFIRM REPAIR"
+	repair_dialog.confirmed.connect(_execute_pending_repair)
+	add_child(repair_dialog)
+	stash_search_timer = Timer.new()
+	stash_search_timer.one_shot = true
+	stash_search_timer.wait_time = 0.18
+	stash_search_timer.timeout.connect(_show_stash)
+	add_child(stash_search_timer)
 
 
 func _add_shell_graphics() -> void:
@@ -277,14 +312,32 @@ func _clear_screen() -> void:
 	keybind_feedback = null
 	if item_tooltip != null:
 		item_tooltip.hide_item()
+	if context_menu != null:
+		context_menu.hide()
 	for child: Node in screen_host.get_children():
 		child.queue_free()
 	details_label = null
+	comparison_details = null
 	feedback_label = null
+	if top_gold_label != null:
+		top_gold_label.text = "%d GOLD" % PlayerProfile.gold
+	if screen_tween != null and screen_tween.is_valid():
+		screen_tween.kill()
+	screen_host.modulate.a = 0.15
+	screen_host.position.x = 8.0
+	_animate_screen_in.call_deferred()
+
+
+func _animate_screen_in() -> void:
+	screen_tween = create_tween().set_parallel(true)
+	screen_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	screen_tween.tween_property(screen_host, "modulate:a", 1.0, 0.16)
+	screen_tween.tween_property(screen_host, "position:x", 0.0, 0.16)
 
 
 func _show_main() -> void:
 	_clear_screen()
+	current_screen = "main"
 	var margin := _margin(screen_host, 34, 22, 34, 22)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 24)
@@ -337,6 +390,7 @@ func _show_main() -> void:
 
 
 func _show_play() -> void:
+	current_screen = "play"
 	var content := _show_simple_screen("SELECT ACTIVITY", "Choose a deployment route.")
 	var cards := HBoxContainer.new()
 	cards.name = "ActivityCards"
@@ -355,10 +409,11 @@ func _show_play() -> void:
 
 func _show_loadout() -> void:
 	_clear_screen()
-	var margin := _margin(screen_host, 28, 20, 28, 20)
+	current_screen = "loadout"
+	var margin := _margin(screen_host, 22, 16, 22, 16)
 	margin.name = "LoadoutMargin"
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 12)
+	root.add_theme_constant_override("separation", 9)
 	margin.add_child(root)
 	var header := HBoxContainer.new()
 	root.add_child(header)
@@ -368,40 +423,32 @@ func _show_loadout() -> void:
 	var power_label := _label(header, "POWER  %d / %d" % [power, PlayerProfile.POWER_LIMIT], 20, COLOR_READY if power <= PlayerProfile.POWER_LIMIT else COLOR_WARNING)
 	power_label.name = "PowerLabel"
 	power_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_label(header, "   %d GOLD" % PlayerProfile.gold, 13, COLOR_YELLOW)
 	var columns := HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 14)
+	columns.add_theme_constant_override("separation", 10)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(columns)
 
-	var equipped_panel := _panel(columns, Vector2(330, 0))
-	equipped_panel.name = "EquippedPanel"
-	var equipped_scroll := ScrollContainer.new()
-	equipped_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	equipped_panel.add_child(equipped_scroll)
-	var equipped_margin := _margin(equipped_scroll, 16, 14, 16, 14)
-	var equipped := VBoxContainer.new()
-	equipped.add_theme_constant_override("separation", 6)
-	equipped_margin.add_child(equipped)
-	_label(equipped, "WEAPONS", 12, COLOR_ACCENT)
-	for index: int in 2:
-		_add_slot_button(equipped, "[%d]  %s" % [index + 1, _definition_name(PlayerProfile.weapon_slots[index])], "weapon", index, PlayerProfile.get_definition(PlayerProfile.weapon_slots[index]), PlayerProfile.get_weapon_instance(index))
-	_label(equipped, "SKILLS", 12, COLOR_ACCENT)
-	for index: int in 2:
-		var definition := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
-		_add_slot_button(equipped, "[%s]  %s  •  %d" % [GameSettings.get_binding_text(&"skill_slot_1" if index == 0 else &"skill_slot_2"), definition.display_name, definition.power_cost], "skill", index, definition)
-	_label(equipped, "GEAR", 12, COLOR_ACCENT)
-	for key: String in PlayerProfile.GEAR_KEYS:
-		var slot_title := key.capitalize().replace(" 1", " I").replace(" 2", " II")
-		var gear_definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
-		_add_gear_slot_button(equipped, "%s  •  %s" % [slot_title, _definition_name(String(PlayerProfile.equipped_gear.get(key, "")))], key, gear_definition, PlayerProfile.get_gear_instance(key))
-
-	var choices_panel := _panel(columns)
+	var choices_panel := _panel(columns, Vector2(420, 0))
 	choices_panel.name = "ChoicesPanel"
 	choices_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var choices_margin := _margin(choices_panel, 16, 14, 16, 14)
+	var choices_margin := _margin(choices_panel, 12, 10, 12, 10)
 	var choices_root := VBoxContainer.new()
+	choices_root.add_theme_constant_override("separation", 7)
 	choices_margin.add_child(choices_root)
-	_label(choices_root, "OWNED OPTIONS", 12, COLOR_ACCENT)
+	_label(choices_root, "AVAILABLE  //  %s" % selected_kind.to_upper(), 12, COLOR_ACCENT)
+	var hint := _label(choices_root, "Drag to a compatible slot. Double-click for quick equip.", 10, COLOR_MUTED)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var storage_targets := HBoxContainer.new()
+	storage_targets.add_theme_constant_override("separation", 6)
+	choices_root.add_child(storage_targets)
+	var stash_target := _make_item_slot(storage_targets, null, null, "stash", "", {"compact": true, "empty_caption": "DROP → STASH"})
+	stash_target.custom_minimum_size = Vector2(185, 58)
+	var free_slot := PlayerProfile.get_first_free_inventory_slot()
+	var inventory_target := _make_item_slot(storage_targets, null, null, "inventory", free_slot, {"compact": true, "empty_caption": "DROP → INVENTORY"})
+	inventory_target.custom_minimum_size = Vector2(185, 58)
+	if free_slot < 0:
+		inventory_target.modulate.a = 0.38
 	var choices_scroll := ScrollContainer.new()
 	choices_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	choices_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -409,41 +456,85 @@ func _show_loadout() -> void:
 	var choices := GridContainer.new()
 	choices.name = "Choices"
 	choices.columns = 2
-	choices.add_theme_constant_override("h_separation", 8)
-	choices.add_theme_constant_override("v_separation", 8)
+	choices.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	choices.add_theme_constant_override("h_separation", 7)
+	choices.add_theme_constant_override("v_separation", 7)
 	choices_scroll.add_child(choices)
+	for instance: ItemInstance in _get_loadout_available_instances():
+		var definition := PlayerProfile.get_definition(String(instance.definition_id))
+		var inventory_slot := PlayerProfile.find_inventory_slot(instance.instance_id)
+		var origin_kind := "inventory" if inventory_slot >= 0 else "stash"
+		var origin_key: Variant = inventory_slot if inventory_slot >= 0 else ""
+		var item_slot := _make_item_slot(choices, definition, instance, origin_kind, origin_key, {"new": PlayerProfile.new_instance_ids.has(instance.instance_id)})
+		item_slot.custom_minimum_size = Vector2(194, 82)
 
-	var details_panel := _panel(columns, Vector2(285, 0))
+	var equipped_panel := _panel(columns, Vector2(355, 0))
+	equipped_panel.name = "EquippedPanel"
+	var equipped_margin := _margin(equipped_panel, 12, 10, 12, 10)
+	var equipped_root := VBoxContainer.new()
+	equipped_root.add_theme_constant_override("separation", 6)
+	equipped_margin.add_child(equipped_root)
+	var operative := _label(equipped_root, "OPERATIVE  //  ACTIVE KIT", 13, COLOR_YELLOW)
+	operative.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var equipped_scroll := ScrollContainer.new()
+	equipped_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	equipped_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	equipped_root.add_child(equipped_scroll)
+	var equipped := VBoxContainer.new()
+	equipped.add_theme_constant_override("separation", 5)
+	equipped_scroll.add_child(equipped)
+	_label(equipped, "WEAPONS", 11, COLOR_ACCENT)
+	for index: int in 2:
+		_add_loadout_target(equipped, "WEAPON %d" % (index + 1), "loadout_weapon", index, PlayerProfile.get_definition(PlayerProfile.weapon_slots[index]), PlayerProfile.get_weapon_instance(index))
+	_label(equipped, "SKILLS  //  %d / %d POWER" % [power, PlayerProfile.POWER_LIMIT], 11, COLOR_ACCENT)
+	for index: int in 2:
+		var definition := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
+		_add_loadout_target(equipped, "SKILL %s" % ("Q" if index == 0 else "E"), "loadout_skill", index, definition, PlayerProfile.get_instance_for_definition(PlayerProfile.skill_slots[index]))
+	_label(equipped, "GEAR", 11, COLOR_ACCENT)
+	for key: String in PlayerProfile.GEAR_KEYS:
+		var slot_title := key.to_upper().replace("_1", " 1").replace("_2", " 2")
+		var gear_definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
+		_add_loadout_target(equipped, slot_title, "loadout_gear", key, gear_definition, PlayerProfile.get_gear_instance(key), true)
+
+	var details_panel := _panel(columns, Vector2(270, 0))
 	details_panel.name = "DetailsPanel"
-	var details_margin := _margin(details_panel, 17, 15, 17, 15)
+	var details_margin := _margin(details_panel, 13, 11, 13, 11)
 	var details := VBoxContainer.new()
-	details.add_theme_constant_override("separation", 10)
+	details.add_theme_constant_override("separation", 7)
 	details_margin.add_child(details)
 	_label(details, "ITEM DETAILS", 12, COLOR_ACCENT)
-	details_label = _label(details, "Select an owned item.", 14, COLOR_TEXT)
+	details_label = _label(details, "Select, hover or right-click an item.", 12, COLOR_TEXT)
 	details_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	details_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	comparison_details = _make_comparison_details(details)
 	feedback_label = _label(details, "", 12, COLOR_WARNING)
+	feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var help := _label(details, "RIGHT CLICK  context menu\nDOUBLE CLICK  quick equip\nDRAG  move / equip", 10, COLOR_MUTED)
+	help.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_add_back_button(root)
-	_populate_loadout_choices(choices)
 
 
 func _show_stash() -> void:
 	_clear_screen()
-	var margin := _margin(screen_host, 28, 20, 28, 20)
+	current_screen = "stash"
+	var margin := _margin(screen_host, 20, 14, 20, 14)
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 10)
+	root.add_theme_constant_override("separation", 8)
 	margin.add_child(root)
 	var header := HBoxContainer.new()
 	root.add_child(header)
 	var title := _label(header, "STASH", 24, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(header, "%d GOLD" % PlayerProfile.gold, 13, COLOR_READY)
+	_label(header, "%d GOLD" % PlayerProfile.gold, 14, COLOR_YELLOW)
 	var repair_cost := PlayerProfile.get_equipped_repair_cost()
 	var repair := _button(header, "REPAIR EQUIPPED  •  %d" % repair_cost, false)
 	repair.custom_minimum_size = Vector2(205, 38)
 	repair.disabled = repair_cost <= 0
-	repair.pressed.connect(_repair_equipped)
+	repair.pressed.connect(_request_repair_equipped)
+	var repair_all_cost := PlayerProfile.get_all_damaged_repair_cost()
+	var repair_all := _button(header, "REPAIR ALL  •  %d" % repair_all_cost, false)
+	repair_all.custom_minimum_size = Vector2(175, 38)
+	repair_all.disabled = repair_all_cost <= 0
+	repair_all.pressed.connect(_request_repair_all)
 	_label(header, "%d ITEM INSTANCES" % PlayerProfile.owned_item_instances.size(), 13, COLOR_MUTED)
 	var header_back := _button(header, "BACK", false)
 	header_back.custom_minimum_size = Vector2(120, 38)
@@ -451,9 +542,29 @@ func _show_stash() -> void:
 	var filters := HBoxContainer.new()
 	filters.add_theme_constant_override("separation", 7)
 	root.add_child(filters)
-	for filter_data: Array in [["ALL", -1], ["WEAPONS", ItemDefinition.ItemType.WEAPON], ["SKILLS", ItemDefinition.ItemType.SKILL], ["GEAR", ItemDefinition.ItemType.GEAR], ["JUNK", ItemDefinition.ItemType.JUNK]]:
+	for filter_data: Array in [["ALL", -1], ["WEAPONS", ItemDefinition.ItemType.WEAPON], ["SKILLS", ItemDefinition.ItemType.SKILL], ["GEAR", ItemDefinition.ItemType.GEAR], ["CONSUMABLES", ItemDefinition.ItemType.CONSUMABLE], ["JUNK", ItemDefinition.ItemType.JUNK]]:
 		var button := _button(filters, filter_data[0], false)
 		button.pressed.connect(_set_stash_filter.bind(int(filter_data[1])))
+		if stash_filter == int(filter_data[1]):
+			button.add_theme_stylebox_override("normal", _style(Color(0.05, 0.13, 0.14), COLOR_ACCENT, 2, 0))
+	var search := LineEdit.new()
+	search.name = "StashSearch"
+	search.placeholder_text = "Search name, type or affix"
+	search.text = stash_search
+	search.custom_minimum_size = Vector2(230, 36)
+	search.text_changed.connect(_on_stash_search_changed)
+	filters.add_child(search)
+	if not stash_search.is_empty():
+		search.grab_focus.call_deferred()
+		search.set_caret_column.call_deferred(stash_search.length())
+	var subfilter := OptionButton.new()
+	var subfilter_options := _stash_subfilter_options()
+	for option: String in subfilter_options:
+		subfilter.add_item(option.to_upper().replace("_", " "))
+	var selected_subfilter := subfilter_options.find(stash_subfilter)
+	subfilter.select(maxi(0, selected_subfilter))
+	subfilter.item_selected.connect(_set_stash_subfilter.bind(subfilter_options))
+	filters.add_child(subfilter)
 	var sort_label := _label(filters, "SORT", 11, COLOR_MUTED)
 	sort_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sort_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -470,61 +581,122 @@ func _show_stash() -> void:
 	var stash_panel := _panel(body)
 	stash_panel.name = "StashPanel"
 	stash_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var stash_margin := _margin(stash_panel, 14, 12, 14, 12)
+	var stash_margin := _margin(stash_panel, 10, 9, 10, 9)
+	var stash_root := VBoxContainer.new()
+	stash_root.add_theme_constant_override("separation", 6)
+	stash_margin.add_child(stash_root)
+	var stash_heading := HBoxContainer.new()
+	stash_root.add_child(stash_heading)
+	var stash_title := _label(stash_heading, "STORAGE", 11, COLOR_ACCENT)
+	stash_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(stash_heading, "DROP HERE TO UNEQUIP / STORE", 9, COLOR_MUTED)
 	var stash_scroll := ScrollContainer.new()
 	stash_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	stash_margin.add_child(stash_scroll)
+	stash_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stash_root.add_child(stash_scroll)
 	var item_grid := GridContainer.new()
-	item_grid.columns = 3
-	item_grid.add_theme_constant_override("h_separation", 8)
-	item_grid.add_theme_constant_override("v_separation", 8)
+	item_grid.columns = 2
+	item_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	item_grid.add_theme_constant_override("h_separation", 6)
+	item_grid.add_theme_constant_override("v_separation", 6)
 	stash_scroll.add_child(item_grid)
 	for instance: ItemInstance in _get_sorted_stash_instances():
 		var definition := PlayerProfile.get_definition(String(instance.definition_id))
-		var condition := "  BROKEN" if instance.is_broken() else ("  %d%%" % roundi(instance.current_durability / instance.max_durability * 100.0) if instance.max_durability > 0.0 else "")
-		var equipped := "  EQUIPPED" if _is_instance_equipped(instance.instance_id) else ""
-		var item_button := _button(item_grid, "%s%s\n%s%s  •  %s" % [definition.display_name, condition, definition.get_type_name().to_upper(), equipped, definition.get_rarity_name().to_upper()], false)
-		item_button.custom_minimum_size = Vector2(190, 64)
-		item_button.pressed.connect(_show_item_details.bind(definition))
-		_bind_tooltip(item_button, definition, instance)
-	var inventory_panel := _panel(body, Vector2(390, 0))
+		var item_slot := _make_item_slot(item_grid, definition, instance, "stash", "", {"selected": selected_instance_id == instance.instance_id, "new": PlayerProfile.new_instance_ids.has(instance.instance_id)})
+		item_slot.custom_minimum_size = Vector2(205, 78)
+	if item_grid.get_child_count() == 0:
+		var empty := _label(item_grid, "NO ITEMS MATCH THIS FILTER", 11, COLOR_MUTED)
+		empty.custom_minimum_size = Vector2(410, 80)
+	var inventory_panel := _panel(body, Vector2(360, 0))
 	inventory_panel.name = "InventoryPanel"
-	var inventory_margin := _margin(inventory_panel, 14, 12, 14, 12)
+	var inventory_margin := _margin(inventory_panel, 10, 9, 10, 9)
 	var inventory_root := VBoxContainer.new()
-	inventory_root.add_theme_constant_override("separation", 9)
+	inventory_root.add_theme_constant_override("separation", 6)
 	inventory_margin.add_child(inventory_root)
-	_label(inventory_root, "MAIN INVENTORY  •  24 SLOTS", 12, COLOR_ACCENT)
+	var inventory_heading := HBoxContainer.new()
+	inventory_root.add_child(inventory_heading)
+	var inventory_title := _label(inventory_heading, "INVENTORY", 11, COLOR_ACCENT)
+	inventory_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(inventory_heading, "%d / %d" % [PlayerProfile.INVENTORY_SIZE - _inventory_free_slots(), PlayerProfile.INVENTORY_SIZE], 10, COLOR_MUTED)
+	var inventory_scroll := ScrollContainer.new()
+	inventory_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inventory_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	inventory_root.add_child(inventory_scroll)
 	var inventory_grid := GridContainer.new()
-	inventory_grid.columns = 6
+	inventory_grid.columns = 3
+	inventory_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	inventory_grid.add_theme_constant_override("h_separation", 5)
 	inventory_grid.add_theme_constant_override("v_separation", 5)
-	inventory_root.add_child(inventory_grid)
+	inventory_scroll.add_child(inventory_grid)
 	for index: int in PlayerProfile.INVENTORY_SIZE:
-		var item_id := PlayerProfile.main_inventory[index]
-		var slot := _button(inventory_grid, str(index + 1) if item_id.is_empty() else _definition_name(item_id).left(3), false)
+		var instance := PlayerProfile.get_inventory_instance(index)
+		var definition := PlayerProfile.get_inventory_definition(index)
+		var slot := _make_item_slot(inventory_grid, definition, instance, "inventory", index, {"compact": true, "selected": instance != null and selected_instance_id == instance.instance_id, "new": instance != null and PlayerProfile.new_instance_ids.has(instance.instance_id), "empty_caption": "SLOT %02d" % (index + 1)})
 		slot.name = "InventorySlot%d" % index
-		slot.custom_minimum_size = Vector2(50, 50)
-		slot.disabled = item_id.is_empty()
-		if not item_id.is_empty():
-			_bind_tooltip(slot, PlayerProfile.get_definition(item_id), PlayerProfile.get_instance_for_definition(item_id))
-	details_label = _label(inventory_root, "Empty slots are ready for future dungeon loot.", 12, COLOR_MUTED)
+		slot.custom_minimum_size = Vector2(104, 68)
+
+	var details_panel := _panel(body, Vector2(245, 0))
+	details_panel.name = "DetailsPanel"
+	var details_margin := _margin(details_panel, 12, 10, 12, 10)
+	var details_root := VBoxContainer.new()
+	details_root.add_theme_constant_override("separation", 7)
+	details_margin.add_child(details_root)
+	_label(details_root, "ITEM DETAILS", 11, COLOR_ACCENT)
+	details_label = _label(details_root, "Select an item for details and actions.", 12, COLOR_TEXT)
 	details_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	details_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	comparison_details = _make_comparison_details(details_root)
+	feedback_label = _label(details_root, "", 11, COLOR_WARNING)
+	feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if not selected_instance_id.is_empty():
+		_show_selected_instance_details(selected_instance_id)
 
 
 func _show_customization() -> void:
-	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.1.")
+	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.2.")
 
 
-func _repair_equipped() -> void:
-	var success := PlayerProfile.repair_all_equipped()
-	_show_stash()
-	footer_label.text = "EQUIPPED ITEMS REPAIRED" if success else PlayerProfile.last_error.to_upper()
-	footer_label.add_theme_color_override("font_color", COLOR_READY if success else COLOR_WARNING)
+func _request_repair_instance(instance_id: String) -> void:
+	var instance := PlayerProfile.get_instance(instance_id)
+	var definition := PlayerProfile.get_definition(String(instance.definition_id)) if instance != null else null
+	var cost := DurabilityService.repair_cost(instance, definition)
+	if instance == null or definition == null or cost <= 0:
+		_show_transfer_feedback("ITEM DOES NOT NEED REPAIR", false, &"ui_invalid")
+		return
+	pending_repair = {"kind": "item", "instance_id": instance_id, "cost": cost}
+	repair_dialog.dialog_text = "%s\n%d → %d DURABILITY\nCost: %d Gold" % [definition.display_name.to_upper(), ceili(instance.current_durability), ceili(instance.max_durability), cost]
+	repair_dialog.popup_centered(Vector2i(390, 190))
+
+
+func _request_repair_equipped() -> void:
+	var cost := PlayerProfile.get_equipped_repair_cost()
+	pending_repair = {"kind": "equipped", "cost": cost}
+	repair_dialog.dialog_text = "REPAIR ALL EQUIPPED ITEMS\nCost: %d Gold\n\nGold after repair: %d" % [cost, PlayerProfile.gold - cost]
+	repair_dialog.popup_centered(Vector2i(390, 190))
+
+
+func _request_repair_all() -> void:
+	var cost := PlayerProfile.get_all_damaged_repair_cost()
+	pending_repair = {"kind": "all", "cost": cost}
+	repair_dialog.dialog_text = "REPAIR ALL DAMAGED ITEMS\nCost: %d Gold\n\nGold after repair: %d" % [cost, PlayerProfile.gold - cost]
+	repair_dialog.popup_centered(Vector2i(390, 190))
+
+
+func _execute_pending_repair() -> void:
+	var success := false
+	match String(pending_repair.get("kind", "")):
+		"item": success = PlayerProfile.repair_instance(String(pending_repair.get("instance_id", "")))
+		"equipped": success = PlayerProfile.repair_all_equipped()
+		"all": success = PlayerProfile.repair_all_damaged()
+	_show_transfer_feedback("REPAIR COMPLETE" if success else PlayerProfile.last_error, success, &"ui_repair" if success else &"ui_invalid")
+	pending_repair.clear()
+	if success:
+		_refresh_current_inventory_screen()
 
 
 func _show_settings() -> void:
 	_clear_screen()
+	current_screen = "settings"
 	var margin := _margin(screen_host, 30, 20, 30, 20)
 	var root := VBoxContainer.new()
 	root.name = "SettingsRoot"
@@ -661,6 +833,7 @@ func _restore_setting_defaults() -> void:
 
 
 func _show_keybinds() -> void:
+	current_screen = "keybinds"
 	var content := _show_simple_screen("KEYBINDS", "Click a binding, then press a keyboard or mouse button. Escape cancels.")
 	var scroll := ScrollContainer.new()
 	scroll.name = "KeybindsScroll"
@@ -739,6 +912,7 @@ func _show_training_placeholder() -> void:
 
 
 func _show_placeholder(title: String, status: String, body: String) -> void:
+	current_screen = "placeholder"
 	var content := _show_simple_screen(title, body)
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -762,6 +936,202 @@ func _show_simple_screen(title: String, subtitle: String) -> VBoxContainer:
 	_label(content, title, 26, COLOR_TEXT)
 	_label(content, subtitle, 13, COLOR_MUTED)
 	return content
+
+
+func _make_item_slot(parent: Control, definition: ItemDefinition, instance: ItemInstance, kind: String, key: Variant, options: Dictionary = {}) -> InventoryItemSlot:
+	var slot := InventoryItemSlot.new()
+	var configured_options := options.duplicate()
+	configured_options["compatibility_checker"] = PlayerProfile.can_transfer_item
+	configured_options["drop_handler"] = _on_item_dropped
+	slot.configure(definition, instance, kind, key, configured_options)
+	parent.add_child(slot)
+	slot.selected_requested.connect(_select_item_payload)
+	slot.quick_action_requested.connect(_quick_equip_payload)
+	slot.context_requested.connect(_open_item_context)
+	slot.drag_started.connect(_on_item_drag_started)
+	slot.drag_finished.connect(_clear_drag_hints)
+	_bind_tooltip(slot, definition, instance)
+	return slot
+
+
+func _add_loadout_target(parent: Control, caption: String, kind: String, key: Variant, definition: ItemDefinition, instance: ItemInstance, compact: bool = false) -> void:
+	var heading := HBoxContainer.new()
+	parent.add_child(heading)
+	var caption_label := _label(heading, caption, 10, COLOR_MUTED)
+	caption_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if definition != null and definition.item_type == ItemDefinition.ItemType.SKILL:
+		_label(heading, "%d POWER" % definition.power_cost, 9, COLOR_YELLOW)
+	var is_selected := (selected_kind == "weapon" and kind == "loadout_weapon" and selected_slot == int(key)) or (selected_kind == "skill" and kind == "loadout_skill" and selected_slot == int(key)) or (selected_kind == "gear" and kind == "loadout_gear" and selected_gear_key == String(key))
+	var slot := _make_item_slot(parent, definition, instance, kind, key, {"selected": is_selected, "equipped": definition != null, "compact": compact, "empty_caption": caption + "  •  EMPTY"})
+	slot.custom_minimum_size.y = 66 if compact else 76
+	slot.selected_requested.connect(_on_loadout_slot_selected.bind(kind, key))
+
+
+func _on_loadout_slot_selected(_payload: Dictionary, kind: String, key: Variant) -> void:
+	match kind:
+		"loadout_weapon":
+			selected_kind = "weapon"
+			selected_slot = int(key)
+		"loadout_skill":
+			selected_kind = "skill"
+			selected_slot = int(key)
+		"loadout_gear":
+			selected_kind = "gear"
+			selected_gear_key = String(key)
+	_show_loadout()
+
+
+func _get_loadout_available_instances() -> Array[ItemInstance]:
+	var type_filter := ItemDefinition.ItemType.WEAPON
+	if selected_kind == "skill":
+		type_filter = ItemDefinition.ItemType.SKILL
+	elif selected_kind == "gear":
+		type_filter = ItemDefinition.ItemType.GEAR
+	var result: Array[ItemInstance] = []
+	for instance: ItemInstance in PlayerProfile.get_owned_instances(type_filter):
+		if PlayerProfile.is_instance_equipped(instance.instance_id):
+			continue
+		var definition := PlayerProfile.get_definition(String(instance.definition_id))
+		if selected_kind == "skill" and String(definition.id) in PlayerProfile.skill_slots:
+			continue
+		if selected_kind == "gear" and not _definition_fits_selected_gear(definition):
+			continue
+		result.append(instance)
+	result.sort_custom(func(a: ItemInstance, b: ItemInstance) -> bool:
+		var a_definition := PlayerProfile.get_definition(String(a.definition_id))
+		var b_definition := PlayerProfile.get_definition(String(b.definition_id))
+		return a_definition.rarity > b_definition.rarity if a_definition.rarity != b_definition.rarity else a_definition.display_name < b_definition.display_name
+	)
+	return result
+
+
+func _select_item_payload(payload: Dictionary) -> void:
+	selected_instance_id = String(payload.get("instance_id", ""))
+	if selected_instance_id.is_empty():
+		return
+	PlayerProfile.new_instance_ids.erase(selected_instance_id)
+	_show_selected_instance_details(selected_instance_id)
+
+
+func _show_selected_instance_details(instance_id: String) -> void:
+	var instance := PlayerProfile.get_instance(instance_id)
+	var definition := PlayerProfile.get_definition(String(instance.definition_id)) if instance != null else null
+	if definition == null or details_label == null:
+		return
+	_show_item_details(definition, instance)
+	if comparison_details != null:
+		var equipped_instance := PlayerProfile.get_comparison_instance(definition)
+		var equipped_definition := PlayerProfile.get_definition(String(equipped_instance.definition_id)) if equipped_instance != null else null
+		comparison_details.text = item_tooltip._build_comparison(definition, instance, equipped_definition, equipped_instance)
+		comparison_details.visible = not comparison_details.text.is_empty()
+
+
+func _make_comparison_details(parent: Control) -> RichTextLabel:
+	var comparison := RichTextLabel.new()
+	comparison.bbcode_enabled = true
+	comparison.fit_content = true
+	comparison.scroll_active = false
+	comparison.add_theme_font_size_override("normal_font_size", 11)
+	comparison.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	comparison.visible = false
+	parent.add_child(comparison)
+	return comparison
+
+
+func _quick_equip_payload(payload: Dictionary) -> void:
+	var success := PlayerProfile.quick_equip_instance(String(payload.get("instance_id", "")))
+	_show_transfer_feedback("ITEM EQUIPPED" if success else PlayerProfile.last_error, success, &"ui_equip" if success else &"ui_invalid")
+	if success:
+		_refresh_current_inventory_screen()
+
+
+func _on_item_dropped(payload: Dictionary, target_kind: String, target_key: Variant) -> void:
+	var success := PlayerProfile.transfer_item(payload, target_kind, target_key)
+	_show_transfer_feedback("ITEM MOVED" if success else PlayerProfile.last_error, success, &"ui_equip" if target_kind.begins_with("loadout_") and success else (&"ui_unequip" if success else &"ui_invalid"))
+	_clear_drag_hints()
+	if success:
+		_refresh_current_inventory_screen()
+
+
+func _on_item_drag_started(payload: Dictionary) -> void:
+	for node: Node in find_children("*", "InventoryItemSlot", true, false):
+		var slot := node as InventoryItemSlot
+		if slot == null:
+			continue
+		var result := PlayerProfile.can_transfer_item(payload, slot.slot_kind, slot.slot_key)
+		slot.set_drag_hint(1 if bool(result.get("ok", false)) else -1)
+
+
+func _clear_drag_hints() -> void:
+	for node: Node in find_children("*", "InventoryItemSlot", true, false):
+		var slot := node as InventoryItemSlot
+		if slot != null:
+			slot.set_drag_hint(0)
+
+
+func _refresh_current_inventory_screen() -> void:
+	if current_screen == "loadout":
+		_show_loadout()
+	elif current_screen == "stash":
+		_show_stash()
+
+
+func _show_transfer_feedback(message: String, success: bool, audio_event: StringName) -> void:
+	footer_label.text = message.to_upper()
+	footer_label.add_theme_color_override("font_color", COLOR_READY if success else COLOR_WARNING)
+	if feedback_label != null:
+		feedback_label.text = message.to_upper()
+		feedback_label.add_theme_color_override("font_color", COLOR_READY if success else COLOR_WARNING)
+	AudioEvents.play(audio_event)
+
+
+func _open_item_context(payload: Dictionary, global_position: Vector2) -> void:
+	context_payload = payload.duplicate(true)
+	context_menu.clear()
+	var instance := PlayerProfile.get_instance(String(payload.get("instance_id", "")))
+	var definition := PlayerProfile.get_definition(String(instance.definition_id)) if instance != null else null
+	if definition == null:
+		return
+	var origin_kind := String(payload.get("origin_kind", ""))
+	if origin_kind.begins_with("loadout_"):
+		context_menu.add_item("UNEQUIP TO INVENTORY", 2)
+		context_menu.add_item("UNEQUIP TO STASH", 3)
+	elif definition.item_type in [ItemDefinition.ItemType.WEAPON, ItemDefinition.ItemType.SKILL, ItemDefinition.ItemType.GEAR]:
+		context_menu.add_item("EQUIP", 1)
+	if instance.max_durability > 0.0 and instance.current_durability < instance.max_durability:
+		context_menu.add_separator()
+		context_menu.add_item("REPAIR  •  %d GOLD" % DurabilityService.repair_cost(instance, definition), 4)
+	context_menu.add_separator()
+	context_menu.add_item("INSPECT", 5)
+	context_menu.position = Vector2i(global_position)
+	context_menu.popup()
+
+
+func _on_context_action(action_id: int) -> void:
+	var instance_id := String(context_payload.get("instance_id", ""))
+	var success := false
+	match action_id:
+		1:
+			success = PlayerProfile.quick_equip_instance(instance_id)
+			_show_transfer_feedback("ITEM EQUIPPED" if success else PlayerProfile.last_error, success, &"ui_equip" if success else &"ui_invalid")
+		2:
+			var free_slot := PlayerProfile.get_first_free_inventory_slot()
+			if free_slot < 0:
+				_show_transfer_feedback("NO FREE SLOT", false, &"ui_invalid")
+			else:
+				success = PlayerProfile.transfer_item(context_payload, "inventory", free_slot)
+				_show_transfer_feedback("ITEM MOVED TO INVENTORY" if success else PlayerProfile.last_error, success, &"ui_unequip" if success else &"ui_invalid")
+		3:
+			success = PlayerProfile.transfer_item(context_payload, "stash", "")
+			_show_transfer_feedback("ITEM MOVED TO STASH" if success else PlayerProfile.last_error, success, &"ui_unequip" if success else &"ui_invalid")
+		4:
+			_request_repair_instance(instance_id)
+			return
+		5:
+			_select_item_payload(context_payload)
+			return
+	if success:
+		_refresh_current_inventory_screen()
 
 
 func _add_slot_button(parent: Control, text: String, kind: String, slot: int, definition: ItemDefinition = null, instance: ItemInstance = null) -> void:
@@ -850,20 +1220,44 @@ func _equip_instance(definition: ItemDefinition, instance: ItemInstance) -> void
 		AudioEvents.play(&"ui_invalid")
 
 
-func _show_item_details(definition: ItemDefinition) -> void:
+func _show_item_details(definition: ItemDefinition, instance: ItemInstance = null) -> void:
 	if details_label == null:
 		return
-	var lines: Array[String] = [definition.display_name.to_upper(), definition.get_type_name(), definition.get_rarity_name(), "", definition.description]
+	if instance == null:
+		instance = PlayerProfile.get_instance_for_definition(String(definition.id))
+	var lines: Array[String] = [definition.display_name.to_upper(), definition.get_rarity_name().to_upper(), "", '"%s"' % (definition.flavor_text if not definition.flavor_text.is_empty() else definition.description), "", definition.get_type_name().to_upper()]
 	if definition.item_type == ItemDefinition.ItemType.SKILL:
-		lines.append("\nPOWER  %d" % definition.power_cost)
+		lines.append("POWER  %d" % definition.power_cost)
+		lines.append("COOLDOWN  %.1fs" % definition.cooldown)
+		lines.append("CURRENT TOTAL  %d / %d" % [PlayerProfile.get_skill_power(), PlayerProfile.POWER_LIMIT])
 	elif definition.item_type == ItemDefinition.ItemType.WEAPON:
-		lines.append("\nFAMILY  %s" % String(definition.weapon_family).capitalize())
+		lines.append("FAMILY  %s" % String(definition.weapon_family).replace("_", " ").to_upper())
+		if definition.damage > 0.0: lines.append("DAMAGE  %s" % _format_setting_value(definition.damage))
+		if definition.fire_rate > 0.0: lines.append("FIRE RATE  %s / SEC" % _format_setting_value(definition.fire_rate))
+		if definition.magazine_size > 0: lines.append("MAGAZINE  %d" % definition.magazine_size)
+		if definition.reload_time > 0.0: lines.append("RELOAD  %.2fs" % definition.reload_time)
+		if definition.headshot_damage > 0.0: lines.append("HEADSHOT  %s" % _format_setting_value(definition.headshot_damage))
 	elif definition.item_type == ItemDefinition.ItemType.GEAR:
-		lines.append("\nSLOT  %s" % definition.get_gear_slot_name())
-	var instance := PlayerProfile.get_instance_for_definition(String(definition.id))
+		lines.append("SLOT  %s" % definition.get_gear_slot_name().to_upper())
+		if definition.armor_value > 0: lines.append("ARMOR  %d" % definition.armor_value)
+		if not definition.modifier_text.is_empty(): lines.append("BONUS  %s" % definition.modifier_text)
+	if definition.rarity == ItemDefinition.Rarity.MYTHIC and not definition.special_description.is_empty():
+		lines.append("\nUNIQUE  //  %s\n%s" % [definition.display_name.to_upper(), definition.special_description])
+	if instance != null and not instance.affix_ids.is_empty():
+		lines.append("\nAFFIXES")
+		for index: int in instance.affix_ids.size():
+			var affix := AffixDatabase.get_definition(instance.affix_ids[index])
+			if affix == null:
+				continue
+			var tier := instance.affix_tiers[index] if index < instance.affix_tiers.size() else 1
+			lines.append("%s %s\n%s" % [affix.display_name, ["I", "II", "III"][clampi(tier, 1, 3) - 1], affix.formatted_description(tier)])
 	if instance != null and instance.max_durability > 0.0:
 		lines.append("\nDURABILITY  %d / %d" % [ceili(instance.current_durability), ceili(instance.max_durability)])
+		if instance.is_broken(): lines.append("BROKEN  //  CANNOT EQUIP")
+		elif instance.current_durability / instance.max_durability <= 0.2: lines.append("LOW DURABILITY")
 		lines.append("REPAIR COST  %d GOLD" % DurabilityService.repair_cost(instance, definition))
+	if definition.sell_value > 0:
+		lines.append("\nVALUE  %d GOLD" % definition.sell_value)
 	details_label.text = "\n".join(lines)
 
 
@@ -871,7 +1265,13 @@ func _bind_tooltip(control: Control, definition: ItemDefinition, instance: ItemI
 	if definition == null or item_tooltip == null:
 		return
 	control.mouse_entered.connect(item_tooltip.show_item.bind(definition, instance))
+	if instance != null:
+		control.mouse_entered.connect(_mark_item_seen.bind(instance.instance_id))
 	control.mouse_exited.connect(item_tooltip.hide_item.bind(definition))
+
+
+func _mark_item_seen(instance_id: String) -> void:
+	PlayerProfile.new_instance_ids.erase(instance_id)
 
 
 func _is_definition_selected(definition: ItemDefinition) -> bool:
@@ -931,6 +1331,7 @@ func _configure_content_loadout() -> void:
 
 func _set_stash_filter(filter_value: int) -> void:
 	stash_filter = filter_value
+	stash_subfilter = "all"
 	_show_stash()
 
 
@@ -939,8 +1340,33 @@ func _set_stash_sort(sort_value: int) -> void:
 	_show_stash()
 
 
+func _set_stash_subfilter(index: int, options: Array[String]) -> void:
+	stash_subfilter = options[clampi(index, 0, options.size() - 1)]
+	_show_stash()
+
+
+func _on_stash_search_changed(value: String) -> void:
+	stash_search = value.strip_edges()
+	stash_search_timer.start()
+
+
+func _stash_subfilter_options() -> Array[String]:
+	if stash_filter == ItemDefinition.ItemType.WEAPON:
+		return ["all", "melee", "ranged", "magic"]
+	if stash_filter == ItemDefinition.ItemType.GEAR:
+		return ["all", "helmet", "chest", "gloves", "boots", "necklace", "ring", "charm"]
+	return ["all"]
+
+
 func _get_sorted_stash_instances() -> Array[ItemInstance]:
-	var result := PlayerProfile.get_owned_instances(stash_filter)
+	var result: Array[ItemInstance] = []
+	for instance: ItemInstance in PlayerProfile.get_stash_instances(stash_filter):
+		var definition := PlayerProfile.get_definition(String(instance.definition_id))
+		if not _matches_stash_subfilter(definition):
+			continue
+		if not _matches_stash_search(definition, instance):
+			continue
+		result.append(instance)
 	result.sort_custom(func(a: ItemInstance, b: ItemInstance) -> bool:
 		var a_definition := PlayerProfile.get_definition(String(a.definition_id))
 		var b_definition := PlayerProfile.get_definition(String(b.definition_id))
@@ -955,6 +1381,38 @@ func _get_sorted_stash_instances() -> Array[ItemInstance]:
 			_: return a_definition.rarity > b_definition.rarity if a_definition.rarity != b_definition.rarity else a_definition.display_name < b_definition.display_name
 	)
 	return result
+
+
+func _matches_stash_subfilter(definition: ItemDefinition) -> bool:
+	if stash_subfilter == "all":
+		return true
+	if definition.item_type == ItemDefinition.ItemType.WEAPON:
+		if stash_subfilter == "magic": return definition.weapon_family == &"magic"
+		var melee := definition.weapon_family in [&"katana", &"nodachi", &"sword"]
+		return melee if stash_subfilter == "melee" else not melee and definition.weapon_family != &"magic"
+	if definition.item_type == ItemDefinition.ItemType.GEAR:
+		return definition.get_gear_slot_name().to_lower() == stash_subfilter
+	return true
+
+
+func _matches_stash_search(definition: ItemDefinition, instance: ItemInstance) -> bool:
+	if stash_search.is_empty():
+		return true
+	var query := stash_search.to_lower()
+	var haystack := "%s %s %s" % [definition.display_name, definition.get_type_name(), String(definition.weapon_family).replace("_", " ")]
+	for affix_id: StringName in instance.affix_ids:
+		var affix := AffixDatabase.get_definition(affix_id)
+		if affix != null:
+			haystack += " " + affix.display_name
+	return haystack.to_lower().contains(query)
+
+
+func _inventory_free_slots() -> int:
+	var free := 0
+	for slot: int in PlayerProfile.main_inventory.size():
+		if PlayerProfile.get_inventory_instance(slot) == null:
+			free += 1
+	return free
 
 
 func _is_instance_equipped(instance_id: String) -> bool:
@@ -1106,6 +1564,26 @@ func _run_profile_self_test() -> void:
 		failures.append("Equip path did not explicitly reject and preserve a >200 Power loadout")
 	PlayerProfile.item_index.erase("test_over_limit")
 	PlayerProfile.owned_item_ids.erase("test_over_limit")
+	var transfer_weapon := PlayerProfile.get_instance_for_definition("rushfang")
+	var stash_payload := {"instance_id": transfer_weapon.instance_id, "origin_kind": "stash", "origin_key": ""}
+	if not PlayerProfile.transfer_item(stash_payload, "inventory", 1, false) or PlayerProfile.get_inventory_instance(1) != transfer_weapon:
+		failures.append("Stash to inventory did not preserve the exact ItemInstance")
+	var inventory_payload := {"instance_id": transfer_weapon.instance_id, "origin_kind": "inventory", "origin_key": 1}
+	if not PlayerProfile.transfer_item(inventory_payload, "inventory", 2, false) or PlayerProfile.get_inventory_instance(2) != transfer_weapon or PlayerProfile.get_inventory_instance(1) != null:
+		failures.append("Inventory drag did not move the exact instance atomically")
+	inventory_payload["origin_key"] = 2
+	if not PlayerProfile.transfer_item(inventory_payload, "loadout_weapon", 0, false) or PlayerProfile.get_weapon_instance(0) != transfer_weapon or PlayerProfile.get_inventory_instance(2) != null:
+		failures.append("Inventory to loadout did not preserve identity or clear the source")
+	var weapon_payload := {"instance_id": transfer_weapon.instance_id, "origin_kind": "loadout_weapon", "origin_key": 0}
+	if not PlayerProfile.unequip_to_storage("loadout_weapon", 0, true, false) or PlayerProfile.find_inventory_slot(transfer_weapon.instance_id) < 0:
+		failures.append("Quick unequip did not move the exact instance to a free inventory slot")
+	var charm_instance := PlayerProfile.get_inventory_instance(0)
+	var invalid_payload := {"instance_id": charm_instance.instance_id, "origin_kind": "inventory", "origin_key": 0}
+	var inventory_before_invalid := PlayerProfile.main_inventory.duplicate()
+	if PlayerProfile.transfer_item(invalid_payload, "loadout_gear", "helmet", false) or PlayerProfile.main_inventory != inventory_before_invalid:
+		failures.append("Invalid gear drop was not rejected without mutation")
+	if PlayerProfile._instance_reference_count(transfer_weapon.instance_id) > 1:
+		failures.append("Transfer operations created duplicate item references")
 	_configure_integration_loadout()
 	if PlayerProfile.get_skill_power() != 200 or not bool(PlayerProfile.validate_loadout().valid):
 		failures.append("Grapple + Blink should be valid at exactly 200 Power")
@@ -1129,7 +1607,7 @@ func _run_profile_self_test() -> void:
 	if FileAccess.file_exists(test_path):
 		DirAccess.remove_absolute(absolute_test_path)
 	if failures.is_empty():
-		print("PROFILE_TEST_OK: defaults, 24 slots, Power limits, alternate loadout, round-trip persistence and safe fallbacks passed")
+		print("PROFILE_TEST_OK: defaults, 24 slots, atomic drag transfers, invalid rejection, Power limits, loadout, persistence and old-save fallbacks passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -1314,6 +1792,12 @@ func _run_tooltip_self_test() -> void:
 		failures.append("Gear tooltip omitted slot or armor")
 	if item_tooltip.preview_glyph == null or not item_tooltip.preview_glyph.visible:
 		failures.append("Generated placeholder preview is not visible")
+	var comparison_candidate := PlayerProfile.get_definition("rushfang")
+	var comparison_equipped := PlayerProfile.get_definition("vanguard_rifle")
+	item_tooltip.show_item(comparison_candidate, PlayerProfile.get_instance_for_definition("rushfang"), comparison_equipped, PlayerProfile.get_instance_for_definition("vanguard_rifle"))
+	await get_tree().process_frame
+	if not item_tooltip.comparison_label.visible or not item_tooltip.comparison_label.text.contains("COMPARISON") or not item_tooltip.comparison_label.text.contains("Reload"):
+		failures.append("Direction-aware weapon comparison did not render")
 	var previewed_weapon_count := 0
 	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
 		if definition.item_type != ItemDefinition.ItemType.WEAPON:
@@ -1342,6 +1826,68 @@ func _run_tooltip_self_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("TOOLTIP_TEST_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_inventory_ui_test() -> void:
+	print("INVENTORY_UI_TEST_START")
+	var failures: Array[String] = []
+	var snapshot := PlayerProfile.to_save_data()
+	PlayerProfile.reset_to_defaults(false)
+	_show_stash()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var inventory_slots := find_children("InventorySlot*", "InventoryItemSlot", true, false)
+	if inventory_slots.size() != PlayerProfile.INVENTORY_SIZE:
+		failures.append("Inventory grid did not create exactly 24 reusable slots")
+	stash_filter = ItemDefinition.ItemType.WEAPON
+	stash_subfilter = "ranged"
+	stash_search = "fast reload"
+	var search_results := _get_sorted_stash_instances()
+	if search_results.is_empty():
+		failures.append("Affix-name search returned no ranged weapon")
+	else:
+		for instance: ItemInstance in search_results:
+			if not _matches_stash_search(PlayerProfile.get_definition(String(instance.definition_id)), instance):
+				failures.append("Search returned an item that did not match")
+	var owned_before_sort: Array[String] = []
+	for instance: ItemInstance in PlayerProfile.owned_item_instances: owned_before_sort.append(instance.instance_id)
+	for sort_mode: int in 5:
+		stash_sort = sort_mode
+		_get_sorted_stash_instances()
+	var owned_after_sort: Array[String] = []
+	for instance: ItemInstance in PlayerProfile.owned_item_instances: owned_after_sort.append(instance.instance_id)
+	if owned_before_sort != owned_after_sort:
+		failures.append("Sorting modified item ownership or identity")
+	var broken := PlayerProfile.get_instance_for_definition("worn_assault_rifle")
+	broken.current_durability = 0.0
+	if PlayerProfile.quick_equip_instance(broken.instance_id, false) or PlayerProfile.last_error != "ITEM BROKEN":
+		failures.append("Broken item quick-equip was not explicitly rejected")
+	var repair_cost := DurabilityService.repair_cost(broken, PlayerProfile.get_definition(String(broken.definition_id)))
+	PlayerProfile.gold = repair_cost
+	if not PlayerProfile.repair_instance(broken.instance_id, false) or broken.is_broken() or PlayerProfile.gold != 0:
+		failures.append("Single-item repair did not charge the displayed price")
+	var equipped_weapon := PlayerProfile.get_weapon_instance(0)
+	equipped_weapon.current_durability *= 0.5
+	var equipped_cost := PlayerProfile.get_equipped_repair_cost()
+	PlayerProfile.gold = equipped_cost
+	if not PlayerProfile.repair_all_equipped(false) or PlayerProfile.gold != 0:
+		failures.append("Repair Equipped failed")
+	var damaged_one := PlayerProfile.get_instance_for_definition("rusted_helmet")
+	var damaged_two := PlayerProfile.get_instance_for_definition("chipped_sword")
+	damaged_one.current_durability *= 0.6
+	damaged_two.current_durability *= 0.7
+	var all_cost := PlayerProfile.get_all_damaged_repair_cost()
+	PlayerProfile.gold = all_cost
+	if not PlayerProfile.repair_all_damaged(false) or PlayerProfile.gold != 0 or damaged_one.current_durability != damaged_one.max_durability or damaged_two.current_durability != damaged_two.max_durability:
+		failures.append("Repair All Damaged failed or charged the wrong total")
+	PlayerProfile.apply_save_data(snapshot, false)
+	if failures.is_empty():
+		print("INVENTORY_UI_TEST_OK: 24 slots, filters, affix search, identity-safe sorting, broken rejection and all repair paths passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("INVENTORY_UI_TEST_FAILURE: " + failure)
 		get_tree().quit(1)
 
 
@@ -1521,6 +2067,8 @@ func _validate_controls_in_view(names: Array[String], viewport_size: Vector2i, f
 
 
 func _capture_lobby(screen_name: String) -> void:
+	get_window().mode = Window.MODE_WINDOWED
+	get_window().size = Vector2i(1280, 720)
 	for frame: int in 20:
 		await get_tree().process_frame
 	var image := get_viewport().get_texture().get_image()

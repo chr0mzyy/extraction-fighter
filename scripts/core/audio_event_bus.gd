@@ -8,7 +8,7 @@ const SUPPORTED_EVENTS: Array[StringName] = [
 	&"reload", &"empty", &"dry_fire", &"melee_swing", &"melee_hit", &"heavy_hit", &"block", &"parry", &"deflect",
 	&"hit", &"headshot", &"critical", &"proc", &"kill", &"player_damage", &"enemy_damage", &"armor_hit", &"impact",
 	&"pickup", &"key_pickup", &"chest", &"extraction_start", &"extraction_success", &"extraction_failure", &"boss_phase",
-	&"ui_hover", &"ui_click", &"ui_back", &"ui_invalid",
+	&"ui_hover", &"ui_click", &"ui_back", &"ui_invalid", &"ui_equip", &"ui_unequip", &"ui_repair", &"item_drop", &"mythic_acquired",
 ]
 
 var emitted_count: int = 0
