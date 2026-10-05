@@ -7,13 +7,15 @@ var loot_items: Array[ItemInstance] = []
 var gold_reward: int = 0
 var opened_once: bool = false
 var is_boss_chest: bool = false
+var source_type: String = "wooden"
 var lid: MeshInstance3D
 
 
-func configure(items: Array[ItemInstance], gold: int, boss_chest: bool = false) -> void:
+func configure(items: Array[ItemInstance], gold: int, boss_chest: bool = false, loot_source: String = "wooden") -> void:
 	loot_items = items
 	gold_reward = gold
 	is_boss_chest = boss_chest
+	source_type = loot_source
 
 
 func _ready() -> void:
@@ -26,11 +28,24 @@ func interact() -> void:
 	opened_once = true
 	if lid != null:
 		lid.rotation.x = -0.8
-	opened.emit(self, loot_items, gold_reward)
+	var emitted_gold := gold_reward
+	gold_reward = 0
+	opened.emit(self, loot_items.duplicate(), emitted_gold)
+
+
+func retain_unclaimed_items(unclaimed: Array[ItemInstance]) -> void:
+	loot_items = unclaimed.duplicate()
+	opened_once = loot_items.is_empty()
+	if lid != null and not opened_once:
+		lid.rotation.x = -0.25
 
 
 func get_prompt() -> String:
-	return "EMPTY CHEST" if opened_once else ("[X]  OPEN WARDEN CHEST" if is_boss_chest else "[X]  OPEN CHEST")
+	if opened_once:
+		return "EMPTY CHEST"
+	if not loot_items.is_empty() and gold_reward == 0:
+		return "[X]  TAKE REMAINING LOOT"
+	return "[X]  OPEN WARDEN CHEST" if is_boss_chest else "[X]  OPEN CHEST"
 
 
 func _build_visual() -> void:

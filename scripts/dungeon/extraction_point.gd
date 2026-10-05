@@ -18,6 +18,8 @@ var beacon: MeshInstance3D
 
 
 func _ready() -> void:
+	if hidden_extraction:
+		channel_duration = 2.75
 	_build_visual()
 
 
@@ -85,11 +87,11 @@ func _build_visual() -> void:
 	var column := CylinderMesh.new()
 	column.top_radius = 0.05
 	column.bottom_radius = 0.62
-	column.height = 4.5
+	column.height = 0.65 if hidden_extraction else 4.5
 	column.radial_segments = 8
 	beacon.mesh = column
-	beacon.position.y = 2.25
-	beacon.material_override = _material(Color(0.12, 0.9, 0.78, 0.32) if not hidden_extraction else Color(0.58, 0.18, 0.72, 0.16), true)
+	beacon.position.y = 0.4 if hidden_extraction else 2.25
+	beacon.material_override = _material(Color(0.12, 0.9, 0.78, 0.32) if not hidden_extraction else Color(0.58, 0.18, 0.72, 0.08), true)
 	add_child(beacon)
 	_update_visual()
 

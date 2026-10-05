@@ -113,7 +113,7 @@ func _build_cover_and_corridors() -> void:
 	_add_cylinder("PillarCenterWest", Vector3(-4.3, 1.7, 0), 0.82, 3.4, "stone_light")
 	_add_cylinder("PillarCenterEast", Vector3(4.3, 1.7, 0), 0.82, 3.4, "stone_light")
 
-	# Southern slice walls create repeated Q/E practice positions and preserve an
+	# Southern slice walls create repeated 3/4 peek practice positions and preserve an
 	# open outer lane for movement and long-range accuracy drills.
 	_add_box("PeekWallBlueSouth", Vector3(-7, 1.6, 13), Vector3(0.8, 3.2, 8.0), "blue")
 	_add_box("PeekWallRedSouth", Vector3(7, 1.6, 13), Vector3(0.8, 3.2, 8.0), "red")

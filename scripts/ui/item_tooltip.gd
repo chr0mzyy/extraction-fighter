@@ -339,8 +339,13 @@ func _build_stats(definition: ItemDefinition, instance: ItemInstance = null) -> 
 	var affix_lines := _affix_lines(definition, instance)
 	if not affix_lines.is_empty():
 		lines.append("\nAFFIXES\n" + "\n\n".join(affix_lines))
-	if definition.sell_value > 0:
-		lines.append("\nVALUE  %d GOLD" % definition.sell_value)
+	if instance != null:
+		var sell_value := PlayerProfile.get_sell_value(instance)
+		var scrap_yield := PlayerProfile.get_dismantle_yield(instance)
+		if sell_value > 0:
+			lines.append("\nSELL VALUE  %d GOLD" % sell_value)
+		if scrap_yield > 0:
+			lines.append("DISMANTLE  %d SCRAP" % scrap_yield)
 	return "\n".join(lines)
 
 

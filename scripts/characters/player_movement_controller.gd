@@ -91,6 +91,11 @@ func setup(p_actor: CharacterBody3D, p_body_collision: CollisionShape3D, p_visua
 	previous_actor_yaw = actor.rotation.y
 
 
+func update_skill_references(p_dash_skill: DashSkill, p_double_jump_skill: DoubleJumpSkill) -> void:
+	dash_skill = p_dash_skill
+	double_jump_skill = p_double_jump_skill
+
+
 func physics_step(delta: float, stagger_remaining: float = 0.0) -> void:
 	if actor == null: return
 	jump_buffer_remaining = maxf(0.0, jump_buffer_remaining - delta)

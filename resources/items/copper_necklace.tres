@@ -7,6 +7,6 @@ display_name = "Copper Necklace"
 flavor_text = "Warm metal against a cold hall."
 description = "Simple common utility jewelry."
 item_type = 2
-rarity = 0
+rarity = 1
 gear_slot = 5
 modifier_text = "Minor Utility"

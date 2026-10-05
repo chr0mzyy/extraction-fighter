@@ -121,21 +121,23 @@ func _configure_chests() -> void:
 	key_spawned = rng.randf() < KEY_SPAWN_CHANCE
 	var key_chest := rng.randi_range(0, chests.size() - 1) if key_spawned and not chests.is_empty() else -1
 	for index: int in chests.size():
+		var room_index := int(chests[index].get_meta("room_index", 0))
+		var room_type := ArmoryGenerator.ROOM_TYPES[clampi(room_index, 0, ArmoryGenerator.ROOM_TYPES.size() - 1)]
+		var source_type := LootTableService.source_for_chest(room_type, index)
 		var loot: Array[ItemInstance] = []
-		loot.append(_roll_loot_instance(rng))
-		if rng.randf() < 0.38:
-			loot.append(_roll_loot_instance(rng))
+		loot.append(_roll_loot_instance(rng, source_type, room_type))
+		if source_type in ["reinforced", "elite", "vault"] or rng.randf() < 0.38:
+			loot.append(_roll_loot_instance(rng, source_type, room_type))
+		if source_type == "vault":
+			loot.append(_roll_loot_instance(rng, source_type, room_type))
 		if index == key_chest:
 			loot.append(ItemInstance.create(PlayerProfile.get_definition("extraction_key"), _next_instance_id("key")))
-		chests[index].configure(loot, rng.randi_range(18, 65))
+		chests[index].configure(loot, rng.randi_range(18, 65), false, source_type)
 		chests[index].opened.connect(_on_chest_opened)
 
 
-func _roll_loot_instance(rng: RandomNumberGenerator) -> ItemInstance:
-	var pool: Array[String] = ["armory_scrap", "field_tonic", "rusty_katana", "worn_assault_rifle", "chipped_sword", "rusted_helmet", "torn_mail", "worn_gloves", "old_boots", "simple_ring"]
-	var definition := PlayerProfile.get_definition(pool[rng.randi_range(0, pool.size() - 1)])
-	var instance_id := _next_instance_id(String(definition.id))
-	return AffixRoller.roll_item(definition, rng.randi(), instance_id) if definition.item_type == ItemDefinition.ItemType.WEAPON else ItemInstance.create(definition, instance_id)
+func _roll_loot_instance(rng: RandomNumberGenerator, source_type: String = "ordinary", room_type: String = "") -> ItemInstance:
+	return LootTableService.roll_instance(rng, source_type, room_type, 0, 0, _next_instance_id(source_type))
 
 
 func _next_instance_id(kind: String) -> String:
@@ -317,11 +319,18 @@ func _update_interactions(delta: float) -> String:
 func _on_chest_opened(_chest: LootChest, items: Array[ItemInstance], gold_reward: int) -> void:
 	AudioEvents.play(&"chest", _chest.global_position)
 	var added := 0
+	var unclaimed: Array[ItemInstance] = []
 	for instance: ItemInstance in items:
 		if run_inventory.add_item(instance):
 			added += 1
+		else:
+			unclaimed.append(instance)
+	_chest.retain_unclaimed_items(unclaimed)
 	run_inventory.add_gold(gold_reward)
-	_show_notice("LOOTED %d ITEM%s  +%d GOLD" % [added, "" if added == 1 else "S", gold_reward])
+	if not unclaimed.is_empty():
+		_show_notice("RUN PACK FULL  •  %d ITEM%s REMAIN IN CHEST" % [unclaimed.size(), "" if unclaimed.size() == 1 else "S"], 2.2)
+	else:
+		_show_notice("LOOTED %d ITEM%s  +%d GOLD" % [added, "" if added == 1 else "S", gold_reward])
 	if not items.is_empty():
 		var found_key := false
 		var best := items[0]
@@ -367,10 +376,10 @@ func _on_extraction_completed(point: ExtractionPoint) -> void:
 		point.state = ExtractionPoint.State.AVAILABLE
 		point.cancel_channel("EXTRACTION KEY REQUIRED")
 		return
-	_succeed_run()
+	_succeed_run(true, true, point.hidden_extraction)
 
 
-func _succeed_run(return_to_lobby: bool = true, persist_profile: bool = true) -> void:
+func _succeed_run(return_to_lobby: bool = true, persist_profile: bool = true, hidden_bonus: bool = false) -> void:
 	if run_finished:
 		return
 	run_finished = true
@@ -378,12 +387,24 @@ func _succeed_run(return_to_lobby: bool = true, persist_profile: bool = true) ->
 	_disable_extractions()
 	var gold_reward := run_inventory.run_gold
 	var items := run_inventory.take_all_items()
+	if hidden_bonus:
+		var cache_rng := RandomNumberGenerator.new()
+		cache_rng.seed = run_seed ^ 0x51EC0
+		items.append(_roll_loot_instance(cache_rng, "secure_vault", "vault"))
+		gold_reward += 75
+	var overflow_count := 0
 	for instance: ItemInstance in items:
-		PlayerProfile.add_owned_instance(instance, false)
+		if PlayerProfile.secure_extracted_instance(instance, false) == "overflow":
+			overflow_count += 1
 	PlayerProfile.add_gold(gold_reward)
 	if persist_profile:
 		PlayerProfile.save_profile()
-	hud.show_summary("EXTRACTION SUCCESSFUL", "%d items secured\n%d gold banked" % [items.size(), gold_reward])
+	var summary := "%d items secured\n%d gold banked" % [items.size(), gold_reward]
+	if overflow_count > 0:
+		summary += "\n%d sent safely to Extraction Overflow" % overflow_count
+	if hidden_bonus:
+		summary += "\nSECURE CACHE BONUS CLAIMED"
+	hud.show_summary("EXTRACTION SUCCESSFUL", summary)
 	if return_to_lobby:
 		_return_to_lobby_after_delay()
 
@@ -559,11 +580,11 @@ func _on_enemy_died(actor: Node, _info: DamageInfo) -> void:
 	rng.seed = run_seed ^ 0x7B055
 	var boss_loot: Array[ItemInstance] = []
 	for count: int in 3:
-		boss_loot.append(_roll_loot_instance(rng))
+		boss_loot.append(_roll_loot_instance(rng, "boss", "boss"))
 	var boss_chest := LootChest.new()
 	boss_chest.name = "WardenChest"
 	boss_chest.position = actor.position
-	boss_chest.configure(boss_loot, 180, true)
+	boss_chest.configure(boss_loot, 280, true, "boss")
 	add_child(boss_chest)
 	boss_chest.opened.connect(_on_chest_opened)
 	chests.append(boss_chest)

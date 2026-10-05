@@ -1070,3 +1070,31 @@ func _instantiate_profile_loadout() -> void:
 			dash_skill = skill as DashSkill
 		elif skill is DoubleJumpSkill:
 			double_jump_skill = skill as DoubleJumpSkill
+
+
+func configure_runtime_skills(definition_ids: Array[String]) -> bool:
+	if definition_ids.size() != 2:
+		return false
+	for child: Node in skill_mount.get_children():
+		skill_mount.remove_child(child)
+		child.queue_free()
+	equipped_skills.clear()
+	skill_definition_ids = definition_ids.duplicate()
+	dash_skill = null
+	double_jump_skill = null
+	for slot: int in skill_definition_ids.size():
+		var definition := PlayerProfile.get_definition(skill_definition_ids[slot])
+		if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or definition.gameplay_scene == null:
+			return false
+		var skill := definition.gameplay_scene.instantiate() as SkillBase
+		if skill == null:
+			return false
+		skill_mount.add_child(skill)
+		skill.setup(self, definition, slot)
+		equipped_skills.append(skill)
+		if skill is DashSkill:
+			dash_skill = skill as DashSkill
+		elif skill is DoubleJumpSkill:
+			double_jump_skill = skill as DoubleJumpSkill
+	movement.update_skill_references(dash_skill, double_jump_skill)
+	return true

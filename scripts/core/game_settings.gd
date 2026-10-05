@@ -2,7 +2,7 @@ extends Node
 
 signal changed
 
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 const SAVE_PATH := "user://game_settings.json"
 const RESOLUTIONS: Array[Vector2i] = [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)]
 const REBINDABLE_ACTIONS: Array[StringName] = [
@@ -167,7 +167,8 @@ func to_dictionary() -> Dictionary:
 
 
 func apply_dictionary(data: Dictionary, apply_now: bool = true) -> bool:
-	if int(data.get("save_version", -1)) != SAVE_VERSION:
+	var incoming_version := int(data.get("save_version", -1))
+	if incoming_version not in [1, SAVE_VERSION]:
 		return false
 	var saved_resolution: Array = data.get("resolution", [1280, 720])
 	if saved_resolution.size() != 2:
@@ -200,21 +201,26 @@ func apply_dictionary(data: Dictionary, apply_now: bool = true) -> bool:
 			var entries: Variant = (saved_keybinds as Dictionary).get(action_key, null)
 			if entries is Array and not (entries as Array).is_empty():
 				keybinds[action_key] = (entries as Array).duplicate(true)
-		_migrate_legacy_peek_bindings(saved_keybinds as Dictionary)
+		if incoming_version == 1:
+			_migrate_v1_canonical_controls(saved_keybinds as Dictionary)
 	if apply_now:
 		apply_settings()
 	return true
 
 
-func _migrate_legacy_peek_bindings(saved_keybinds: Dictionary) -> void:
-	# Older saves used Q/E for skills. Only migrate that exact legacy layout; custom
-	# bindings are kept, and all four actions remain rebindable in the options menu.
-	if saved_keybinds.has("peek_left") or saved_keybinds.has("peek_right"):
+func _migrate_v1_canonical_controls(_saved_keybinds: Dictionary) -> void:
+	# MVP 0.4.2 briefly shipped skills on 3/4 and lean on Q/E. Migrate only that
+	# exact layout, preserving every genuinely customized set of four bindings.
+	var is_v1_default := (
+		_serialized_binding_uses_key(keybinds.get("skill_slot_1", []), KEY_3)
+		and _serialized_binding_uses_key(keybinds.get("skill_slot_2", []), KEY_4)
+		and _serialized_binding_uses_key(keybinds.get("peek_left", []), KEY_Q)
+		and _serialized_binding_uses_key(keybinds.get("peek_right", []), KEY_E)
+	)
+	if not is_v1_default:
 		return
-	if _serialized_binding_uses_key(keybinds.get("skill_slot_1", []), KEY_Q):
-		keybinds["skill_slot_1"] = _default_keybinds.get("skill_slot_1", []).duplicate(true)
-	if _serialized_binding_uses_key(keybinds.get("skill_slot_2", []), KEY_E):
-		keybinds["skill_slot_2"] = _default_keybinds.get("skill_slot_2", []).duplicate(true)
+	for action: String in ["skill_slot_1", "skill_slot_2", "peek_left", "peek_right"]:
+		keybinds[action] = _default_keybinds.get(action, []).duplicate(true)
 
 
 func _serialized_binding_uses_key(entries: Variant, key: Key) -> bool:
@@ -367,4 +373,6 @@ func load_settings(path: String = SAVE_PATH, create_default: bool = true) -> boo
 		if create_default:
 			save_settings(path)
 		return false
+	if create_default and int((parsed as Dictionary).get("save_version", -1)) < SAVE_VERSION:
+		save_settings(path)
 	return true

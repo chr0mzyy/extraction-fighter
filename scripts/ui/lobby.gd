@@ -22,6 +22,7 @@ var stash_filter: int = -1
 var stash_subfilter: String = "all"
 var stash_sort: int = 0
 var stash_search: String = ""
+var stash_overflow_only: bool = false
 var selected_instance_id: String = ""
 var details_label: Label
 var comparison_details: RichTextLabel
@@ -31,6 +32,8 @@ var context_menu: PopupMenu
 var context_payload: Dictionary = {}
 var repair_dialog: ConfirmationDialog
 var pending_repair: Dictionary = {}
+var destructive_dialog: ConfirmationDialog
+var pending_destructive: Dictionary = {}
 var top_gold_label: Label
 var current_screen: String = "main"
 var screen_tween: Tween
@@ -54,8 +57,11 @@ func _process(delta: float) -> void:
 func _ready() -> void:
 	MouseModeService.enter_lobby()
 	AudioManager.play_music(&"lobby")
-	_build_shell()
 	var args := OS.get_cmdline_user_args()
+	_apply_development_flags(args)
+	if _should_use_development_test_profile(args):
+		PlayerProfile.create_development_profile()
+	_build_shell()
 	if "--scene-flow-test" in args:
 		_handle_scene_flow_test()
 		return
@@ -65,12 +71,22 @@ func _ready() -> void:
 	if _should_route_to_dungeon(args):
 		_route_to_dungeon.call_deferred()
 		return
+	if "--training-self-test" in args:
+		_route_to_training.call_deferred()
+		return
 	if _should_route_to_arena(args):
-		PlayerProfile.reset_to_defaults(false)
 		if "--loadout-integration-test" in args:
+			PlayerProfile.create_development_profile()
 			_configure_integration_loadout()
 		elif "--content-arena-test" in args:
+			PlayerProfile.create_development_profile()
 			_configure_content_loadout()
+		elif _needs_legacy_arena_test_loadout(args):
+			PlayerProfile.create_development_profile()
+			PlayerProfile.equip_weapon(0, "ronin_katana", false)
+			PlayerProfile.equip_weapon(1, "huntsman_rifle", false)
+		else:
+			PlayerProfile.reset_to_defaults(false)
 		_route_to_arena.call_deferred()
 		return
 	_show_main()
@@ -92,6 +108,8 @@ func _ready() -> void:
 		_run_inventory_ui_test.call_deferred()
 	elif "--settings-self-test" in args:
 		_run_settings_self_test.call_deferred()
+	elif "--loot-statistics-test" in args:
+		_run_loot_statistics_test.call_deferred()
 	elif "--capture-loadout" in args:
 		_show_loadout()
 		_capture_lobby.bind("loadout").call_deferred()
@@ -139,12 +157,62 @@ func _should_route_to_dungeon(args: PackedStringArray) -> bool:
 	return false
 
 
+func _needs_legacy_arena_test_loadout(args: PackedStringArray) -> bool:
+	for flag: String in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test"]:
+		if flag in args:
+			return true
+	return false
+
+
 func _route_to_arena() -> void:
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
 func _route_to_dungeon() -> void:
 	get_tree().change_scene_to_file("res://scenes/dungeon/armory_dungeon.tscn")
+
+
+func _route_to_training() -> void:
+	get_tree().change_scene_to_file("res://scenes/training/movement_training.tscn")
+
+
+func _should_use_development_test_profile(args: PackedStringArray) -> bool:
+	for flag: String in ["--content-self-test", "--tooltip-self-test", "--affix-self-test", "--inventory-ui-test"]:
+		if flag in args:
+			return true
+	return false
+
+
+func _apply_development_flags(args: PackedStringArray) -> void:
+	var development_requested := false
+	for argument: String in args:
+		if argument.begins_with("--dev-"):
+			development_requested = true
+	if not development_requested:
+		return
+	PlayerProfile.development_session = true
+	if "--dev-unlock-all" in args:
+		PlayerProfile.create_development_profile()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(Time.get_ticks_usec())
+	for argument: String in args:
+		if argument.begins_with("--dev-gold="):
+			PlayerProfile.add_gold(maxi(0, int(argument.trim_prefix("--dev-gold="))))
+		elif argument == "--dev-give-key":
+			PlayerProfile.secure_extracted_instance(ItemInstance.create(PlayerProfile.get_definition("extraction_key"), "debug:key:%d" % Time.get_ticks_usec()), false)
+		elif argument.begins_with("--dev-loot="):
+			var source := argument.trim_prefix("--dev-loot=")
+			var instance := LootTableService.roll_instance(rng, source, "arsenal", 0, 0, "debug:loot:%d" % Time.get_ticks_usec())
+			if instance != null:
+				PlayerProfile.secure_extracted_instance(instance, false)
+		elif argument.begins_with("--dev-rarity="):
+			var rarity_name := argument.trim_prefix("--dev-rarity=").to_upper()
+			var rarity_index := ItemDefinition.Rarity.keys().find(rarity_name)
+			if rarity_index >= 0 and rarity_index <= ItemDefinition.Rarity.UNIQUE:
+				var instance := ItemInstance.create(PlayerProfile.get_definition("extraction_key"), "debug:unique:%d" % Time.get_ticks_usec()) if rarity_index == ItemDefinition.Rarity.UNIQUE else LootTableService.roll_instance_for_rarity(rng, rarity_index as ItemDefinition.Rarity, "arsenal", "debug:rarity:%d" % Time.get_ticks_usec())
+				if instance != null:
+					PlayerProfile.secure_extracted_instance(instance, false)
+	PlayerProfile.development_session = true
 
 
 func _handle_scene_flow_test() -> void:
@@ -159,7 +227,9 @@ func _handle_scene_flow_test() -> void:
 			push_error("SCENE_FLOW_FAILURE: " + (failure if not failure.is_empty() else "Loadout changed during scene flow"))
 			get_tree().quit(1)
 		return
-	PlayerProfile.reset_to_defaults(false)
+	PlayerProfile.create_development_profile()
+	PlayerProfile.equip_weapon(0, "ronin_katana", false)
+	PlayerProfile.equip_weapon(1, "huntsman_rifle", false)
 	PlayerProfile.set_meta("scene_flow_stage", "arena")
 	_route_to_arena.call_deferred()
 
@@ -212,10 +282,10 @@ func _build_shell() -> void:
 	brand_mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	var title := _label(title_row, " EXTRACTION FIGHTER", 38, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var milestone := _label(title_row, "MVP 0.4.2  //  LOCAL\nLOADOUT SYSTEM ONLINE", 11, COLOR_ACCENT)
+	var milestone := _label(title_row, "MVP 0.4.3  //  LOCAL\nCORE LOOP ONLINE", 11, COLOR_ACCENT)
 	milestone.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	milestone.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	top_gold_label = _label(title_row, "%d GOLD" % PlayerProfile.gold, 13, COLOR_YELLOW)
+	top_gold_label = _label(title_row, "%d GOLD  •  %d SCRAP" % [PlayerProfile.gold, PlayerProfile.scrap], 13, COLOR_YELLOW)
 	top_gold_label.custom_minimum_size.x = 120
 	top_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top_gold_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -238,7 +308,7 @@ func _build_shell() -> void:
 	screen_host.offset_bottom = -42
 	add_child(screen_host)
 
-	footer_label = _label(self, "[ESC] BACK   //   LOCAL COMBAT PROFILE   //   SAVE VERSION 4", 11, COLOR_YELLOW)
+	footer_label = _label(self, "[ESC] BACK   //   LOCAL COMBAT PROFILE   //   SAVE VERSION 5", 11, COLOR_YELLOW)
 	footer_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	footer_label.offset_left = 30
 	footer_label.offset_right = -30
@@ -258,6 +328,10 @@ func _build_shell() -> void:
 	repair_dialog.title = "CONFIRM REPAIR"
 	repair_dialog.confirmed.connect(_execute_pending_repair)
 	add_child(repair_dialog)
+	destructive_dialog = ConfirmationDialog.new()
+	destructive_dialog.title = "CONFIRM ITEM ACTION"
+	destructive_dialog.confirmed.connect(_execute_pending_destructive)
+	add_child(destructive_dialog)
 	stash_search_timer = Timer.new()
 	stash_search_timer.one_shot = true
 	stash_search_timer.wait_time = 0.18
@@ -320,7 +394,7 @@ func _clear_screen() -> void:
 	comparison_details = null
 	feedback_label = null
 	if top_gold_label != null:
-		top_gold_label.text = "%d GOLD" % PlayerProfile.gold
+		top_gold_label.text = "%d GOLD  •  %d SCRAP" % [PlayerProfile.gold, PlayerProfile.scrap]
 	if screen_tween != null and screen_tween.is_valid():
 		screen_tween.kill()
 	screen_host.modulate.a = 0.15
@@ -401,9 +475,9 @@ func _show_play() -> void:
 	arena.pressed.connect(_launch_arena)
 	var dungeon := _activity_card(cards, "THE ARMORY", "15 minute extraction run\nLoot is lost on death", true)
 	dungeon.pressed.connect(_launch_dungeon)
-	var training := _activity_card(cards, "MOVEMENT TRAINING", "Third map slot\nCourse layout coming next", true)
+	var training := _activity_card(cards, "MOVEMENT TRAINING", "10-mechanic timed course\nCheckpoints • personal best • no item wear", false)
 	training.name = "MovementTrainingCard"
-	training.pressed.connect(_show_training_placeholder)
+	training.pressed.connect(_launch_training)
 	_add_back_button(content)
 
 
@@ -489,7 +563,7 @@ func _show_loadout() -> void:
 	_label(equipped, "SKILLS  //  %d / %d POWER" % [power, PlayerProfile.POWER_LIMIT], 11, COLOR_ACCENT)
 	for index: int in 2:
 		var definition := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
-		_add_loadout_target(equipped, "SKILL %s" % ("Q" if index == 0 else "E"), "loadout_skill", index, definition, PlayerProfile.get_instance_for_definition(PlayerProfile.skill_slots[index]))
+		_add_loadout_target(equipped, "SKILL %s" % GameSettings.get_binding_text(&"skill_slot_1" if index == 0 else &"skill_slot_2"), "loadout_skill", index, definition, PlayerProfile.get_instance_for_definition(PlayerProfile.skill_slots[index]))
 	_label(equipped, "GEAR", 11, COLOR_ACCENT)
 	for key: String in PlayerProfile.GEAR_KEYS:
 		var slot_title := key.to_upper().replace("_1", " 1").replace("_2", " 2")
@@ -524,7 +598,7 @@ func _show_stash() -> void:
 	root.add_child(header)
 	var title := _label(header, "STASH", 24, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(header, "%d GOLD" % PlayerProfile.gold, 14, COLOR_YELLOW)
+	_label(header, "%d GOLD  •  %d SCRAP" % [PlayerProfile.gold, PlayerProfile.scrap], 14, COLOR_YELLOW)
 	var repair_cost := PlayerProfile.get_equipped_repair_cost()
 	var repair := _button(header, "REPAIR EQUIPPED  •  %d" % repair_cost, false)
 	repair.custom_minimum_size = Vector2(205, 38)
@@ -535,7 +609,7 @@ func _show_stash() -> void:
 	repair_all.custom_minimum_size = Vector2(175, 38)
 	repair_all.disabled = repair_all_cost <= 0
 	repair_all.pressed.connect(_request_repair_all)
-	_label(header, "%d ITEM INSTANCES" % PlayerProfile.owned_item_instances.size(), 13, COLOR_MUTED)
+	_label(header, "STORAGE %d / %d  •  OVERFLOW %d" % [PlayerProfile.get_stash_count(), PlayerProfile.STASH_CAPACITY, PlayerProfile.pending_reward_instances.size()], 13, COLOR_MUTED)
 	var header_back := _button(header, "BACK", false)
 	header_back.custom_minimum_size = Vector2(120, 38)
 	header_back.pressed.connect(_show_main)
@@ -545,8 +619,12 @@ func _show_stash() -> void:
 	for filter_data: Array in [["ALL", -1], ["WEAPONS", ItemDefinition.ItemType.WEAPON], ["SKILLS", ItemDefinition.ItemType.SKILL], ["GEAR", ItemDefinition.ItemType.GEAR], ["CONSUMABLES", ItemDefinition.ItemType.CONSUMABLE], ["JUNK", ItemDefinition.ItemType.JUNK]]:
 		var button := _button(filters, filter_data[0], false)
 		button.pressed.connect(_set_stash_filter.bind(int(filter_data[1])))
-		if stash_filter == int(filter_data[1]):
+		if not stash_overflow_only and stash_filter == int(filter_data[1]):
 			button.add_theme_stylebox_override("normal", _style(Color(0.05, 0.13, 0.14), COLOR_ACCENT, 2, 0))
+	var overflow_button := _button(filters, "OVERFLOW (%d)" % PlayerProfile.pending_reward_instances.size(), false)
+	overflow_button.pressed.connect(_set_overflow_filter)
+	if stash_overflow_only:
+		overflow_button.add_theme_stylebox_override("normal", _style(Color(0.12, 0.07, 0.03), COLOR_YELLOW, 2, 0))
 	var search := LineEdit.new()
 	search.name = "StashSearch"
 	search.placeholder_text = "Search name, type or affix"
@@ -589,7 +667,7 @@ func _show_stash() -> void:
 	stash_root.add_child(stash_heading)
 	var stash_title := _label(stash_heading, "STORAGE", 11, COLOR_ACCENT)
 	stash_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(stash_heading, "DROP HERE TO UNEQUIP / STORE", 9, COLOR_MUTED)
+	_label(stash_heading, "EXTRACTION OVERFLOW — MOVE, SELL OR DISMANTLE" if stash_overflow_only else "DROP HERE TO UNEQUIP / STORE", 9, COLOR_MUTED)
 	var stash_scroll := ScrollContainer.new()
 	stash_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	stash_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -602,7 +680,8 @@ func _show_stash() -> void:
 	stash_scroll.add_child(item_grid)
 	for instance: ItemInstance in _get_sorted_stash_instances():
 		var definition := PlayerProfile.get_definition(String(instance.definition_id))
-		var item_slot := _make_item_slot(item_grid, definition, instance, "stash", "", {"selected": selected_instance_id == instance.instance_id, "new": PlayerProfile.new_instance_ids.has(instance.instance_id)})
+		var origin_kind := "overflow" if PlayerProfile.pending_instance_index.has(instance.instance_id) else "stash"
+		var item_slot := _make_item_slot(item_grid, definition, instance, origin_kind, instance.instance_id if origin_kind == "overflow" else "", {"selected": selected_instance_id == instance.instance_id, "new": PlayerProfile.new_instance_ids.has(instance.instance_id)})
 		item_slot.custom_minimum_size = Vector2(205, 78)
 	if item_grid.get_child_count() == 0:
 		var empty := _label(item_grid, "NO ITEMS MATCH THIS FILTER", 11, COLOR_MUTED)
@@ -653,7 +732,7 @@ func _show_stash() -> void:
 
 
 func _show_customization() -> void:
-	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.2.")
+	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.3.")
 
 
 func _request_repair_instance(instance_id: String) -> void:
@@ -907,8 +986,9 @@ func _reset_keybinds() -> void:
 		keybind_feedback.add_theme_color_override("font_color", COLOR_READY)
 
 
-func _show_training_placeholder() -> void:
-	_show_placeholder("MOVEMENT TRAINING", "MAP SLOT READY", "The third activity is reserved for movement training. Its course and obstacles will be built from your next instructions.")
+func _launch_training() -> void:
+	PlayerProfile.save_profile()
+	_route_to_training()
 
 
 func _show_placeholder(title: String, status: String, body: String) -> void:
@@ -1098,11 +1178,21 @@ func _open_item_context(payload: Dictionary, global_position: Vector2) -> void:
 		context_menu.add_item("UNEQUIP TO STASH", 3)
 	elif definition.item_type in [ItemDefinition.ItemType.WEAPON, ItemDefinition.ItemType.SKILL, ItemDefinition.ItemType.GEAR]:
 		context_menu.add_item("EQUIP", 1)
+	if origin_kind == "overflow":
+		context_menu.add_item("MOVE TO STASH", 3)
 	if instance.max_durability > 0.0 and instance.current_durability < instance.max_durability:
 		context_menu.add_separator()
 		context_menu.add_item("REPAIR  •  %d GOLD" % DurabilityService.repair_cost(instance, definition), 4)
 	context_menu.add_separator()
 	context_menu.add_item("INSPECT", 5)
+	var sell_value := PlayerProfile.get_sell_value(instance)
+	var scrap_yield := PlayerProfile.get_dismantle_yield(instance)
+	if sell_value > 0 or scrap_yield > 0:
+		context_menu.add_separator()
+		if sell_value > 0:
+			context_menu.add_item("SELL  •  +%d GOLD" % sell_value, 6)
+		if scrap_yield > 0:
+			context_menu.add_item("DISMANTLE  •  +%d SCRAP" % scrap_yield, 7)
 	context_menu.position = Vector2i(global_position)
 	context_menu.popup()
 
@@ -1130,7 +1220,34 @@ func _on_context_action(action_id: int) -> void:
 		5:
 			_select_item_payload(context_payload)
 			return
+		6, 7:
+			_request_destructive_action("sell" if action_id == 6 else "dismantle", instance_id)
+			return
 	if success:
+		_refresh_current_inventory_screen()
+
+
+func _request_destructive_action(kind: String, instance_id: String) -> void:
+	var instance := PlayerProfile.get_instance(instance_id)
+	var definition := PlayerProfile.get_definition(String(instance.definition_id)) if instance != null else null
+	if definition == null:
+		return
+	var reward := PlayerProfile.get_sell_value(instance) if kind == "sell" else PlayerProfile.get_dismantle_yield(instance)
+	var currency := "GOLD" if kind == "sell" else "SCRAP"
+	var warning := "\n\nHIGH-RARITY ITEM — THIS CANNOT BE UNDONE." if definition.rarity >= ItemDefinition.Rarity.LEGENDARY else "\n\nThis exact item instance will be destroyed."
+	pending_destructive = {"kind": kind, "instance_id": instance_id}
+	destructive_dialog.dialog_text = "%s %s?\nReward: +%d %s%s" % [kind.to_upper(), definition.display_name.to_upper(), reward, currency, warning]
+	destructive_dialog.popup_centered(Vector2i(440, 210))
+
+
+func _execute_pending_destructive() -> void:
+	var kind := String(pending_destructive.get("kind", ""))
+	var instance_id := String(pending_destructive.get("instance_id", ""))
+	var success := PlayerProfile.sell_instance(instance_id) if kind == "sell" else PlayerProfile.dismantle_instance(instance_id)
+	_show_transfer_feedback("ITEM SOLD" if kind == "sell" and success else ("ITEM DISMANTLED" if success else PlayerProfile.last_error), success, &"ui_click" if success else &"ui_invalid")
+	pending_destructive.clear()
+	if success:
+		selected_instance_id = ""
 		_refresh_current_inventory_screen()
 
 
@@ -1256,8 +1373,13 @@ func _show_item_details(definition: ItemDefinition, instance: ItemInstance = nul
 		if instance.is_broken(): lines.append("BROKEN  //  CANNOT EQUIP")
 		elif instance.current_durability / instance.max_durability <= 0.2: lines.append("LOW DURABILITY")
 		lines.append("REPAIR COST  %d GOLD" % DurabilityService.repair_cost(instance, definition))
-	if definition.sell_value > 0:
-		lines.append("\nVALUE  %d GOLD" % definition.sell_value)
+	if instance != null:
+		var sell_value := PlayerProfile.get_sell_value(instance)
+		var scrap_yield := PlayerProfile.get_dismantle_yield(instance)
+		if sell_value > 0:
+			lines.append("\nSELL VALUE  %d GOLD" % sell_value)
+		if scrap_yield > 0:
+			lines.append("DISMANTLE  %d SCRAP" % scrap_yield)
 	details_label.text = "\n".join(lines)
 
 
@@ -1331,6 +1453,14 @@ func _configure_content_loadout() -> void:
 
 func _set_stash_filter(filter_value: int) -> void:
 	stash_filter = filter_value
+	stash_overflow_only = false
+	stash_subfilter = "all"
+	_show_stash()
+
+
+func _set_overflow_filter() -> void:
+	stash_overflow_only = true
+	stash_filter = -1
 	stash_subfilter = "all"
 	_show_stash()
 
@@ -1360,8 +1490,11 @@ func _stash_subfilter_options() -> Array[String]:
 
 func _get_sorted_stash_instances() -> Array[ItemInstance]:
 	var result: Array[ItemInstance] = []
-	for instance: ItemInstance in PlayerProfile.get_stash_instances(stash_filter):
+	var source: Array[ItemInstance] = PlayerProfile.get_pending_instances() if stash_overflow_only else PlayerProfile.get_stash_instances(stash_filter)
+	for instance: ItemInstance in source:
 		var definition := PlayerProfile.get_definition(String(instance.definition_id))
+		if stash_overflow_only and stash_filter >= 0 and definition.item_type != stash_filter:
+			continue
 		if not _matches_stash_subfilter(definition):
 			continue
 		if not _matches_stash_search(definition, instance):
@@ -1377,7 +1510,7 @@ func _get_sorted_stash_instances() -> Array[ItemInstance]:
 				var a_ratio := a.current_durability / a.max_durability if a.max_durability > 0.0 else 1.0
 				var b_ratio := b.current_durability / b.max_durability if b.max_durability > 0.0 else 1.0
 				return a_ratio > b_ratio
-			4: return a_definition.sell_value > b_definition.sell_value
+			4: return PlayerProfile.get_sell_value(a) > PlayerProfile.get_sell_value(b)
 			_: return a_definition.rarity > b_definition.rarity if a_definition.rarity != b_definition.rarity else a_definition.display_name < b_definition.display_name
 	)
 	return result
@@ -1535,18 +1668,39 @@ func _run_profile_self_test() -> void:
 	var failures: Array[String] = []
 	var snapshot := PlayerProfile.to_save_data()
 	var test_path := "user://extraction_fighter_profile_test.json"
+	for stale_path: String in [test_path, test_path + ".backup", test_path + ".tmp"]:
+		if FileAccess.file_exists(stale_path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(stale_path))
 	PlayerProfile.reset_to_defaults(false)
 	if PlayerProfile.get_skill_power() != 130 or not bool(PlayerProfile.validate_loadout().valid):
 		failures.append("Default loadout or 130 Power calculation failed")
 	if PlayerProfile.main_inventory.size() != 24:
 		failures.append("Main inventory does not contain 24 persistent slots")
-	if PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size() - PlayerProfile.DEVELOPMENT_STASH_EXCLUDED.size():
-		failures.append("Default stash does not contain the complete development catalog")
-	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.WEAPON).size() != 30 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.SKILL).size() != 10 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.GEAR).size() != 27:
-		failures.append("Starting stash category counts are invalid")
+	if PlayerProfile.gold != 120 or PlayerProfile.owned_item_ids.size() != PlayerProfile.STARTER_ITEM_IDS.size() or PlayerProfile.owned_item_instances.size() != PlayerProfile.STARTER_ITEM_IDS.size() + 1:
+		failures.append("Normal profile did not contain only the intended starter kit and small gold grant")
+	if PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.WEAPON).size() != 2 or PlayerProfile.get_owned_definitions(ItemDefinition.ItemType.SKILL).size() != 2:
+		failures.append("Starter weapon/skill counts are invalid")
 	if PlayerProfile.equip_gear("helmet", "simple_ring", false):
 		failures.append("Gear compatibility allowed a ring in the helmet slot")
-	PlayerProfile.set_inventory_item(0, "basic_charm", false)
+	PlayerProfile.create_development_profile()
+	var validation_fixture := PlayerProfile.to_save_data()
+	var unknown_id_save := validation_fixture.duplicate(true)
+	(unknown_id_save["owned_item_ids"] as Array).append("unknown_definition")
+	if bool(PlayerProfile._validate_save_payload(unknown_id_save).get("valid", false)):
+		failures.append("Save validator accepted an unknown item definition")
+	var duplicate_instance_save := validation_fixture.duplicate(true)
+	(duplicate_instance_save["owned_item_instances"] as Array).append((duplicate_instance_save["owned_item_instances"] as Array)[0].duplicate(true))
+	if bool(PlayerProfile._validate_save_payload(duplicate_instance_save).get("valid", false)):
+		failures.append("Save validator accepted a duplicate instance ID")
+	var invalid_value_save := validation_fixture.duplicate(true)
+	(invalid_value_save["owned_item_instances"] as Array)[0]["current_durability"] = -5.0
+	if bool(PlayerProfile._validate_save_payload(invalid_value_save).get("valid", false)):
+		failures.append("Save validator accepted invalid durability")
+	var invalid_slot_save := validation_fixture.duplicate(true)
+	(invalid_slot_save["weapon_instance_slots"] as Array)[0] = "missing:instance"
+	if bool(PlayerProfile._validate_save_payload(invalid_slot_save).get("valid", false)):
+		failures.append("Save validator accepted an invalid slot reference")
+	PlayerProfile.set_inventory_item(0, PlayerProfile.get_instance_for_definition("void_charm").instance_id, false)
 	PlayerProfile.equip_skill(1, "blink", false)
 	if PlayerProfile.get_skill_power() != 170:
 		failures.append("Dash + Blink should be allowed at 170 Power")
@@ -1587,27 +1741,65 @@ func _run_profile_self_test() -> void:
 	_configure_integration_loadout()
 	if PlayerProfile.get_skill_power() != 200 or not bool(PlayerProfile.validate_loadout().valid):
 		failures.append("Grapple + Blink should be valid at exactly 200 Power")
+	var sale_a := ItemInstance.create(PlayerProfile.get_definition("rusty_katana"), "test:sale:a")
+	var sale_b := ItemInstance.create(PlayerProfile.get_definition("rusty_katana"), "test:sale:b")
+	PlayerProfile.add_owned_instance(sale_a, false)
+	PlayerProfile.add_owned_instance(sale_b, false)
+	var gold_before_sale := PlayerProfile.gold
+	var sale_value := PlayerProfile.get_sell_value(sale_a)
+	if not PlayerProfile.sell_instance(sale_a.instance_id, false) or PlayerProfile.gold != gold_before_sale + sale_value or PlayerProfile.get_instance(sale_b.instance_id) == null or PlayerProfile.sell_instance(sale_a.instance_id, false):
+		failures.append("Selling did not destroy exactly one selected duplicate exactly once")
+	var scrap_before := PlayerProfile.scrap
+	var scrap_yield := PlayerProfile.get_dismantle_yield(sale_b)
+	if not PlayerProfile.dismantle_instance(sale_b.instance_id, false) or PlayerProfile.scrap != scrap_before + scrap_yield or PlayerProfile.dismantle_instance(sale_b.instance_id, false):
+		failures.append("Dismantling did not grant Scrap and destroy the exact instance once")
+	var filler_serial := 0
+	while PlayerProfile.get_stash_count() < PlayerProfile.STASH_CAPACITY:
+		var filler := ItemInstance.create(PlayerProfile.get_definition("armory_scrap"), "test:filler:%d" % filler_serial)
+		filler_serial += 1
+		PlayerProfile.add_owned_instance(filler, false)
+	var overflow_item := AffixRoller.roll_item(PlayerProfile.get_definition("vanguard_rifle"), 44551, "test:overflow:exact")
+	overflow_item.current_durability = 47.0
+	if PlayerProfile.secure_extracted_instance(overflow_item, false) != "overflow" or PlayerProfile.get_pending_instances().back() != overflow_item:
+		failures.append("Full stash did not preserve the exact extracted instance in Overflow")
+	var overflow_payload := {"instance_id": overflow_item.instance_id, "origin_kind": "overflow", "origin_key": overflow_item.instance_id}
+	if PlayerProfile.transfer_item(overflow_payload, "stash", "", false) or PlayerProfile.transfer_item(overflow_payload, "loadout_weapon", 0, false) or PlayerProfile.get_instance(overflow_item.instance_id) != overflow_item:
+		failures.append("Full-stash transfer displaced or deleted an Overflow item instead of rejecting atomically")
 	if not PlayerProfile.save_profile(test_path):
 		failures.append("Temporary profile save failed")
+	PlayerProfile.add_gold(1)
+	if not PlayerProfile.save_profile(test_path) or not FileAccess.file_exists(test_path + ".backup"):
+		failures.append("Verified save did not create a backup before replacement")
 	PlayerProfile.reset_to_defaults(false)
-	if not PlayerProfile.load_profile(test_path, false) or PlayerProfile.weapon_slots != ["vanguard_rifle", "knight_sword"] or PlayerProfile.skill_slots != ["grapple", "blink"] or PlayerProfile.main_inventory[0] != "basic_charm":
+	if not PlayerProfile.load_profile(test_path, false) or PlayerProfile.weapon_slots != ["vanguard_rifle", "knight_sword"] or PlayerProfile.skill_slots != ["grapple", "blink"] or PlayerProfile.main_inventory[0] != "dev:void_charm" or PlayerProfile.get_instance("test:overflow:exact") == null or not is_equal_approx(PlayerProfile.get_instance("test:overflow:exact").current_durability, 47.0):
 		failures.append("Save/load round trip did not retain selected loadout")
 	var corrupt := FileAccess.open(test_path, FileAccess.WRITE)
 	if corrupt != null:
 		corrupt.store_string("{ this is not valid json")
 	corrupt = null
-	if PlayerProfile.load_profile(test_path, true) or not PlayerProfile.last_load_used_defaults or not FileAccess.file_exists(test_path):
-		failures.append("Corrupt save did not fall back to the default profile")
+	if not PlayerProfile.load_profile(test_path, false) or not PlayerProfile.last_load_recovered_backup or PlayerProfile.weapon_slots != ["vanguard_rifle", "knight_sword"]:
+		failures.append("Corrupt primary did not recover the verified backup")
+	corrupt = FileAccess.open(test_path, FileAccess.WRITE)
+	if corrupt != null: corrupt.store_string("broken primary")
+	corrupt = FileAccess.open(test_path + ".backup", FileAccess.WRITE)
+	if corrupt != null: corrupt.store_string("broken backup")
+	corrupt = null
+	if PlayerProfile.load_profile(test_path, false) or not PlayerProfile.last_load_used_defaults or PlayerProfile.gold != 120:
+		failures.append("Dual corruption did not fall back to the starter profile")
 	var absolute_test_path := ProjectSettings.globalize_path(test_path)
 	if FileAccess.file_exists(test_path):
 		DirAccess.remove_absolute(absolute_test_path)
+	if FileAccess.file_exists(test_path + ".backup"):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(test_path + ".backup"))
 	if not PlayerProfile.load_profile(test_path, true) or not PlayerProfile.last_load_used_defaults or not FileAccess.file_exists(test_path):
 		failures.append("Missing save did not create a default profile")
 	PlayerProfile.apply_save_data(snapshot)
 	if FileAccess.file_exists(test_path):
 		DirAccess.remove_absolute(absolute_test_path)
+	if FileAccess.file_exists(test_path + ".backup"):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(test_path + ".backup"))
 	if failures.is_empty():
-		print("PROFILE_TEST_OK: defaults, 24 slots, atomic drag transfers, invalid rejection, Power limits, loadout, persistence and old-save fallbacks passed")
+		print("PROFILE_TEST_OK: starter profile, 24 slots, atomic transfers, Power limits, verified save, backup recovery and fresh fallback passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -1620,6 +1812,18 @@ func _run_settings_self_test() -> void:
 	var snapshot := GameSettings.to_dictionary()
 	var test_path := "user://extraction_fighter_settings_test.json"
 	GameSettings.reset_defaults(false)
+	if GameSettings.get_binding_text(&"skill_slot_1") != "Q" or GameSettings.get_binding_text(&"skill_slot_2") != "E" or GameSettings.get_binding_text(&"peek_left") != "3" or GameSettings.get_binding_text(&"peek_right") != "4":
+		failures.append("Canonical defaults are not Q/E skills and 3/4 peek")
+	var legacy_settings := GameSettings.to_dictionary()
+	legacy_settings["save_version"] = 1
+	var legacy_keybinds := (legacy_settings["keybinds"] as Dictionary).duplicate(true)
+	for pair: Array in [["skill_slot_1", KEY_3], ["skill_slot_2", KEY_4], ["peek_left", KEY_Q], ["peek_right", KEY_E]]:
+		var legacy_event := InputEventKey.new()
+		legacy_event.physical_keycode = pair[1]
+		legacy_keybinds[pair[0]] = [GameSettings._serialize_input_event(legacy_event)]
+	legacy_settings["keybinds"] = legacy_keybinds
+	if not GameSettings.apply_dictionary(legacy_settings) or GameSettings.get_binding_text(&"skill_slot_1") != "Q" or GameSettings.get_binding_text(&"peek_left") != "3":
+		failures.append("Version-1 3/4-skill Q/E-peek layout did not migrate to canonical controls")
 	var test_binding := InputEventKey.new()
 	test_binding.physical_keycode = KEY_Z
 	GameSettings.set_binding(&"move_forward", test_binding, false)
@@ -1666,11 +1870,58 @@ func _run_settings_self_test() -> void:
 		get_tree().quit(1)
 
 
+func _run_loot_statistics_test() -> void:
+	var failures: Array[String] = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x4032026
+	var counts: Array[int] = [0, 0, 0, 0, 0, 0]
+	var compatibility_failures := 0
+	const SAMPLE_COUNT := 10000
+	for index: int in SAMPLE_COUNT:
+		var instance := LootTableService.roll_instance(rng, "ordinary", "", 0, 0, "stats:%d" % index)
+		if instance == null:
+			failures.append("Ordinary loot roll returned no item")
+			break
+		var definition := PlayerProfile.get_definition(String(instance.definition_id))
+		if definition.rarity < ItemDefinition.Rarity.COMMON or definition.rarity > ItemDefinition.Rarity.MYTHIC:
+			failures.append("Ordinary table emitted a source-exclusive rarity")
+			break
+		counts[definition.rarity] += 1
+		if not AffixRoller.validate_instance(instance, definition).is_empty():
+			compatibility_failures += 1
+	var tolerance: Array[float] = [2.0, 1.8, 1.4, 0.9, 0.55, 0.35]
+	for rarity: int in counts.size():
+		var observed := float(counts[rarity]) * 100.0 / float(SAMPLE_COUNT)
+		if absf(observed - LootTableService.BASE_RARITY_WEIGHTS[rarity]) > tolerance[rarity]:
+			failures.append("%s observed %.2f%% outside tolerance" % [ItemDefinition.Rarity.keys()[rarity], observed])
+	if compatibility_failures > 0:
+		failures.append("%d rolled items had incompatible or duplicate affixes" % compatibility_failures)
+	for index: int in 2000:
+		var boss := LootTableService.roll_instance(rng, "boss", "boss", 4, 0, "boss-stats:%d" % index)
+		var definition := PlayerProfile.get_definition(String(boss.definition_id)) if boss != null else null
+		if definition == null or definition.rarity < ItemDefinition.Rarity.RARE:
+			failures.append("Boss table violated its guaranteed Rare+ floor")
+			break
+	var key := PlayerProfile.get_definition("extraction_key")
+	if key == null or key.rarity != ItemDefinition.Rarity.UNIQUE or not LootTableService.UNIQUE_SOURCE_ITEMS.has("extraction_key"):
+		failures.append("Unique Extraction Key is not isolated to its source-specific rule")
+	var report_parts: Array[String] = []
+	for rarity: int in counts.size():
+		report_parts.append("%s %.2f%%" % [ItemDefinition.Rarity.keys()[rarity], float(counts[rarity]) * 100.0 / float(SAMPLE_COUNT)])
+	if failures.is_empty():
+		print("LOOT_STATISTICS_OK: 10,000 ordinary rolls = %s; affix compatibility 100%%; 2,000 boss rolls respected Rare+ floor" % ", ".join(report_parts))
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("LOOT_STATISTICS_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
 func _run_content_self_test() -> void:
 	print("CONTENT_TEST_START")
 	var failures: Array[String] = []
 	var snapshot := PlayerProfile.to_save_data()
-	PlayerProfile.reset_to_defaults(false)
+	PlayerProfile.create_development_profile()
 	var expected_weapons: Array[String] = ["ronin_katana", "war_nodachi", "huntsman_rifle", "vanguard_rifle", "falcon_burst", "ironclad_rifle", "knight_sword", "arcane_wand", "service_glock", "twin_glock"]
 	var expected_skills: Array[String] = ["dash", "double_jump", "grapple", "blink", "wallrun", "air_dash", "launch", "ground_slam", "invisibility", "smoke_veil"]
 	for item_id: String in expected_weapons:
@@ -1743,13 +1994,22 @@ func _run_content_self_test() -> void:
 	old_save["weapon_slots"] = ["ronin_katana", "huntsman_rifle"]
 	old_save["skill_slots"] = ["dash", "double_jump"]
 	old_save["owned_item_ids"] = ["ronin_katana", "huntsman_rifle", "dash", "double_jump", "training_helmet", "training_chest", "training_gloves", "training_boots", "simple_necklace", "simple_ring", "iron_ring", "basic_charm"]
-	if not PlayerProfile.apply_save_data(old_save, false) or not PlayerProfile.catalog_migrated_last_load or PlayerProfile.owned_item_ids.size() != ItemDatabase.DEFINITIONS.size() - PlayerProfile.DEVELOPMENT_STASH_EXCLUDED.size():
-		failures.append("Legacy profile did not migrate to the development catalog")
+	old_save["save_version"] = 4
+	old_save.erase("pending_reward_instances")
+	old_save.erase("scrap")
+	old_save.erase("training_best_time_ms")
+	var legacy_instances: Array = []
+	for entry: Dictionary in old_save.get("owned_item_instances", []):
+		if String(entry.get("definition_id", "")) in old_save["owned_item_ids"]:
+			legacy_instances.append(entry)
+	old_save["owned_item_instances"] = legacy_instances
+	if not PlayerProfile.apply_save_data(old_save, false) or not PlayerProfile.catalog_migrated_last_load or PlayerProfile.owned_item_ids.has("rushfang"):
+		failures.append("Legacy profile migration injected development catalog items")
 	if PlayerProfile.weapon_slots != ["ronin_katana", "huntsman_rifle"] or PlayerProfile.skill_slots != ["dash", "double_jump"]:
 		failures.append("Legacy profile migration did not preserve selected loadout")
 	PlayerProfile.apply_save_data(snapshot, false)
 	if failures.is_empty():
-		print("CONTENT_TEST_OK: 30 distinct weapon models, rifle optics, 10 skills, 27 gear items, Power rules, gameplay scenes and save migration passed")
+		print("CONTENT_TEST_OK: 30 distinct weapon models, rifle optics, 10 skills, 27 gear items, Power rules, gameplay scenes and non-destructive save migration passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -1761,7 +2021,7 @@ func _run_tooltip_self_test() -> void:
 	print("TOOLTIP_TEST_START")
 	var failures: Array[String] = []
 	var snapshot := PlayerProfile.to_save_data()
-	PlayerProfile.reset_to_defaults(false)
+	PlayerProfile.create_development_profile()
 	PlayerProfile.set_inventory_item(0, "war_nodachi", false)
 	_show_stash()
 	await get_tree().process_frame
@@ -1833,7 +2093,7 @@ func _run_inventory_ui_test() -> void:
 	print("INVENTORY_UI_TEST_START")
 	var failures: Array[String] = []
 	var snapshot := PlayerProfile.to_save_data()
-	PlayerProfile.reset_to_defaults(false)
+	PlayerProfile.create_development_profile()
 	_show_stash()
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -1859,7 +2119,7 @@ func _run_inventory_ui_test() -> void:
 	for instance: ItemInstance in PlayerProfile.owned_item_instances: owned_after_sort.append(instance.instance_id)
 	if owned_before_sort != owned_after_sort:
 		failures.append("Sorting modified item ownership or identity")
-	var broken := PlayerProfile.get_instance_for_definition("worn_assault_rifle")
+	var broken := PlayerProfile.get_instance_for_definition("vanguard_rifle")
 	broken.current_durability = 0.0
 	if PlayerProfile.quick_equip_instance(broken.instance_id, false) or PlayerProfile.last_error != "ITEM BROKEN":
 		failures.append("Broken item quick-equip was not explicitly rejected")
@@ -1964,7 +2224,7 @@ func _run_affix_self_test() -> void:
 	migrated.erase("owned_item_instances")
 	migrated.erase("weapon_instance_slots")
 	migrated.erase("equipped_gear_instances")
-	if not PlayerProfile.apply_save_data(migrated, false) or PlayerProfile.owned_item_instances.size() != PlayerProfile.owned_item_ids.size() or PlayerProfile.get_weapon_instance(0) == null:
+	if not PlayerProfile.apply_save_data(migrated, false) or PlayerProfile.owned_item_instances.size() < PlayerProfile.owned_item_ids.size() or PlayerProfile.get_weapon_instance(0) == null:
 		failures.append("Version 1 profile did not migrate to persistent item instances")
 	item_tooltip.show_item(PlayerProfile.get_definition("phantom_katana"), PlayerProfile.get_instance_for_definition("phantom_katana"))
 	await get_tree().process_frame
@@ -1986,9 +2246,9 @@ func _run_affix_self_test() -> void:
 
 
 func _run_profile_restart_write() -> void:
-	PlayerProfile.reset_to_defaults(false)
+	PlayerProfile.create_development_profile()
 	_configure_integration_loadout()
-	PlayerProfile.set_inventory_item(7, "basic_charm", false)
+	PlayerProfile.set_inventory_item(7, "dev:void_charm", false)
 	if PlayerProfile.save_profile(RESTART_TEST_PATH):
 		print("PROFILE_RESTART_WRITE_OK")
 		get_tree().quit(0)
@@ -1999,7 +2259,7 @@ func _run_profile_restart_write() -> void:
 
 func _run_profile_restart_read() -> void:
 	var loaded := PlayerProfile.load_profile(RESTART_TEST_PATH, false)
-	var valid := loaded and PlayerProfile.weapon_slots == ["vanguard_rifle", "knight_sword"] and PlayerProfile.skill_slots == ["grapple", "blink"] and PlayerProfile.main_inventory[7] == "basic_charm"
+	var valid := loaded and PlayerProfile.weapon_slots == ["vanguard_rifle", "knight_sword"] and PlayerProfile.skill_slots == ["grapple", "blink"] and PlayerProfile.main_inventory[7] == "dev:void_charm"
 	var absolute_path := ProjectSettings.globalize_path(RESTART_TEST_PATH)
 	if FileAccess.file_exists(RESTART_TEST_PATH):
 		DirAccess.remove_absolute(absolute_path)
