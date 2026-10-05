@@ -1,38 +1,84 @@
-# Extraction Fighter - MVP 0.4.3
+# Extraction Fighter — MVP 0.4.3
 
-A local single-player Godot 4.7.2 combat prototype with a persistent lobby, data-driven loadouts, and a fast player-versus-bot arena.
+Jednoosobowa gra FPS tworzona w Godot 4.7.2. Zawiera stały profil gracza, rozbudowany ekwipunek, arenę przeciw botom, tryb extraction oraz osobną mapę do treningu movementu.
 
-## Launch
+## Instalacja
 
-Open this folder in Godot 4.7.2 and run the project, or run:
+Gra jest obecnie wersją deweloperską uruchamianą z projektu Godot — repozytorium nie zawiera jeszcze gotowego instalatora ani pliku wykonywalnego. Potrzebujesz standardowej wersji **Godot 4.7.2** (bez .NET/Mono).
 
-```powershell
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --path .
+### CachyOS / Linux
+
+1. Pobierz i rozpakuj Godot 4.7.2 ze strony [Godot Engine](https://godotengine.org/download/archive/).
+2. Pobierz projekt przez **Code > Download ZIP** na GitHubie i rozpakuj go albo sklonuj repozytorium:
+
+```bash
+git clone https://github.com/chr0mzyy/extraction-fighter.git
+cd extraction-fighter
 ```
 
-The project starts in the lobby. `PLAY > ARENA` launches endless deathmatch, `PLAY > THE ARMORY` launches a 15-minute extraction run, and `PLAY > MOVEMENT TRAINING` opens a timed ten-mechanic course. Run loot occupies a separate 24-slot pack, is secured only by extraction, and is lost on death or timeout.
+3. W Godot wybierz **Import**, wskaż plik `project.godot` i potwierdź import projektu.
 
-## Arena controls
+Jeśli używasz pobranego pliku wykonywalnego Godot zamiast pakietu systemowego, przy pierwszym uruchomieniu nadaj mu uprawnienie do wykonywania:
 
-- `WASD`: constant-speed arena movement
-- `Shift`, `C`, or `Ctrl`: crouch / momentum slide
-- `Space`: jump; hold for auto bunny hop; release and press again in the air for an equipped Double Jump
-- `Q`: skill slot 1
-- `E`: skill slot 2
-- `3` / `4`: peek left / right
-- `V`: instant FPP/TPP toggle
-- `1`: weapon slot 1
-- `2`: weapon slot 2
-- `LMB`: light attack / fire
-- `RMB`: block / ADS
-- `F`: melee heavy attack
-- `R`: firearm reload / activate a ready Mythic weapon action
-- `Esc`: pause menu
-- `Tab`: open/close the simplified Armory run inventory
-- `F3`: debug overlay
-- `X`: open Armory chests / hold for 5 seconds at a normal extraction point; hidden key extracts take 2.75 seconds
+```bash
+chmod +x Godot_v4.7.2-stable_linux.x86_64
+```
 
-Double Jump is the intentional contextual exception to Q/E: it occupies a skill slot but activates with a second airborne `Space` press. Other skills activate from whichever Q/E slot they occupy; contextual skills only activate when their requirements are met.
+### Windows
+
+1. Pobierz standardową wersję Godot 4.7.2 i rozpakuj archiwum.
+2. Pobierz projekt przez **Code > Download ZIP** i rozpakuj go albo użyj polecenia `git clone` podanego wyżej.
+3. Uruchom Godot, wybierz **Import** i wskaż plik `project.godot` z katalogu gry.
+
+Projekt nie wymaga dodatkowych bibliotek ani instalowania wtyczek.
+
+## Uruchomienie
+
+Najprościej otworzyć zaimportowany projekt w Godot i nacisnąć przycisk **Run Project** lub klawisz `F5`.
+
+Możesz też uruchomić grę bezpośrednio z terminala w katalogu projektu:
+
+```bash
+godot --path .
+```
+
+Na Windows, jeśli Godot nie znajduje się w zmiennej `PATH`, użyj pełnej ścieżki:
+
+```powershell
+& 'C:\sciezka\do\Godot_v4.7.2-stable_win64.exe' --path .
+```
+
+Gra uruchamia się w lobby. Dostępne tryby:
+
+- **PLAY > ARENA** — nieskończony deathmatch przeciw botom.
+- **PLAY > THE ARMORY** — 15-minutowa wyprawa extraction; łup zachowujesz wyłącznie po udanej ewakuacji.
+- **PLAY > MOVEMENT TRAINING** — trasa treningowa z 10 mechanikami, checkpointami i pomiarem najlepszego czasu.
+
+## Sterowanie
+
+| Klawisz | Działanie |
+| --- | --- |
+| `Mysz` | Rozglądanie i kierowanie postacią |
+| `W` `A` `S` `D` | Ruch po ziemi |
+| `Spacja` | Skok; przytrzymaj, aby automatycznie wykonywać bunny hopy |
+| `Shift`, `C` lub `Ctrl` | Kucanie / momentum slide |
+| `Spacja` + `A`/`D` + ruch myszy | Sterowanie torem bunny hopu w lewo/prawo |
+| `1` / `2` | Wybór pierwszej/drugiej broni |
+| `LPM` | Strzał / lekki atak |
+| `PPM` | Celowanie przez przyrządy (ADS) / blok |
+| `F` | Ciężki atak bronią białą |
+| `R` | Przeładowanie / gotowa akcja broni Mythic |
+| `Q` / `E` | Umiejętność w pierwszym/drugim slocie |
+| `3` / `4` | Wychylenie w lewo/prawo (peek) |
+| `V` | Przełączenie widoku FPP/TPP |
+| `X` | Interakcja, otwieranie skrzyń i przytrzymanie ewakuacji |
+| `Tab` | Ekwipunek podczas wyprawy The Armory |
+| `Esc` | Menu pauzy |
+| `F3` | Panel diagnostyczny |
+
+Własne bindy ustawisz w **SETTINGS > KEYBINDS**. Klawisze `Esc`, `Tab` i `F3` pozostają stałe. Double Jump jest wyjątkiem kontekstowym: zajmuje slot umiejętności, ale aktywuje się drugim naciśnięciem `Spacji` w powietrzu. Na mapie Movement Training klawisz `R` rozpoczyna trasę od początku.
+
+## Aktualny zakres gry
 
 New profiles receive only a starter kit: Rusty Katana, Worn Assault Rifle, Dash, Double Jump, common training gear and 120 Gold, all in a valid auto-equipped loadout. The full 30-weapon, 10-skill and 27-gear catalog is available only through explicit development flags. Skill combinations above 200 Power are rejected.
 
