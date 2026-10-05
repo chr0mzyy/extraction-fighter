@@ -475,7 +475,7 @@ func _show_play() -> void:
 	arena.pressed.connect(_launch_arena)
 	var dungeon := _activity_card(cards, "THE ARMORY", "15 minute extraction run\nLoot is lost on death", true)
 	dungeon.pressed.connect(_launch_dungeon)
-	var training := _activity_card(cards, "MOVEMENT TRAINING", "10-mechanic timed course\nCheckpoints • personal best • no item wear", false)
+	var training := _activity_card(cards, "MOVEMENT TRAINING", "10-mechanic timed course\nCheckpoints • personal best • no item wear", true)
 	training.name = "MovementTrainingCard"
 	training.pressed.connect(_launch_training)
 	_add_back_button(content)
@@ -2306,6 +2306,11 @@ func _run_lobby_layout_test() -> void:
 		var activity_cards := find_child("ActivityCards", true, false) as HBoxContainer
 		if activity_cards == null or activity_cards.get_child_count() != 3:
 			failures.append("%dx%d play screen did not contain three activity cards" % [test_size.x, test_size.y])
+		var training_card := find_child("MovementTrainingCard", true, false) as Button
+		if training_card == null:
+			failures.append("%dx%d movement training card is missing" % [test_size.x, test_size.y])
+		elif training_card.disabled or not training_card.pressed.has_connections():
+			failures.append("%dx%d movement training card is disabled or cannot launch the course" % [test_size.x, test_size.y])
 	if failures.is_empty():
 		print("LOBBY_LAYOUT_OK: lobby, loadout, stash, settings, keybinds and three activity cards fit 1280x720, 1920x1080 and 2560x1440")
 		get_tree().quit(0)
