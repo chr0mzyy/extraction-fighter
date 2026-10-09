@@ -13,6 +13,8 @@ enum GearSlot { NONE, HELMET, CHEST, GLOVES, BOOTS, NECKLACE, RING, CHARM }
 @export var rarity: Rarity = Rarity.COMMON
 @export var preview_icon: Texture2D
 @export var sell_value: int = 0
+@export var arena_tradable: bool = true
+@export var permanently_protected: bool = false
 @export var affix_ids: Array[StringName] = []
 @export var affix_tiers: Array[int] = []
 
@@ -59,3 +61,7 @@ func get_rarity_name() -> String:
 
 func get_gear_slot_name() -> String:
 	return GearSlot.keys()[gear_slot].capitalize()
+
+
+func is_arena_trade_eligible() -> bool:
+	return arena_tradable and not permanently_protected and item_type not in [ItemType.SKILL, ItemType.KEY]

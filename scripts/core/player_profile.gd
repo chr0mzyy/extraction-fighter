@@ -4,7 +4,7 @@ signal profile_changed
 signal loadout_changed
 signal validation_failed(message: String)
 
-const SAVE_VERSION := 5
+const SAVE_VERSION := 6
 const SAVE_PATH := "user://player_profile.json"
 const BACKUP_SAVE_PATH := "user://player_profile.backup.json"
 const INVENTORY_SIZE := 24
@@ -41,6 +41,8 @@ var gold: int = 120
 var scrap: int = 0
 var training_best_time_ms: int = 0
 var new_instance_ids: Dictionary = {}
+var arena_completed_transaction_ids: Array[String] = []
+var arena_processed_result_ids: Array[String] = []
 
 
 func _ready() -> void:
@@ -89,6 +91,8 @@ func reset_to_defaults(save_after: bool = true) -> void:
 	gold = 120
 	scrap = 0
 	training_best_time_ms = 0
+	arena_completed_transaction_ids.clear()
+	arena_processed_result_ids.clear()
 	development_session = false
 	last_load_used_defaults = true
 	catalog_migrated_last_load = false
@@ -523,12 +527,14 @@ func to_save_data() -> Dictionary:
 		"gold": gold,
 		"scrap": scrap,
 		"training_best_time_ms": training_best_time_ms,
+		"arena_completed_transaction_ids": arena_completed_transaction_ids.duplicate(),
+		"arena_processed_result_ids": arena_processed_result_ids.duplicate(),
 	}
 
 
 func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 	var incoming_version := int(data.get("save_version", -1))
-	if incoming_version not in [1, 2, 3, 4, SAVE_VERSION]:
+	if incoming_version not in [1, 2, 3, 4, 5, SAVE_VERSION]:
 		last_error = "Unsupported save version"
 		return false
 	var incoming_owned := _string_array(data.get("owned_item_ids", []))
@@ -560,6 +566,11 @@ func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 	gold = maxi(0, int(data.get("gold", 120)))
 	scrap = maxi(0, int(data.get("scrap", 0)))
 	training_best_time_ms = maxi(0, int(data.get("training_best_time_ms", 0)))
+	arena_completed_transaction_ids = _string_array(data.get("arena_completed_transaction_ids", []))
+	arena_processed_result_ids = _string_array(data.get("arena_processed_result_ids", []))
+	if incoming_version < 6:
+		arena_completed_transaction_ids.clear()
+		arena_processed_result_ids.clear()
 	equipped_gear = (incoming_gear as Dictionary).duplicate(true)
 	equipped_gear_instances = (data.get("equipped_gear_instances", {}) as Dictionary).duplicate(true) if data.get("equipped_gear_instances", {}) is Dictionary else {}
 	var used_gear_instances: Dictionary = {}
@@ -618,6 +629,12 @@ func save_profile(path: String = SAVE_PATH) -> bool:
 	var data := to_save_data()
 	if not _references_are_unique():
 		return _fail("Refusing unsafe save: duplicate slot references")
+	return save_profile_data(data, path)
+
+
+func save_profile_data(data: Dictionary, path: String) -> bool:
+	if development_session and path == SAVE_PATH:
+		return _fail("Development profile is temporary and cannot overwrite the normal save")
 	var validation := _validate_save_payload(data)
 	if not bool(validation.get("valid", false)):
 		return _fail("Refusing unsafe save: %s" % String(validation.get("error", "invalid data")))
@@ -747,7 +764,7 @@ func _validate_save_payload(data: Dictionary) -> Dictionary:
 	if data.is_empty():
 		return {"valid": false, "error": "missing data"}
 	var version := int(data.get("save_version", -1))
-	if version not in [1, 2, 3, 4, SAVE_VERSION]:
+	if version not in [1, 2, 3, 4, 5, SAVE_VERSION]:
 		return {"valid": false, "error": "unsupported version"}
 	var owned_ids := _string_array(data.get("owned_item_ids", []))
 	var weapons := _string_array(data.get("weapon_slots", []))
@@ -793,6 +810,19 @@ func _validate_save_payload(data: Dictionary) -> Dictionary:
 		return {"valid": false, "error": "invalid scrap"}
 	if not (training_value is int or training_value is float) or int(training_value) < 0 or int(training_value) > 86400000:
 		return {"valid": false, "error": "invalid training best time"}
+	if version >= 6:
+		for history_key: String in ["arena_completed_transaction_ids", "arena_processed_result_ids"]:
+			var history: Variant = data.get(history_key, [])
+			if not history is Array:
+				return {"valid": false, "error": "invalid arena transaction history"}
+			var maximum := 256 if history_key == "arena_completed_transaction_ids" else 128
+			if (history as Array).size() > maximum:
+				return {"valid": false, "error": "arena transaction history exceeds limit"}
+			var seen_history: Dictionary = {}
+			for value: Variant in history:
+				if not value is String or String(value).is_empty() or seen_history.has(String(value)):
+					return {"valid": false, "error": "invalid arena transaction history entry"}
+				seen_history[String(value)] = true
 	var seen_instances: Dictionary = {}
 	var owned_instance_ids: Dictionary = {}
 	var instance_groups: Array = [data.get("owned_item_instances", [])]

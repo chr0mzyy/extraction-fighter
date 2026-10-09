@@ -46,6 +46,7 @@ var pressure_remaining: float = PRESSURE_INTERVAL
 var loadout_locked: bool = false
 var friendly_fire_enabled: bool = false
 var latest_result: ArenaMatchResult
+var match_result_id: String = ""
 var _last_intro_cue: String = ""
 
 
@@ -77,6 +78,7 @@ func begin_match(skip_intro: bool = false) -> bool:
 	team_b_score = 0
 	round_number = 0
 	latest_result = null
+	match_result_id = "arena:%s:%d:%d" % [String(mode.mode_id), Time.get_unix_time_from_system(), Time.get_ticks_usec()]
 	loadout_locked = true
 	for participant: ArenaParticipantState in participants:
 		participant.reset_match_stats()
@@ -312,7 +314,7 @@ func _finish_match(winner_team: int, abandoned: bool) -> void:
 	combat_lock_changed.emit(true)
 	healing_lock_changed.emit(false)
 	loadout_locked = false
-	latest_result = ArenaMatchResult.new().configure(mode, winner_team, team_a_score, team_b_score, round_number, participants, abandoned)
+	latest_result = ArenaMatchResult.new().configure(mode, winner_team, team_a_score, team_b_score, round_number, participants, abandoned, match_result_id)
 	phase_remaining = MATCH_END_DURATION
 	_set_state(STATE_MATCH_END)
 	match_ended.emit(latest_result)

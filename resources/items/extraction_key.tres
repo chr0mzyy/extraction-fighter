@@ -11,3 +11,5 @@ description = "Consumed at a discreet 2.75-second hidden extraction and grants o
 item_type = 5
 rarity = 6
 sell_value = 0
+arena_tradable = false
+permanently_protected = true

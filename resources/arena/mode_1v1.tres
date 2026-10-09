@@ -10,3 +10,4 @@ team_size = 1
 rounds_to_win = 4
 max_rounds = 7
 round_time_limit = 90.0
+max_reward_exchanges = 3

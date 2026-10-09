@@ -7,7 +7,8 @@ extends Resource
 @export_range(1, 9, 1) var rounds_to_win: int = 4
 @export_range(1, 15, 1) var max_rounds: int = 7
 @export_range(15.0, 300.0, 5.0) var round_time_limit: float = 90.0
+@export_range(0, 10, 1) var max_reward_exchanges: int = 3
 
 
 func is_valid() -> bool:
-	return not mode_id.is_empty() and team_size > 0 and rounds_to_win > 0 and max_rounds >= rounds_to_win and max_rounds >= rounds_to_win * 2 - 1 and round_time_limit > 0.0
+	return not mode_id.is_empty() and team_size > 0 and rounds_to_win > 0 and max_rounds >= rounds_to_win and max_rounds >= rounds_to_win * 2 - 1 and round_time_limit > 0.0 and max_reward_exchanges >= 0

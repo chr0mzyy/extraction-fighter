@@ -48,6 +48,8 @@ func _ready() -> void:
 	_build_pause_menu()
 	if "--arena-round-test" in args:
 		_run_arena_round_test.call_deferred()
+	elif "--arena-reward-test" in args:
+		_run_arena_reward_test.call_deferred()
 	elif "--self-test" in args:
 		_run_self_test.call_deferred()
 	elif "--ai-soak-test" in OS.get_cmdline_user_args():
@@ -401,7 +403,7 @@ func _process(delta: float) -> void:
 
 
 func _is_legacy_test_mode(args: PackedStringArray) -> bool:
-	for flag: String in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--capture-ads", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test", "--scene-flow-test"]:
+	for flag: String in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--capture-ads", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test", "--scene-flow-test", "--arena-reward-test"]:
 		if flag in args:
 			return true
 	return false
@@ -446,7 +448,6 @@ func _setup_arena_match() -> void:
 	arena_ui = ArenaMatchUI.new()
 	add_child(arena_ui)
 	arena_ui.bind(arena_match, arena_participants[0])
-	arena_ui.play_again_requested.connect(_on_play_again)
 	arena_ui.return_to_lobby_requested.connect(_return_to_lobby_immediate)
 	arena_match.begin_match(false)
 
@@ -548,7 +549,17 @@ func _on_arena_score_changed(_winner_team: int, team_a_score: int, team_b_score:
 
 func _on_arena_results_ready(result: ArenaMatchResult) -> void:
 	arena_match_result_ready.emit(result)
-	MouseModeService.enter_lobby()
+	MouseModeService.enter_pause(player)
+	if arena_ui == null:
+		return
+	if not result.local_player_won() or result.abandoned:
+		arena_ui.present_results(result)
+		return
+	var local_inventory := ArenaTradeInventory.new(result.local_owner_id(), "YOU", PlayerProfile.to_save_data(), false)
+	var opponents: Array[ArenaTradeInventory] = []
+	for owner_id: String in result.owner_ids_for_team(result.loser_team):
+		opponents.append(ArenaBotRewardFactory.create_inventory(owner_id, result.owner_display_name(owner_id), result.result_id))
+	arena_ui.present_results(result, local_inventory, opponents, true)
 
 
 func _assign_bot_targets() -> void:
@@ -687,6 +698,51 @@ func _run_arena_round_test() -> void:
 	else:
 		for failure: String in failures:
 			push_error("ARENA_ROUND_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _run_arena_reward_test() -> void:
+	var failures := ArenaRewardTestSuite.new().run()
+	MouseModeService.enter_pause(player)
+	if not player.is_cursor_free or not MouseModeService.is_ui_active():
+		failures.append("Post-match reward UI did not retain a free cursor mode")
+	if MODE_1V1.max_reward_exchanges != 3 or MODE_2V2.max_reward_exchanges != 2:
+		failures.append("Configured 1v1/2v2 reward exchange limits are incorrect")
+	var ui_participants: Array[ArenaParticipantState] = []
+	var ui_winner := ArenaParticipantState.new(&"ui_winner", "UI WINNER", 0, 0, player, true)
+	ui_winner.inventory_owner_id = "ui_winner"
+	ui_participants.append(ui_winner)
+	var ui_loser := ArenaParticipantState.new(&"ui_loser", "UI BOT", 1, 0, bot, false)
+	ui_loser.inventory_owner_id = "ui_loser"
+	ui_participants.append(ui_loser)
+	var ui_result := ArenaMatchResult.new().configure(MODE_1V1, 0, 4, 1, 5, ui_participants, false, "result:ui")
+	var ui_player_inventory := ArenaTradeInventory.new("ui_winner", "YOU", PlayerProfile.to_save_data())
+	var ui_opponents: Array[ArenaTradeInventory] = [ArenaBotRewardFactory.create_inventory("ui_loser", "UI BOT", ui_result.result_id)]
+	var test_ui := ArenaMatchUI.new()
+	add_child(test_ui)
+	test_ui.present_results(ui_result, ui_player_inventory, ui_opponents, true)
+	if not test_ui.results_panel.visible or test_ui.result_continue_button.text != "CONTINUE TO REWARDS":
+		failures.append("Victory result did not expose the reward transition")
+	test_ui._continue_from_results()
+	if not test_ui.reward_panel.visible or test_ui.confirm_button == null or test_ui.finish_button == null:
+		failures.append("Reward UI controls were not usable")
+	test_ui.reward_panel.scale = Vector2.ONE
+	var original_size: Vector2i = get_viewport().size
+	for test_size: Vector2i in [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)]:
+		get_viewport().size = test_size
+		await get_tree().process_frame
+		var reward_rect := test_ui.reward_panel.get_global_rect()
+		var minimum := test_ui.reward_panel.get_combined_minimum_size()
+		if reward_rect.position.x < 0.0 or reward_rect.position.y < 0.0 or reward_rect.end.x > test_size.x or reward_rect.end.y > test_size.y or minimum.x > reward_rect.size.x or minimum.y > reward_rect.size.y:
+			failures.append("Reward UI overflowed at %dx%d (rect=%s minimum=%s)" % [test_size.x, test_size.y, str(reward_rect), str(minimum)])
+	get_viewport().size = original_size
+	test_ui.free()
+	if failures.is_empty():
+		print("ARENA_REWARD_OK: atomic exact-instance swaps, protected items, limits, idempotency, rollback, persistence restart, bot isolation, abandonment, 1v1/2v2 ownership, responsive layout and free cursor passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("ARENA_REWARD_FAILURE: " + failure)
 		get_tree().quit(1)
 
 

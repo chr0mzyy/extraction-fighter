@@ -1,4 +1,4 @@
-# Extraction Fighter — MVP 0.4.3
+# Extraction Fighter — MVP 0.5.2
 
 Jednoosobowa gra FPS tworzona w Godot 4.7.2. Zawiera stały profil gracza, rozbudowany ekwipunek, arenę przeciw botom, tryb extraction oraz osobną mapę do treningu movementu.
 
@@ -50,7 +50,7 @@ Na Windows, jeśli Godot nie znajduje się w zmiennej `PATH`, użyj pełnej ści
 
 Gra uruchamia się w lobby. Dostępne tryby:
 
-- **PLAY > ARENA** — nieskończony deathmatch przeciw botom.
+- **PLAY > ARENA** — rundowe 1v1 lub 2v2 przeciw lokalnym botom; zwycięstwo otwiera nieutrwalaną symulację wymiany nagród.
 - **PLAY > THE ARMORY** — 15-minutowa wyprawa extraction; łup zachowujesz wyłącznie po udanej ewakuacji.
 - **PLAY > MOVEMENT TRAINING** — trasa treningowa z 10 mechanikami, checkpointami i pomiarem najlepszego czasu.
 
@@ -94,7 +94,9 @@ Hover any owned or equipped item in Loadout, Stash, Overflow, or a populated Mai
 
 During an Armory run, `Tab` opens the lighter run inventory. Items can be inspected, compared, consumed or dropped. Dropping creates a world pickup that retains the exact `ItemInstance`, including affixes, variant and durability, and can be recovered if space remains.
 
-The arena remains an endless player-versus-bot deathmatch. Falling below the arena kills and respawns the character. Cameras, bot AI, combat, launch pads, scoring, and respawn behavior remain active.
+Arena is a configurable round match: 1v1 is first to 4, while 2v2 is first to 3. A full-match victory opens a dedicated three-column reward screen. Every selected item from a losing 24-slot main inventory requires one eligible item from the winner's main inventory; exact instance IDs, affixes and durability move together, both item counts remain unchanged, and equipped/skill/key/protected items are rejected. Limits are three swaps in 1v1 and two per winning player in 2v2.
+
+Current opponents are local bots, not remote accounts. Their reward inventories are explicitly labeled synthetic previews, limited to Common–Rare items and never saved. They cannot take persistent player items. The genuine `ArenaRewardService` operates on separate owner ledgers, validates the authoritative result and individual 2v2 ownership, commits both sides atomically, records transaction/result IDs for idempotency, and rolls back on persistence failure; it is ready for a future authoritative PvP persistence adapter, but networking and matchmaking do not exist yet.
 
 ## Kour-style movement baseline
 
@@ -110,7 +112,7 @@ Tune `Player > MovementController` in the Godot Inspector (`scripts/characters/p
 
 The `--self-test` suite additionally checks diagonal speed, stopping, held-jump chains, skill cooldown ownership, loadouts without Dash/Double Jump, and preservation of above-cap slide momentum.
 
-Profiles are stored as version-5 JSON at `user://player_profile.json`. Saves are written to a verified temporary file, the last valid primary is preserved as a backup, and loading follows primary → backup → fresh starter profile. Version-1/2/3/4 profiles migrate without injecting the development catalog and preserve valid instances, affixes, durability, inventory and equipped slots. Scrap, Extraction Overflow and the movement-training personal best are persistent.
+Profiles are stored as version-6 JSON at `user://player_profile.json`. Saves are written to a verified temporary file, the last valid primary is preserved as a backup, and loading follows primary → backup → fresh starter profile. Version-1/2/3/4/5 profiles migrate without injecting the development catalog and preserve valid instances, affixes, durability, inventory and equipped slots. Version 6 adds bounded Arena transaction/result history used to prevent duplicate reward processing. Scrap, Extraction Overflow and the movement-training personal best are persistent.
 
 Movement Training is isolated from normal progression: it applies a temporary skill set, never wears durability, never awards loot or Gold, resets falls to the latest checkpoint, supports `R` restart, and stores only the best completion time.
 
@@ -125,6 +127,16 @@ All ten weapon families use centralized presentation profiles for configurable F
 Combat feedback distinguishes normal, headshot, armor, blocked, parry/deflect, critical/proc, damage-over-time and kill results. Damage numbers use a fixed reusable pool, impacts use a fixed 3D pool, enemy reactions are visual rather than repeated stun, and strong melee connections use a short 42 ms hit-stop. Damage numbers, camera shake, hit-effect intensity and crosshair visibility are persisted in Settings.
 
 ## Validation
+
+Na Linuxie, z katalogu projektu:
+
+```bash
+/sciezka/do/godot --headless --editor --path . --quit
+/sciezka/do/godot --headless --path . -- --arena-reward-test
+/sciezka/do/godot --headless --path . -- --arena-round-test
+```
+
+`--arena-reward-test` korzysta wyłącznie z izolowanych profili testowych. Sprawdza transfer obu stron, pełne inwentarze, ochronę wyposażenia/skillów, limity, zachowanie affiksów i durability, idempotencję, rollback, zapis/restart, izolację symulacji bota, abandonment, własność 2v2 oraz wolny kursor UI.
 
 ```powershell
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --editor --path . --quit
@@ -154,4 +166,6 @@ Combat feedback distinguishes normal, headshot, armor, blocked, parry/deflect, c
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --settings-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --polish-self-test
 & 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --combat-feel-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --arena-round-test
+& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --arena-reward-test
 ```
