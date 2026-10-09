@@ -77,6 +77,11 @@ var current_weapon_index: int = -1
 var target: Node3D
 var is_dead: bool = false
 var spawn_transform: Transform3D
+var arena_team_id: int = -1
+var arena_friendly_fire_enabled: bool = false
+var arena_combat_enabled: bool = true
+var arena_healing_enabled: bool = true
+var arena_difficulty: StringName = &"normal"
 
 var ai_state: StringName = &"SPAWNING"
 var has_line_of_sight: bool = false
@@ -189,6 +194,9 @@ func _physics_process(delta: float) -> void:
 	_tick_timers(delta)
 	_update_hit_reaction(delta)
 	if is_dead:
+		velocity = Vector3.ZERO
+		return
+	if not arena_combat_enabled:
 		velocity = Vector3.ZERO
 		return
 
@@ -665,6 +673,14 @@ func _plan_escape_dash() -> void:
 
 
 func _run_movement(delta: float) -> void:
+	if arena_team_id >= 0:
+		for actor: Node in get_tree().get_nodes_in_group("arena_participant"):
+			if actor == self or not actor is Node3D or not actor.has_method("get_arena_team_id") or int(actor.get_arena_team_id()) != arena_team_id:
+				continue
+			var away := global_position - (actor as Node3D).global_position
+			away.y = 0.0
+			if away.length_squared() > 0.01 and away.length() < 2.2:
+				move_direction = (move_direction + away.normalized() * 0.8).normalized()
 	var previous_position := global_position
 	movement.physics_step(
 		delta,
@@ -951,6 +967,8 @@ func get_debug_snapshot() -> Dictionary:
 		"swings": debug_melee_swings,
 		"reloads": debug_reload_count,
 		"blocks": debug_block_count,
+		"arena_team": arena_team_id,
+		"difficulty": String(arena_difficulty),
 	}
 
 
@@ -1042,6 +1060,9 @@ func respawn() -> void:
 	move_direction = Vector3.ZERO
 	player_disappeared_direction = Vector3.ZERO
 	($StatusEffects as StatusEffectComponent).effects.clear()
+	for weapon: WeaponBase in weapons:
+		if weapon.effects != null:
+			weapon.effects.reset_runtime_state()
 	collision_layer = 2
 	collision_mask = 1
 	body_collision.set_deferred("disabled", false)
@@ -1062,6 +1083,66 @@ func respawn() -> void:
 	ai_state = &"RESPAWN"
 	decision_remaining = random.randf_range(reaction_time_min, reaction_time_max)
 	aim_reaction_remaining = maxf(aim_reaction_delay, decision_remaining)
+
+
+func configure_arena(team_id: int, friendly_fire: bool = false) -> void:
+	arena_team_id = team_id
+	arena_friendly_fire_enabled = friendly_fire
+	add_to_group("arena_participant")
+
+
+func get_arena_team_id() -> int:
+	return arena_team_id
+
+
+func can_receive_damage_from(attacker: Node) -> bool:
+	if not arena_combat_enabled:
+		return false
+	if attacker == null or not attacker.has_method("get_arena_team_id"):
+		return true
+	return arena_friendly_fire_enabled or int(attacker.get_arena_team_id()) != arena_team_id
+
+
+func can_receive_healing() -> bool:
+	return arena_healing_enabled and arena_combat_enabled
+
+
+func set_arena_combat_enabled(enabled: bool) -> void:
+	arena_combat_enabled = enabled
+	if not enabled:
+		velocity = Vector3.ZERO
+		for weapon: WeaponBase in weapons:
+			weapon.cancel_combat()
+
+
+func set_arena_healing_enabled(enabled: bool) -> void:
+	arena_healing_enabled = enabled
+
+
+func apply_arena_difficulty(difficulty: StringName) -> void:
+	arena_difficulty = difficulty if difficulty in [&"easy", &"normal", &"hard"] else &"normal"
+	match arena_difficulty:
+		&"easy":
+			reaction_time_min = 0.38
+			reaction_time_max = 0.68
+			accuracy = 0.38
+			aim_error_medium = 0.70
+			aggression = 0.48
+			mobility = 0.52
+		&"hard":
+			reaction_time_min = 0.12
+			reaction_time_max = 0.28
+			accuracy = 0.72
+			aim_error_medium = 0.27
+			aggression = 0.78
+			mobility = 0.84
+		_:
+			reaction_time_min = 0.18
+			reaction_time_max = 0.45
+			accuracy = 0.55
+			aim_error_medium = 0.42
+			aggression = 0.65
+			mobility = 0.75
 
 
 func _update_hit_reaction(delta: float) -> void:

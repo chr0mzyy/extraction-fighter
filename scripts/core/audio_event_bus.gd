@@ -9,6 +9,7 @@ const SUPPORTED_EVENTS: Array[StringName] = [
 	&"hit", &"headshot", &"critical", &"proc", &"kill", &"player_damage", &"enemy_damage", &"armor_hit", &"impact",
 	&"pickup", &"key_pickup", &"chest", &"extraction_start", &"extraction_success", &"extraction_failure", &"boss_phase",
 	&"ui_hover", &"ui_click", &"ui_back", &"ui_invalid", &"ui_equip", &"ui_unequip", &"ui_repair", &"item_drop", &"mythic_acquired",
+	&"round_countdown", &"fight", &"round_won", &"round_lost", &"match_point", &"victory", &"defeat",
 ]
 
 var emitted_count: int = 0

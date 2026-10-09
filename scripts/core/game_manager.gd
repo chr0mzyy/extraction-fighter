@@ -3,6 +3,11 @@ extends Node3D
 
 signal score_changed(player_score: int, bot_score: int)
 signal kill_feed(message: String)
+signal arena_match_result_ready(result: ArenaMatchResult)
+
+const BOT_SCENE := preload("res://scenes/characters/bot.tscn")
+const MODE_1V1 := preload("res://resources/arena/mode_1v1.tres")
+const MODE_2V2 := preload("res://resources/arena/mode_2v2.tres")
 
 @export var respawn_delay: float = 2.0
 
@@ -19,22 +24,31 @@ var pause_settings_column: VBoxContainer
 var pause_health_label: Label
 var pause_armor_label: Label
 var pause_weapon_labels: Array[Label] = []
+var arena_match: ArenaMatchManager
+var arena_ui: ArenaMatchUI
+var arena_participants: Array[ArenaParticipantState] = []
+var arena_bots: Array[BotController] = []
+var legacy_test_mode: bool = false
+var abandon_dialog: ConfirmationDialog
+var target_refresh_remaining: float = 0.0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	MouseModeService.capture_gameplay(player)
 	AudioManager.play_music(&"arena")
-	player.spawn_transform = player.global_transform
-	bot.spawn_transform = bot.global_transform
-	bot.set_target(player)
+	var args := OS.get_cmdline_user_args()
+	legacy_test_mode = _is_legacy_test_mode(args)
+	_setup_arena_match()
 	player.actor_died.connect(_on_actor_died)
 	player.pause_requested.connect(_toggle_pause)
-	bot.actor_died.connect(_on_actor_died)
+	player.spectator_cycle_requested.connect(_cycle_spectator_target)
 	hud.bind(player, bot, self)
 	score_changed.emit(player_kills, bot_kills)
 	_build_pause_menu()
-	if "--self-test" in OS.get_cmdline_user_args():
+	if "--arena-round-test" in args:
+		_run_arena_round_test.call_deferred()
+	elif "--self-test" in args:
 		_run_self_test.call_deferred()
 	elif "--ai-soak-test" in OS.get_cmdline_user_args():
 		_run_ai_soak_test.call_deferred()
@@ -72,6 +86,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _on_actor_died(actor: Node, info: DamageInfo) -> void:
 	AudioEvents.play(&"kill", (actor as Node3D).global_position if actor is Node3D else Vector3.ZERO)
+	if not legacy_test_mode and arena_match != null:
+		arena_match.report_death(actor, info)
+		return
 	if actor == bot:
 		player_kills += 1
 		kill_feed.emit("ELIMINATED BOT")
@@ -362,9 +379,331 @@ func _toggle_pause() -> void:
 
 
 func _return_to_lobby() -> void:
+	if not legacy_test_mode and arena_match != null and arena_match.state not in [ArenaMatchManager.STATE_MATCH_END, ArenaMatchManager.STATE_RESULTS]:
+		_show_abandon_confirmation()
+		return
+	_return_to_lobby_immediate()
+
+
+func _return_to_lobby_immediate() -> void:
 	get_tree().paused = false
 	MouseModeService.enter_lobby()
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
+
+
+func _process(delta: float) -> void:
+	if legacy_test_mode or arena_match == null or arena_match.state not in [ArenaMatchManager.STATE_ROUND_ACTIVE, ArenaMatchManager.STATE_SUDDEN_DEATH]:
+		return
+	target_refresh_remaining -= delta
+	if target_refresh_remaining <= 0.0:
+		target_refresh_remaining = 0.45
+		_assign_bot_targets()
+
+
+func _is_legacy_test_mode(args: PackedStringArray) -> bool:
+	for flag: String in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--capture-ads", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test", "--scene-flow-test"]:
+		if flag in args:
+			return true
+	return false
+
+
+func _setup_arena_match() -> void:
+	arena_match = ArenaMatchManager.new()
+	arena_match.name = "ArenaMatchManager"
+	add_child(arena_match)
+	var mode := MODE_2V2 if ArenaSessionRequest.mode_id == &"2v2" else MODE_1V1
+	arena_match.configure(mode)
+	arena_bots = [bot]
+	if mode.team_size == 2 and not legacy_test_mode:
+		var ally := BOT_SCENE.instantiate() as BotController
+		ally.name = "AllyBot"
+		add_child(ally)
+		var enemy_two := BOT_SCENE.instantiate() as BotController
+		enemy_two.name = "EnemyBot2"
+		add_child(enemy_two)
+		arena_bots.append(ally)
+		arena_bots.append(enemy_two)
+	player.configure_arena(ArenaMatchManager.TEAM_A)
+	_register_participant(player, &"local_player", "YOU", ArenaMatchManager.TEAM_A, 0, true)
+	bot.configure_arena(ArenaMatchManager.TEAM_B)
+	_register_participant(bot, &"enemy_1", "RED ONE", ArenaMatchManager.TEAM_B, 0, false)
+	if mode.team_size == 2 and not legacy_test_mode:
+		var ally_bot := arena_bots[1]
+		var enemy_bot_two := arena_bots[2]
+		ally_bot.configure_arena(ArenaMatchManager.TEAM_A)
+		enemy_bot_two.configure_arena(ArenaMatchManager.TEAM_B)
+		_register_participant(ally_bot, &"ally_1", "BLUE TWO", ArenaMatchManager.TEAM_A, 1, false)
+		_register_participant(enemy_bot_two, &"enemy_2", "RED TWO", ArenaMatchManager.TEAM_B, 1, false)
+	for arena_bot: BotController in arena_bots:
+		arena_bot.apply_arena_difficulty(StringName(String(ArenaSessionRequest.bot_difficulty).to_lower()))
+		arena_bot.actor_died.connect(_on_actor_died)
+	_connect_arena_signals()
+	if legacy_test_mode:
+		player.spawn_transform = player.global_transform
+		bot.spawn_transform = bot.global_transform
+		bot.set_target(player)
+		return
+	arena_ui = ArenaMatchUI.new()
+	add_child(arena_ui)
+	arena_ui.bind(arena_match, arena_participants[0])
+	arena_ui.play_again_requested.connect(_on_play_again)
+	arena_ui.return_to_lobby_requested.connect(_return_to_lobby_immediate)
+	arena_match.begin_match(false)
+
+
+func _register_participant(actor: Node3D, participant_id: StringName, display_name: String, team_id: int, slot: int, local: bool) -> void:
+	var participant := ArenaParticipantState.new(participant_id, display_name, team_id, slot, actor, local)
+	participant.inventory_owner_id = "local_profile" if local else String(participant_id)
+	if local:
+		for inventory_slot: int in PlayerProfile.main_inventory.size():
+			var item := PlayerProfile.get_inventory_instance(inventory_slot)
+			if item != null:
+				participant.inventory_item_ids.append(item.instance_id)
+	arena_participants.append(participant)
+	arena_match.register_participant(participant)
+	var actor_health := actor.get_node_or_null("HealthComponent") as HealthComponent
+	if actor_health != null:
+		actor_health.damage_resolved.connect(_on_arena_damage_resolved)
+
+
+func _connect_arena_signals() -> void:
+	arena_match.round_reset_requested.connect(_on_round_reset_requested)
+	arena_match.combat_lock_changed.connect(_on_combat_lock_changed)
+	arena_match.healing_lock_changed.connect(_on_healing_lock_changed)
+	arena_match.spectator_requested.connect(_on_spectator_requested)
+	arena_match.pressure_tick.connect(_on_pressure_tick)
+	arena_match.round_ended.connect(_on_arena_score_changed)
+	arena_match.results_ready.connect(_on_arena_results_ready)
+
+
+func _on_round_reset_requested(round_number: int, swap_sides: bool) -> void:
+	_clear_arena_transients()
+	player.set_spectator_target(null)
+	for participant: ArenaParticipantState in arena_participants:
+		var marker := _spawn_marker(participant.team_id, participant.team_slot, swap_sides)
+		if marker == null:
+			continue
+		participant.actor.set("spawn_transform", marker.global_transform)
+		if participant.actor.has_method("respawn"):
+			participant.actor.respawn()
+	_assign_bot_targets()
+	kill_feed.emit("ROUND %d  //  SIDES SWAPPED" % round_number if swap_sides else "ROUND %d" % round_number)
+
+
+func _spawn_marker(team_id: int, slot: int, swap_sides: bool) -> Marker3D:
+	var physical_team := 1 - team_id if swap_sides else team_id
+	var prefix := "A" if physical_team == ArenaMatchManager.TEAM_A else "B"
+	return get_node_or_null("ArenaSpawns/%s%d" % [prefix, slot + 1]) as Marker3D
+
+
+func _on_combat_lock_changed(locked: bool) -> void:
+	for participant: ArenaParticipantState in arena_participants:
+		if is_instance_valid(participant.actor) and participant.actor.has_method("set_arena_combat_enabled"):
+			participant.actor.set_arena_combat_enabled(not locked)
+
+
+func _on_healing_lock_changed(locked: bool) -> void:
+	for participant: ArenaParticipantState in arena_participants:
+		if is_instance_valid(participant.actor) and participant.actor.has_method("set_arena_healing_enabled"):
+			participant.actor.set_arena_healing_enabled(not locked)
+
+
+func _on_spectator_requested(_local_participant: ArenaParticipantState, teammates: Array[ArenaParticipantState]) -> void:
+	player.set_spectator_target(teammates[0].actor if not teammates.is_empty() else null)
+
+
+func _cycle_spectator_target(direction: int) -> void:
+	if not player.is_dead or arena_match == null:
+		return
+	var teammates := arena_match.living_participants(ArenaMatchManager.TEAM_A)
+	if teammates.is_empty():
+		return
+	var current_index := 0
+	for index: int in teammates.size():
+		if teammates[index].actor == player.spectator_target:
+			current_index = index
+			break
+	current_index = posmod(current_index + direction, teammates.size())
+	player.set_spectator_target(teammates[current_index].actor)
+
+
+func _on_pressure_tick(amount: float) -> void:
+	for participant: ArenaParticipantState in arena_match.participants:
+		if participant.alive and is_instance_valid(participant.actor):
+			var actor_health := participant.actor.get_node_or_null("HealthComponent") as HealthComponent
+			if actor_health != null:
+				actor_health.apply_damage(DamageInfo.new(amount, null, &"sudden_death_pressure", false, false, participant.actor.global_position, Vector3.ZERO, false, true))
+
+
+func _on_arena_damage_resolved(info: DamageInfo, applied_amount: float, _response: Dictionary) -> void:
+	arena_match.record_damage(info, applied_amount)
+
+
+func _on_arena_score_changed(_winner_team: int, team_a_score: int, team_b_score: int) -> void:
+	_clear_arena_transients()
+	player_kills = team_a_score
+	bot_kills = team_b_score
+	score_changed.emit(player_kills, bot_kills)
+
+
+func _on_arena_results_ready(result: ArenaMatchResult) -> void:
+	arena_match_result_ready.emit(result)
+	MouseModeService.enter_lobby()
+
+
+func _assign_bot_targets() -> void:
+	for arena_bot: BotController in arena_bots:
+		if not is_instance_valid(arena_bot) or arena_bot.is_dead:
+			continue
+		var best_target: Node3D
+		var best_distance := INF
+		for participant: ArenaParticipantState in arena_participants:
+			if participant.team_id == arena_bot.arena_team_id or not participant.alive or participant.actor == arena_bot:
+				continue
+			var distance := arena_bot.global_position.distance_squared_to(participant.actor.global_position)
+			if distance < best_distance:
+				best_distance = distance
+				best_target = participant.actor
+		arena_bot.set_target(best_target)
+
+
+func _clear_arena_transients() -> void:
+	for transient: Node in get_tree().get_nodes_in_group("arena_transient"):
+		if is_instance_valid(transient):
+			transient.queue_free()
+
+
+func _on_play_again() -> void:
+	MouseModeService.capture_gameplay(player)
+	arena_match.rematch(false)
+
+
+func _show_abandon_confirmation() -> void:
+	if abandon_dialog == null:
+		abandon_dialog = ConfirmationDialog.new()
+		abandon_dialog.title = "ABANDON MATCH?"
+		abandon_dialog.dialog_text = "Leaving now counts as a defeat."
+		abandon_dialog.ok_button_text = "ABANDON"
+		abandon_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+		abandon_dialog.confirmed.connect(_confirm_abandon)
+		add_child(abandon_dialog)
+	abandon_dialog.popup_centered(Vector2i(440, 180))
+
+
+func _confirm_abandon() -> void:
+	arena_match.abandon(ArenaMatchManager.TEAM_A)
+	_return_to_lobby_immediate()
+
+
+func get_arena_debug_snapshot() -> Dictionary:
+	var snapshot := arena_match.get_debug_snapshot() if arena_match != null else {}
+	snapshot["bot_difficulty"] = String(ArenaSessionRequest.bot_difficulty)
+	return snapshot
+
+
+func _run_arena_round_test() -> void:
+	var failures: Array[String] = []
+	arena_match.set_process(false)
+	player.set_arena_combat_enabled(true)
+	bot.set_arena_combat_enabled(true)
+	if arena_participants.size() != (4 if ArenaSessionRequest.mode_id == &"2v2" else 2):
+		failures.append("Runtime participant count does not match selected mode")
+	if player.can_receive_damage_from(player):
+		failures.append("Friendly fire was not blocked")
+	if not player.can_receive_damage_from(bot):
+		failures.append("Enemy damage was blocked")
+	player.health.current_health = 19.0
+	if not player.equipped_skills.is_empty():
+		player.equipped_skills[0].cooldown_remaining = 9.0
+	var player_status := player.get_node_or_null("StatusEffects") as StatusEffectComponent
+	if player_status != null:
+		player_status.effects[&"arena_test"] = {"remaining": 5.0}
+	if not player.weapons.is_empty() and player.weapons[0].effects != null:
+		player.weapons[0].effects.special_counter = 4
+	_on_round_reset_requested(1, false)
+	if not is_equal_approx(player.health.current_health, player.health.max_health):
+		failures.append("Round reset did not restore HP")
+	if not player.equipped_skills.is_empty() and player.equipped_skills[0].cooldown_remaining > 0.0:
+		failures.append("Round reset did not restore skills")
+	if player_status != null and not player_status.effects.is_empty():
+		failures.append("Round reset did not clear statuses")
+	if not player.weapons.is_empty() and player.weapons[0].effects != null and player.weapons[0].effects.special_counter != 0:
+		failures.append("Round reset did not clear affix runtime state")
+	var manager_1v1 := _make_test_match(MODE_1V1, 2)
+	if not manager_1v1.begin_match(true) or manager_1v1.state != ArenaMatchManager.STATE_ROUND_ACTIVE:
+		failures.append("1v1 did not enter ROUND_ACTIVE")
+	var signal_state := {"reset_count": 0, "spectator": false}
+	manager_1v1.round_reset_requested.connect(func(_round: int, _swap: bool) -> void: signal_state.reset_count = int(signal_state.reset_count) + 1)
+	manager_1v1.round_time_remaining = 0.0
+	manager_1v1.resolve_timeout_now()
+	if manager_1v1.state != ArenaMatchManager.STATE_SUDDEN_DEATH:
+		failures.append("Equal timeout did not enter sudden death")
+	var duel_kill := DamageInfo.new(100.0, manager_1v1.participants[0].actor)
+	manager_1v1.report_death(manager_1v1.participants[1].actor, duel_kill)
+	if manager_1v1.team_a_score != 1 or manager_1v1.participants[0].kills != 1:
+		failures.append("1v1 elimination did not increment score and kill stats")
+	for _round: int in 3:
+		manager_1v1.finish_transition_now()
+		manager_1v1.force_round_winner(ArenaMatchManager.TEAM_A)
+	manager_1v1.finish_transition_now()
+	manager_1v1.finish_transition_now()
+	if manager_1v1.state != ArenaMatchManager.STATE_RESULTS or manager_1v1.latest_result == null or manager_1v1.team_a_score != 4:
+		failures.append("1v1 best-of-seven result flow failed")
+	if int(signal_state.reset_count) < 3:
+		failures.append("Round reset signal did not fire between rounds")
+	if not manager_1v1.rematch(true) or manager_1v1.state != ArenaMatchManager.STATE_ROUND_ACTIVE or manager_1v1.team_a_score != 0:
+		failures.append("Play-again rematch did not create a clean match")
+	var timeout_manager := _make_test_match(MODE_1V1, 2)
+	timeout_manager.begin_match(true)
+	(timeout_manager.participants[0].actor.get_node("HealthComponent") as HealthComponent).current_health = 75.0
+	(timeout_manager.participants[1].actor.get_node("HealthComponent") as HealthComponent).current_health = 30.0
+	timeout_manager.resolve_timeout_now()
+	if timeout_manager.state != ArenaMatchManager.STATE_ROUND_END or timeout_manager.team_a_score != 1:
+		failures.append("Timeout remaining-HP tiebreak failed")
+	var manager_2v2 := _make_test_match(MODE_2V2, 4)
+	manager_2v2.begin_match(true)
+	manager_2v2.spectator_requested.connect(func(_local: ArenaParticipantState, teammates: Array[ArenaParticipantState]) -> void: signal_state.spectator = not teammates.is_empty())
+	manager_2v2.report_death(manager_2v2.participants[0].actor)
+	if manager_2v2.state != ArenaMatchManager.STATE_ROUND_ACTIVE:
+		failures.append("2v2 round ended after the first death")
+	if not bool(signal_state.spectator):
+		failures.append("2v2 local death did not activate spectator foundation")
+	manager_2v2.report_death(manager_2v2.participants[2].actor)
+	if manager_2v2.state != ArenaMatchManager.STATE_ROUND_END or manager_2v2.team_b_score != 1:
+		failures.append("2v2 round did not end after full team elimination")
+	for _round: int in 2:
+		manager_2v2.finish_transition_now()
+		manager_2v2.force_round_winner(ArenaMatchManager.TEAM_B)
+	manager_2v2.finish_transition_now()
+	manager_2v2.finish_transition_now()
+	if manager_2v2.state != ArenaMatchManager.STATE_RESULTS or manager_2v2.team_b_score != 3 or manager_2v2.participants.size() != 4:
+		failures.append("2v2 best-of-five result flow failed")
+	manager_1v1.queue_free()
+	manager_2v2.queue_free()
+	timeout_manager.queue_free()
+	if failures.is_empty():
+		print("ARENA_ROUND_OK: 1v1/2v2 setup, elimination, spectator, timer/HP tiebreak, sudden death, scoring, reset, rematch and friendly-fire rules passed")
+		get_tree().quit(0)
+	else:
+		for failure: String in failures:
+			push_error("ARENA_ROUND_FAILURE: " + failure)
+		get_tree().quit(1)
+
+
+func _make_test_match(test_mode: ArenaModeDefinition, count: int) -> ArenaMatchManager:
+	var result := ArenaMatchManager.new()
+	result.configure(test_mode)
+	add_child(result)
+	result.set_process(false)
+	for index: int in count:
+		var actor := Node3D.new()
+		actor.name = "ArenaTestActor%d" % index
+		var actor_health := HealthComponent.new()
+		actor_health.name = "HealthComponent"
+		actor.add_child(actor_health)
+		result.add_child(actor)
+		result.register_participant(ArenaParticipantState.new(StringName("test_%d" % index), "TEST %d" % index, index % 2, index / 2, actor, index == 0))
+	return result
 
 
 func _quit_game() -> void:

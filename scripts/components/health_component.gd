@@ -23,6 +23,8 @@ func apply_damage(info: DamageInfo) -> Dictionary:
 		return {"applied": 0.0, "negated": true}
 
 	var actor := get_parent()
+	if actor != null and actor.has_method("can_receive_damage_from") and not actor.can_receive_damage_from(info.attacker):
+		return {"applied": 0.0, "negated": true, "arena_locked": true}
 	var response: Dictionary = {}
 	if not info.bypass_defense and actor != null and actor.has_method("modify_incoming_damage"):
 		response = actor.modify_incoming_damage(info)
@@ -59,6 +61,9 @@ func apply_damage(info: DamageInfo) -> Dictionary:
 
 func heal(amount: float) -> float:
 	if is_dead or amount <= 0.0:
+		return 0.0
+	var actor := get_parent()
+	if actor != null and actor.has_method("can_receive_healing") and not actor.can_receive_healing():
 		return 0.0
 	var status := get_parent().get_node_or_null("StatusEffects") as StatusEffectComponent
 	if status != null:

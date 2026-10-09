@@ -4,6 +4,7 @@ extends CharacterBody3D
 signal actor_died(actor: Node, info: DamageInfo)
 signal feedback(event_name: StringName, data: Dictionary)
 signal pause_requested
+signal spectator_cycle_requested(direction: int)
 
 @export_group("Camera")
 @export var mouse_sensitivity: float = 0.0022
@@ -50,6 +51,11 @@ var current_weapon: WeaponBase
 var current_weapon_index: int = 0
 var is_first_person: bool = true
 var is_dead: bool = false
+var arena_team_id: int = -1
+var arena_friendly_fire_enabled: bool = false
+var arena_combat_enabled: bool = true
+var arena_healing_enabled: bool = true
+var spectator_target: Node3D
 var is_cursor_free: bool = false
 var spawn_transform: Transform3D
 var stagger_remaining: float = 0.0
@@ -143,6 +149,12 @@ func _input(event: InputEvent) -> void:
 		return
 	if get_tree().paused or not MouseModeService.is_gameplay_active():
 		return
+	if is_dead and (event.is_action_pressed("move_left") or event.is_action_pressed("ui_left") or event.is_action_pressed("move_right") or event.is_action_pressed("ui_right")):
+		spectator_cycle_requested.emit(-1 if event.is_action_pressed("move_left") or event.is_action_pressed("ui_left") else 1)
+		get_viewport().set_input_as_handled()
+		return
+	if not arena_combat_enabled:
+		return
 	if is_cursor_free:
 		if event is InputEventMouseButton and event.pressed:
 			if MouseModeService.capture_gameplay(self):
@@ -180,6 +192,9 @@ func _input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_update_hit_stop()
+	if is_dead and is_instance_valid(spectator_target):
+		_update_spectator_camera(delta)
+		return
 	_tick_affix_state(delta)
 	crosshair_impulse = move_toward(crosshair_impulse, 0.0, delta * 22.0)
 	camera_fov_impulse = move_toward(camera_fov_impulse, 0.0, delta * camera_effect_recovery)
@@ -396,6 +411,9 @@ func _physics_process(delta: float) -> void:
 	damage_immunity_remaining = maxf(0.0, damage_immunity_remaining - delta)
 	stagger_remaining = maxf(0.0, stagger_remaining - delta)
 	if is_dead:
+		velocity = Vector3.ZERO
+		return
+	if not arena_combat_enabled:
 		velocity = Vector3.ZERO
 		return
 	if Input.is_action_just_pressed("skill_slot_1"):
@@ -725,6 +743,7 @@ func respawn() -> void:
 	global_transform = spawn_transform
 	velocity = Vector3.ZERO
 	is_dead = false
+	spectator_target = null
 	peek_amount = 0.0
 	stagger_remaining = 0.0
 	damage_immunity_remaining = 0.0
@@ -1040,7 +1059,57 @@ func _reset_affix_state() -> void:
 	reversal_remaining = 0.0
 	phase_check_remaining = 0.0
 	phase_ready = false
+	for weapon: WeaponBase in weapons:
+		if weapon.effects != null:
+			weapon.effects.reset_runtime_state()
+	for runtime: WeaponEffectRuntime in gear_effects:
+		runtime.reset_runtime_state()
 	($StatusEffects as StatusEffectComponent).effects.clear()
+
+
+func configure_arena(team_id: int, friendly_fire: bool = false) -> void:
+	arena_team_id = team_id
+	arena_friendly_fire_enabled = friendly_fire
+	add_to_group("arena_participant")
+
+
+func get_arena_team_id() -> int:
+	return arena_team_id
+
+
+func can_receive_damage_from(attacker: Node) -> bool:
+	if not arena_combat_enabled:
+		return false
+	if attacker == null or not attacker.has_method("get_arena_team_id"):
+		return true
+	return arena_friendly_fire_enabled or int(attacker.get_arena_team_id()) != arena_team_id
+
+
+func can_receive_healing() -> bool:
+	return arena_healing_enabled and arena_combat_enabled
+
+
+func set_arena_combat_enabled(enabled: bool) -> void:
+	arena_combat_enabled = enabled
+	if not enabled:
+		velocity = Vector3.ZERO
+		for weapon: WeaponBase in weapons:
+			weapon.cancel_combat()
+
+
+func set_arena_healing_enabled(enabled: bool) -> void:
+	arena_healing_enabled = enabled
+
+
+func set_spectator_target(new_target: Node3D) -> void:
+	spectator_target = new_target
+
+
+func _update_spectator_camera(delta: float) -> void:
+	var focus := spectator_target.global_position + Vector3.UP * 1.35
+	var desired := focus + spectator_target.global_basis.z * 4.5 + Vector3.UP * 1.2
+	view_camera.global_position = view_camera.global_position.lerp(desired, minf(1.0, delta * 7.0))
+	view_camera.look_at(focus, Vector3.UP)
 
 
 func _instantiate_profile_loadout() -> void:

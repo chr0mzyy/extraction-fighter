@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ArenaModeDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/arena/arena_mode_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+mode_id = &"1v1"
+display_name = "1V1"
+team_size = 1
+rounds_to_win = 4
+max_rounds = 7
+round_time_limit = 90.0

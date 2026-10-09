@@ -12,6 +12,7 @@ var visual_time: float = 0.0
 
 
 func setup(p_weapon: WeaponBase, p_source: Node, origin: Vector3, direction: Vector3, p_damage: float, p_speed: float) -> void:
+	add_to_group("arena_transient")
 	source_weapon = p_weapon
 	source = p_source
 	global_position = origin

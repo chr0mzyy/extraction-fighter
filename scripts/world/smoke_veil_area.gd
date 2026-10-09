@@ -10,6 +10,7 @@ func setup(position_world: Vector3, p_radius: float, duration: float) -> void:
 	radius = p_radius
 	remaining = duration
 	add_to_group("smoke_veil")
+	add_to_group("arena_transient")
 	_build_visual()
 
 

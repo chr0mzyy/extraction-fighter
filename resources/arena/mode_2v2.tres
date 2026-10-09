@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ArenaModeDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/arena/arena_mode_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+mode_id = &"2v2"
+display_name = "2V2"
+team_size = 2
+rounds_to_win = 3
+max_rounds = 5
+round_time_limit = 120.0

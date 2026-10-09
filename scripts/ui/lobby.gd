@@ -43,6 +43,7 @@ var pending_bind_button: Button
 var keybind_feedback: Label
 var operative_preview: Node3D
 var preview_time: float = 0.0
+var arena_bot_difficulty: StringName = &"NORMAL"
 
 const RESTART_TEST_PATH := "user://extraction_fighter_restart_test.json"
 
@@ -144,7 +145,7 @@ func _input(event: InputEvent) -> void:
 
 
 func _should_route_to_arena(args: PackedStringArray) -> bool:
-	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--capture-ads", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test"]:
+	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--capture-ads", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test", "--arena-round-test"]:
 		if flag in args:
 			return true
 	return false
@@ -165,6 +166,8 @@ func _needs_legacy_arena_test_loadout(args: PackedStringArray) -> bool:
 
 
 func _route_to_arena() -> void:
+	var mode: StringName = &"2v2" if "--arena-mode=2v2" in OS.get_cmdline_user_args() else &"1v1"
+	ArenaSessionRequest.configure(mode, arena_bot_difficulty)
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
@@ -471,14 +474,45 @@ func _show_play() -> void:
 	cards.add_theme_constant_override("separation", 18)
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(cards)
-	var arena := _activity_card(cards, "ARENA", "Continuous deathmatch testing\nSelected loadout enabled", true)
-	arena.pressed.connect(_launch_arena)
+	var arena := _activity_card(cards, "ARENA", "Round-based local combat\n1v1 and 2v2 bot matches", true)
+	arena.pressed.connect(_show_arena_modes)
 	var dungeon := _activity_card(cards, "THE ARMORY", "15 minute extraction run\nLoot is lost on death", true)
 	dungeon.pressed.connect(_launch_dungeon)
 	var training := _activity_card(cards, "MOVEMENT TRAINING", "10-mechanic timed course\nCheckpoints • personal best • no item wear", true)
 	training.name = "MovementTrainingCard"
 	training.pressed.connect(_launch_training)
 	_add_back_button(content)
+
+
+func _show_arena_modes() -> void:
+	current_screen = "arena_modes"
+	var content := _show_simple_screen("ARENA DEPLOYMENT", "Choose a mode and bot difficulty. Loadout is locked after deployment.")
+	_label(content, "LOCAL DEVELOPMENT MODE  //  PLAYER + BOTS  //  NO NETWORKING", 12, COLOR_YELLOW)
+	var difficulty_row := HBoxContainer.new()
+	difficulty_row.add_theme_constant_override("separation", 10)
+	content.add_child(difficulty_row)
+	_label(difficulty_row, "BOT DIFFICULTY", 13, COLOR_MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for difficulty: StringName in [&"EASY", &"NORMAL", &"HARD"]:
+		var difficulty_button := _button(difficulty_row, String(difficulty), false)
+		difficulty_button.custom_minimum_size = Vector2(130, 42)
+		difficulty_button.disabled = difficulty == arena_bot_difficulty
+		difficulty_button.pressed.connect(_select_arena_difficulty.bind(difficulty))
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 18)
+	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(cards)
+	var duel := _activity_card(cards, "1V1 DUEL", "First to 4 rounds\n90 second round timer\nSide swap every round", true)
+	duel.name = "Arena1v1Card"
+	duel.pressed.connect(_launch_arena.bind(&"1v1"))
+	var squads := _activity_card(cards, "2V2 SKIRMISH", "First to 3 rounds\n120 second round timer\nSpectate a living teammate", true)
+	squads.name = "Arena2v2Card"
+	squads.pressed.connect(_launch_arena.bind(&"2v2"))
+	_add_back_button(content, _show_play)
+
+
+func _select_arena_difficulty(difficulty: StringName) -> void:
+	arena_bot_difficulty = difficulty
+	_show_arena_modes()
 
 
 func _show_loadout() -> void:
@@ -1417,12 +1451,13 @@ func _definition_fits_selected_gear(definition: ItemDefinition) -> bool:
 	return false
 
 
-func _launch_arena() -> void:
+func _launch_arena(mode_id: StringName = &"1v1") -> void:
 	var validation := PlayerProfile.validate_loadout()
 	if not bool(validation.valid):
 		footer_label.text = "LOADOUT INVALID  •  " + "; ".join(validation.errors)
 		footer_label.add_theme_color_override("font_color", COLOR_WARNING)
 		return
+	ArenaSessionRequest.configure(mode_id, arena_bot_difficulty)
 	PlayerProfile.save_profile()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
@@ -1559,7 +1594,7 @@ func _add_menu_button(parent: Control, text: String, callable: Callable, danger:
 	button.pressed.connect(callable)
 
 
-func _add_back_button(parent: Control) -> void:
+func _add_back_button(parent: Control, callback: Callable = Callable()) -> void:
 	var row := HBoxContainer.new()
 	parent.add_child(row)
 	var spacer := Control.new()
@@ -1568,7 +1603,7 @@ func _add_back_button(parent: Control) -> void:
 	var back := _button(row, "BACK", false)
 	back.set_meta("audio_event", &"ui_back")
 	back.custom_minimum_size = Vector2(150, 42)
-	back.pressed.connect(_show_main)
+	back.pressed.connect(callback if callback.is_valid() else _show_main)
 
 
 func _activity_card(parent: Control, title: String, subtitle: String, enabled: bool) -> Button:
@@ -1811,7 +1846,7 @@ func _run_settings_self_test() -> void:
 	var failures: Array[String] = []
 	var snapshot := GameSettings.to_dictionary()
 	var test_path := "user://extraction_fighter_settings_test.json"
-	GameSettings.reset_defaults(false)
+	GameSettings.reset_defaults()
 	if GameSettings.get_binding_text(&"skill_slot_1") != "Q" or GameSettings.get_binding_text(&"skill_slot_2") != "E" or GameSettings.get_binding_text(&"peek_left") != "3" or GameSettings.get_binding_text(&"peek_right") != "4":
 		failures.append("Canonical defaults are not Q/E skills and 3/4 peek")
 	var legacy_settings := GameSettings.to_dictionary()
@@ -2311,8 +2346,16 @@ func _run_lobby_layout_test() -> void:
 			failures.append("%dx%d movement training card is missing" % [test_size.x, test_size.y])
 		elif training_card.disabled or not training_card.pressed.has_connections():
 			failures.append("%dx%d movement training card is disabled or cannot launch the course" % [test_size.x, test_size.y])
+		_show_arena_modes()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_validate_controls_in_view(["Arena1v1Card", "Arena2v2Card"], test_size, failures)
+		var duel_card := find_child("Arena1v1Card", true, false) as Button
+		var squad_card := find_child("Arena2v2Card", true, false) as Button
+		if duel_card == null or squad_card == null or not duel_card.pressed.has_connections() or not squad_card.pressed.has_connections():
+			failures.append("%dx%d arena 1v1/2v2 mode selection is incomplete" % [test_size.x, test_size.y])
 	if failures.is_empty():
-		print("LOBBY_LAYOUT_OK: lobby, loadout, stash, settings, keybinds and three activity cards fit 1280x720, 1920x1080 and 2560x1440")
+		print("LOBBY_LAYOUT_OK: lobby, loadout, stash, settings, keybinds, activities and Arena 1v1/2v2 selection fit 1280x720, 1920x1080 and 2560x1440")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:

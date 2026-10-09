@@ -6,7 +6,7 @@ const WORLD_POOL_SIZE := 16
 const UI_POOL_SIZE := 6
 
 const MUSIC_STATES: Array[StringName] = [&"lobby", &"arena", &"dungeon", &"boss"]
-const UI_EVENTS: Array[StringName] = [&"ui_hover", &"ui_click", &"ui_back", &"ui_invalid", &"ui_equip", &"ui_unequip", &"ui_repair", &"mythic_acquired", &"hit", &"headshot", &"kill"]
+const UI_EVENTS: Array[StringName] = [&"ui_hover", &"ui_click", &"ui_back", &"ui_invalid", &"ui_equip", &"ui_unequip", &"ui_repair", &"mythic_acquired", &"hit", &"headshot", &"kill", &"round_countdown", &"fight", &"round_won", &"round_lost", &"match_point", &"victory", &"defeat"]
 
 var current_music_state: StringName = &""
 var current_music_index: int = 0
@@ -162,6 +162,13 @@ func _build_stream_library() -> void:
 		&"ui_repair": [690.0, 0.20, 0.08, 420.0],
 		&"item_drop": [96.0, 0.12, 0.48, -80.0],
 		&"mythic_acquired": [330.0, 0.46, 0.05, 760.0],
+		&"round_countdown": [510.0, 0.12, 0.03, 30.0],
+		&"fight": [240.0, 0.28, 0.10, 720.0],
+		&"round_won": [420.0, 0.32, 0.04, 560.0],
+		&"round_lost": [130.0, 0.34, 0.16, -160.0],
+		&"match_point": [640.0, 0.22, 0.06, 240.0],
+		&"victory": [360.0, 0.62, 0.04, 620.0],
+		&"defeat": [105.0, 0.58, 0.18, -90.0],
 	}
 	for event_name: StringName in recipes:
 		var recipe: Array = recipes[event_name]

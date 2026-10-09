@@ -40,6 +40,32 @@ func configure(p_weapon: WeaponBase, actor: CharacterBody3D, definition: ItemDef
 	random.seed = hash(instance.instance_id if instance != null else String(definition.id))
 
 
+func reset_runtime_state() -> void:
+	last_damage_time = -100.0
+	relentless_target_id = 0
+	relentless_hits = 0
+	bloodlust_remaining = 0.0
+	counterweight_ready = false
+	duelist_ready = false
+	shock_target_id = 0
+	shock_hits = 0
+	special_counter = 0
+	special_window = 0.0
+	special_buff_remaining = 0.0
+	empowered_attacks = 0
+	rounds_since_reload = 0
+	if is_instance_valid(rift_orb):
+		rift_orb.queue_free()
+	rift_orb = null
+	rift_cooldown = 0.0
+	parkour_ready = false
+	quickdraw_remaining = 0.0
+	special_target_id = 0
+	special_last_hit_time = -100.0
+	last_damage_was_critical = false
+	last_damage_was_proc = false
+
+
 func tick(delta: float) -> void:
 	bloodlust_remaining = maxf(0.0, bloodlust_remaining - delta)
 	special_window = maxf(0.0, special_window - delta)

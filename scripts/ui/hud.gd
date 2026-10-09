@@ -216,7 +216,10 @@ func _update_skills() -> void:
 
 
 func _update_header() -> void:
-	score_label.text = "PLAYER   %02d     -     %02d   BOT" % [game_manager.player_kills, game_manager.bot_kills]
+	if game_manager.arena_match != null and not game_manager.legacy_test_mode:
+		score_label.text = game_manager.arena_match.get_header_text()
+	else:
+		score_label.text = "PLAYER   %02d     -     %02d   BOT" % [game_manager.player_kills, game_manager.bot_kills]
 	camera_label.text = player.get_camera_mode_name()
 	if player.is_cursor_free:
 		camera_label.text += "  /  CURSOR"
@@ -293,6 +296,9 @@ func _update_debug_overlay() -> void:
 		int(bot_data.get("reloads", 0)),
 		int(bot_data.get("blocks", 0)),
 	]
+	if game_manager.arena_match != null and not game_manager.legacy_test_mode:
+		var arena_data := game_manager.get_arena_debug_snapshot()
+		debug_label.text += "\n\nARENA MODE      %s\nROUND / STATE   %d / %s\nSCORE           %s\nALIVE A / B     %d / %d\nROUND TIMER     %.1fs\nBOT DIFFICULTY  %s" % [arena_data.get("mode", "NONE"), int(arena_data.get("round", 0)), arena_data.get("state", "NONE"), arena_data.get("score", "0-0"), int(arena_data.get("team_a_alive", 0)), int(arena_data.get("team_b_alive", 0)), float(arena_data.get("timer", 0.0)), arena_data.get("bot_difficulty", "NORMAL")]
 
 
 func _cooldown_text(value: float) -> String:
