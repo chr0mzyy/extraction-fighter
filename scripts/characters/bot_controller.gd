@@ -82,6 +82,7 @@ var arena_friendly_fire_enabled: bool = false
 var arena_combat_enabled: bool = true
 var arena_healing_enabled: bool = true
 var arena_difficulty: StringName = &"normal"
+var standard_arena_ruleset: bool = true
 
 var ai_state: StringName = &"SPAWNING"
 var has_line_of_sight: bool = false
@@ -151,6 +152,7 @@ var random := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
+	standard_arena_ruleset = ArenaSessionRequest.standard_rules_enabled
 	add_to_group("damageable")
 	add_to_group("bot")
 	spawn_transform = global_transform
@@ -163,6 +165,12 @@ func _ready() -> void:
 			var weapon := child as WeaponBase
 			weapons.append(weapon)
 			weapon.setup(self)
+			if standard_arena_ruleset:
+				var family := weapon.get_presentation_profile().family
+				var skin_id := ArenaEquipmentResolver.default_skin_for_family(family)
+				var definition := ArenaEquipmentResolver.resolve_item(family, skin_id)
+				if definition != null:
+					weapon.configure_from_item(definition, null)
 			weapon.unequip()
 	movement.setup(self, body_collision, visual_body, head_hurtbox, aim_pivot, dash_skill)
 	movement.slide_min_speed = min_slide_speed
@@ -1088,7 +1096,14 @@ func respawn() -> void:
 func configure_arena(team_id: int, friendly_fire: bool = false) -> void:
 	arena_team_id = team_id
 	arena_friendly_fire_enabled = friendly_fire
+	standard_arena_ruleset = true
+	health.max_health = 100.0
+	health.current_health = minf(health.current_health, health.max_health)
 	add_to_group("arena_participant")
+
+
+func uses_standard_arena_rules() -> bool:
+	return standard_arena_ruleset
 
 
 func get_arena_team_id() -> int:

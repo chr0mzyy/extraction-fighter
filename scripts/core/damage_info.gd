@@ -11,6 +11,7 @@ var knockback: Vector3
 var can_reflect: bool
 var bypass_defense: bool
 var armor_penetration: float = 0.0
+var weapon_family: StringName = &""
 
 
 func _init(
@@ -36,7 +37,7 @@ func _init(
 
 
 func make_reflection(defender: Node) -> DamageInfo:
-	return DamageInfo.new(
+	var reflected := DamageInfo.new(
 		amount,
 		defender,
 		&"deflected_shot",
@@ -47,3 +48,5 @@ func make_reflection(defender: Node) -> DamageInfo:
 		false,
 		false
 	)
+	reflected.weapon_family = weapon_family
+	return reflected

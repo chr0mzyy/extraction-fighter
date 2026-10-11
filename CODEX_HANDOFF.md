@@ -1,37 +1,35 @@
-# Extraction Fighter development handoff
+# Extraction Fighter — development handoff
 
 ## Current milestone
 
-MVP 0.5.2 Arena Rewards, Item-for-Item Swap & Post-Match Loot is implemented for local development. A complete Arena victory now flows through results, reward selection, final confirmation, reward summary and lobby. Defeat shows a loss summary and returns to the lobby.
+MVP 0.6.0 Arena Reborn migrates the active game loop to a fair local Movement Arena Fighter: Lobby → Build → Casual 1v1/2v2 → Results → cosmetic progression. Ranked is a disabled FPP-only extension point. There is no networking.
 
-## Architecture
+## Active architecture
 
-- `ArenaMatchResult` carries a unique result ID, mode, participants and individual inventory owners, winner/loser teams, score, configurable reward limit, processed state and committed transaction summaries.
-- `ArenaTradeInventory` is an owner-specific 24-slot ledger over complete profile data. It resolves exact `ItemInstance` identities, eligible main-inventory items and equipped/protected state without pooling 2v2 teammates.
-- `ItemSwapTransaction` identifies the result, both owners and exact TAKE/GIVE instance IDs.
-- `ArenaRewardService` performs authoritative-result, ownership, eligibility, stale-reference, capacity, duplicate, item-reuse and per-winner limit checks. It snapshots both owners, swaps exact serialized instances, validates uniqueness/counts, persists both through an adapter and rolls back both if either save fails. Transaction/result histories make retries idempotent and results one-shot.
-- `ArenaBotRewardFactory` builds deterministic synthetic Common–Rare inventories under independent IDs. Normal local-bot exchanges mutate only cloned ledgers and never save the player's profile.
-- `ArenaMatchUI` provides results, three-column reward selection, existing item tooltip/comparison, rarity accents, final confirmation, feedback, subtle transitions and summary. The post-match input mode releases mouse look.
-- `PlayerProfile` save version 6 preserves transaction/result histories. Versions 1–5 still migrate through the existing verified temporary-file/backup path.
+- `ArenaEquipmentResolver` owns all ten family gameplay definitions, the 30-skin catalog, default skins and the ten selectable skills. It creates normalized runtime item copies.
+- `ArenaWeaponGameplayDefinition` contains combat values; `WeaponCosmeticDefinition` contains only skin identity, family, cosmetic rarity, flavor, preview/model and source ID.
+- `WeaponBase` uses the resolver whenever its wielder is under standard Arena rules. The normalized copy has no affixes, Mythic special, item instance or durability.
+- `PlayerProfile` schema v7 stores Arena families, selected/unlocked cosmetics, cosmetic gear placeholders, account XP/level, Style Tokens, family mastery, one-shot progression result IDs and statistics while preserving all legacy data.
+- `ArenaProgressionService` derives account XP, Style Tokens and family mastery from real match data, grants once per `result_id`, updates persistent statistics and unlocks family skins at mastery 5/15.
+- `ArenaMatchManager`/`ArenaParticipantState` collect damage, hits and kills per family. `ArenaMatchUI` presents real score/stats/progression and rematch/lobby actions; the previous item-swap UI is inactive.
+- The Lobby exposes PLAY, LOADOUT, CUSTOMIZATION, TRAINING, PROFILE and SETTINGS. All gameplay families/skills are universal; two skills must total at most 200 Power.
 
-## Rules and limits
+## Preserved systems
 
-- Every TAKE requires exactly one eligible GIVE; both main-inventory item counts remain unchanged.
-- Exact IDs, rolled affixes, rarity and durability are transferred without rerolling.
-- Equipped weapons/gear, all skills, keys and definitions marked non-tradable/permanently protected cannot be exchanged.
-- 1v1 allows up to 3 swaps; 2v2 allows up to 2 swaps per winning owner. Fewer swaps and skip are valid.
-- Rewards require a full non-abandoned authoritative match result. Round wins, kills and abandonment grant no reward access.
+Advanced movement, FPP/TPP transition, ten skills, ranged/melee/parry combat, bot AI, 1v1/2v2 rounds, HUD, settings/keybinds, pause cursor ownership, audio/feedback and Movement Training remain in use. Legacy Dungeon, inventory, exact item instances, affixes, durability, Gold/Scrap and reward-swap source remain recoverable and their regression tests still run, but they are disconnected from the primary Arena UI/runtime.
+
+Pre-migration state: `19404239cb5414f154892d26bf2443135d4148aa`, reference `backup/pre-arena-reborn`.
+
+## Balance and migration decisions
+
+Standard Arena uses 100 HP. Sniper is 58 body/90 head. Family tuning is documented in `docs/arena_reborn_balance.md`. v6→v7 migration preserves old inventory/economy/settings, maps only verified owned weapons to cosmetic unlocks, grants each default family skin and is idempotent. Old balances are not converted to Style Tokens.
 
 ## Validation
 
-Validated headlessly with the installed Godot 4.7.2 runtime. `--arena-reward-test` covers both sides of transfer, count/ID/affix/durability integrity, full 24-slot inventories, protected content, invalid owners/stale references, reused items, 1v1/2v2 limits and individual ownership, skip/reopen guards, idempotent retries, persistence rollback, save/restart, bot isolation, abandonment, authoritative gating and free cursor. `--arena-round-test` covers the existing first-to-4/first-to-3 round systems.
+Godot 4.7.2 editor import and the Arena migration, rewards, rounds (1v1/2v2), movement/combat, loadout/content, AI soak, HUD, profile, settings, pause, training, scene-flow, legacy effects, Dungeon and durability regressions pass. Runtime UI layout checks pass at 1280×720, 1920×1080 and 2560×1440. Actual GPU captures were inspected at the compositor-constrained 839×1002 window; no claim is made that target-resolution screenshots were captured.
 
-## Known limitations
+Known shutdown warnings report small ObjectDB leak counts because test runners force-quit scenes; no parser/runtime errors remain. Narrow portrait-like windows can truncate long Arsenal weakness copy, although supported landscape target layouts pass.
 
-- There is still no networking, matchmaking or remote account authority. Real PvP must supply trusted participant ledgers and a server-side persistence callback to the existing service.
-- Local bot exchange is intentionally a non-persistent development simulation and contains no Legendary/Mythic items.
-- Validation in this milestone is headless; a manual graphical pass at 1280×720, 1920×1080 and 2560×1440 remains recommended for typography and card density.
+## Next safe milestone
 
-## Next safe task
-
-Manually play one 1v1 and one 2v2 victory at each target resolution, inspect tooltip/card density and tune only reward-screen spacing or animation timing. Keep the bot simulation non-persistent.
+Play complete 1v1 and 2v2 matches with normal persistent data, tune TTK from match telemetry, then add mastery 10 banner and mastery 20 prestige/inspect rewards. Networking, matchmaking, Ranked/ELO and paid purchases remain separate future work.

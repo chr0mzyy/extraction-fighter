@@ -16,6 +16,9 @@ var highest_damage_round: float = 0.0
 var round_damage: float = 0.0
 var inventory_owner_id: String = ""
 var inventory_item_ids: Array[String] = []
+var weapon_damage_by_family: Dictionary = {}
+var weapon_hits_by_family: Dictionary = {}
+var weapon_kills_by_family: Dictionary = {}
 
 
 func _init(
@@ -42,6 +45,9 @@ func reset_match_stats() -> void:
 	headshots = 0
 	highest_damage_round = 0.0
 	round_damage = 0.0
+	weapon_damage_by_family.clear()
+	weapon_hits_by_family.clear()
+	weapon_kills_by_family.clear()
 
 
 func reset_for_round() -> void:
@@ -66,4 +72,7 @@ func to_result_dictionary() -> Dictionary:
 		"highest_damage_round": highest_damage_round,
 		"inventory_owner_id": inventory_owner_id,
 		"inventory_item_ids": inventory_item_ids.duplicate(),
+		"weapon_damage_by_family": weapon_damage_by_family.duplicate(true),
+		"weapon_hits_by_family": weapon_hits_by_family.duplicate(true),
+		"weapon_kills_by_family": weapon_kills_by_family.duplicate(true),
 	}

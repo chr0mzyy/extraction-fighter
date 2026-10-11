@@ -241,7 +241,8 @@ func _build_pause_menu() -> void:
 		weapon_card.add_theme_stylebox_override("panel", _pause_style(Color(0.045, 0.055, 0.058), Color(0.26, 0.31, 0.32), 1))
 		weapon_grid.add_child(weapon_card)
 		var weapon_label := Label.new()
-		weapon_label.text = "[%d]  %s\n%s" % [index + 1, _pause_definition_name(PlayerProfile.weapon_slots[index]).to_upper(), "PRIMARY" if index == 0 else "SECONDARY"]
+		var arena_weapon := PlayerProfile.get_arena_weapon_definition(index)
+		weapon_label.text = "[%d]  %s\n%s" % [index + 1, arena_weapon.display_name.to_upper() if arena_weapon != null else "EMPTY", "PRIMARY" if index == 0 else "SECONDARY"]
 		weapon_label.add_theme_color_override("font_color", Color(0.96, 0.97, 0.95))
 		weapon_label.add_theme_font_size_override("font_size", 14)
 		weapon_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -448,6 +449,7 @@ func _setup_arena_match() -> void:
 	arena_ui = ArenaMatchUI.new()
 	add_child(arena_ui)
 	arena_ui.bind(arena_match, arena_participants[0])
+	arena_ui.play_again_requested.connect(_on_play_again)
 	arena_ui.return_to_lobby_requested.connect(_return_to_lobby_immediate)
 	arena_match.begin_match(false)
 
@@ -552,14 +554,10 @@ func _on_arena_results_ready(result: ArenaMatchResult) -> void:
 	MouseModeService.enter_pause(player)
 	if arena_ui == null:
 		return
-	if not result.local_player_won() or result.abandoned:
-		arena_ui.present_results(result)
-		return
-	var local_inventory := ArenaTradeInventory.new(result.local_owner_id(), "YOU", PlayerProfile.to_save_data(), false)
-	var opponents: Array[ArenaTradeInventory] = []
-	for owner_id: String in result.owner_ids_for_team(result.loser_team):
-		opponents.append(ArenaBotRewardFactory.create_inventory(owner_id, result.owner_display_name(owner_id), result.result_id))
-	arena_ui.present_results(result, local_inventory, opponents, true)
+	result.progression_grant = ArenaProgressionService.grant_once(result)
+	if bool(result.progression_grant.get("granted", false)):
+		PlayerProfile.save_profile()
+	arena_ui.present_results(result, result.progression_grant)
 
 
 func _assign_bot_targets() -> void:
@@ -586,6 +584,8 @@ func _clear_arena_transients() -> void:
 
 func _on_play_again() -> void:
 	MouseModeService.capture_gameplay(player)
+	if arena_ui != null:
+		arena_ui.results_panel.visible = false
 	arena_match.rematch(false)
 
 
@@ -702,12 +702,12 @@ func _run_arena_round_test() -> void:
 
 
 func _run_arena_reward_test() -> void:
-	var failures := ArenaRewardTestSuite.new().run()
+	var failures: Array[String] = []
 	MouseModeService.enter_pause(player)
 	if not player.is_cursor_free or not MouseModeService.is_ui_active():
-		failures.append("Post-match reward UI did not retain a free cursor mode")
-	if MODE_1V1.max_reward_exchanges != 3 or MODE_2V2.max_reward_exchanges != 2:
-		failures.append("Configured 1v1/2v2 reward exchange limits are incorrect")
+		failures.append("Post-match results did not retain a free cursor mode")
+	if MODE_1V1.max_reward_exchanges != 0 or MODE_2V2.max_reward_exchanges != 0:
+		failures.append("Legacy item exchange remains enabled on an active Arena mode")
 	var ui_participants: Array[ArenaParticipantState] = []
 	var ui_winner := ArenaParticipantState.new(&"ui_winner", "UI WINNER", 0, 0, player, true)
 	ui_winner.inventory_owner_id = "ui_winner"
@@ -716,29 +716,27 @@ func _run_arena_reward_test() -> void:
 	ui_loser.inventory_owner_id = "ui_loser"
 	ui_participants.append(ui_loser)
 	var ui_result := ArenaMatchResult.new().configure(MODE_1V1, 0, 4, 1, 5, ui_participants, false, "result:ui")
-	var ui_player_inventory := ArenaTradeInventory.new("ui_winner", "YOU", PlayerProfile.to_save_data())
-	var ui_opponents: Array[ArenaTradeInventory] = [ArenaBotRewardFactory.create_inventory("ui_loser", "UI BOT", ui_result.result_id)]
+	ui_winner.kills = 4
+	ui_winner.damage_dealt = 520.0
+	ui_winner.weapon_damage_by_family["katana"] = 520.0
 	var test_ui := ArenaMatchUI.new()
 	add_child(test_ui)
-	test_ui.present_results(ui_result, ui_player_inventory, ui_opponents, true)
-	if not test_ui.results_panel.visible or test_ui.result_continue_button.text != "CONTINUE TO REWARDS":
-		failures.append("Victory result did not expose the reward transition")
-	test_ui._continue_from_results()
-	if not test_ui.reward_panel.visible or test_ui.confirm_button == null or test_ui.finish_button == null:
-		failures.append("Reward UI controls were not usable")
-	test_ui.reward_panel.scale = Vector2.ONE
+	var calculated := ArenaProgressionService.calculate(ui_result)
+	test_ui.present_results(ui_result, calculated)
+	if not test_ui.results_panel.visible or test_ui.result_continue_button.text != "RETURN TO LOBBY":
+		failures.append("Progression results controls were not usable")
 	var original_size: Vector2i = get_viewport().size
 	for test_size: Vector2i in [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)]:
 		get_viewport().size = test_size
 		await get_tree().process_frame
-		var reward_rect := test_ui.reward_panel.get_global_rect()
-		var minimum := test_ui.reward_panel.get_combined_minimum_size()
-		if reward_rect.position.x < 0.0 or reward_rect.position.y < 0.0 or reward_rect.end.x > test_size.x or reward_rect.end.y > test_size.y or minimum.x > reward_rect.size.x or minimum.y > reward_rect.size.y:
-			failures.append("Reward UI overflowed at %dx%d (rect=%s minimum=%s)" % [test_size.x, test_size.y, str(reward_rect), str(minimum)])
+		var results_rect := test_ui.results_panel.get_global_rect()
+		var minimum := test_ui.results_panel.get_combined_minimum_size()
+		if results_rect.position.x < 0.0 or results_rect.position.y < 0.0 or results_rect.end.x > test_size.x or results_rect.end.y > test_size.y or minimum.x > results_rect.size.x or minimum.y > results_rect.size.y:
+			failures.append("Progression results overflowed at %dx%d (rect=%s minimum=%s)" % [test_size.x, test_size.y, str(results_rect), str(minimum)])
 	get_viewport().size = original_size
 	test_ui.free()
 	if failures.is_empty():
-		print("ARENA_REWARD_OK: atomic exact-instance swaps, protected items, limits, idempotency, rollback, persistence restart, bot isolation, abandonment, 1v1/2v2 ownership, responsive layout and free cursor passed")
+		print("ARENA_REWARD_OK: legacy item swap is inactive; cosmetic progression results, responsive layout and free cursor passed")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:
@@ -788,9 +786,10 @@ func _refresh_pause_status() -> void:
 	if pause_health_label != null:
 		pause_health_label.text = "HEALTH   %03d / %03d" % [roundi(player.health.current_health), roundi(player.health.max_health)]
 	if pause_armor_label != null:
-		pause_armor_label.text = "ARMOR   %03d" % roundi(player.get_total_armor())
+		pause_armor_label.text = "ARENA HP   100  //  NORMALIZED"
 	for index: int in mini(2, pause_weapon_labels.size()):
-		pause_weapon_labels[index].text = "[%d]  %s\n%s" % [index + 1, _pause_definition_name(PlayerProfile.weapon_slots[index]).to_upper(), "PRIMARY" if index == 0 else "SECONDARY"]
+		var arena_weapon := PlayerProfile.get_arena_weapon_definition(index)
+		pause_weapon_labels[index].text = "[%d]  %s\n%s" % [index + 1, arena_weapon.display_name.to_upper() if arena_weapon != null else "EMPTY", "PRIMARY" if index == 0 else "SECONDARY"]
 
 
 func _capture_pause_menu() -> void:
@@ -834,8 +833,8 @@ func _run_loadout_integration_test() -> void:
 		rifle.request_primary()
 		if rifle.ammo != ammo_before - 1:
 			failures.append("Vanguard Rifle did not fire from the selected slot")
-		if not rifle.automatic_fire or rifle.fire_delay >= 0.111:
-			failures.append("Vanguard Rifle base fire rate and rolled Rapid affix were not applied")
+		if not rifle.automatic_fire or not is_equal_approx(rifle.fire_delay, 1.0 / 8.5) or rifle.effects.has(&"rapid"):
+			failures.append("Assault Rifle did not use normalized family fire rate without the legacy Rapid affix")
 		rifle.ammo = 0
 		rifle.request_reload()
 		if not rifle.is_reloading:
@@ -847,12 +846,12 @@ func _run_loadout_integration_test() -> void:
 			failures.append("Vanguard Rifle did not complete its reload")
 		player.equip_weapon(1)
 		var sword := player.current_weapon as KnightSwordWeapon
-		if not is_equal_approx(sword.light_damage, 34.0) or not is_equal_approx(sword.heavy_damage, 55.0):
-			failures.append("Knight Sword attack tuning did not initialize")
+		if not is_equal_approx(sword.light_damage, 32.0) or not is_equal_approx(sword.heavy_damage, 50.0):
+			failures.append("Knight Sword did not use normalized Sword-family tuning")
 		sword.secondary_pressed()
 		var response := sword.get_damage_response(DamageInfo.new(100.0, bot, &"test", false, false))
-		if not is_equal_approx(float(response.get("damage_multiplier", 1.0)), 0.2) or bool(response.get("reflect", false)):
-			failures.append("Knight Sword block identity is invalid")
+		if not is_equal_approx(float(response.get("damage_multiplier", 1.0)), 0.22) or bool(response.get("reflect", false)) or sword.effects.has(&"crusher"):
+			failures.append("Knight Sword block or legacy-affix normalization is invalid")
 		sword.secondary_released()
 	var grapple := player.equipped_skills[0] as GrappleSkill
 	Input.action_press("skill_slot_1")
@@ -989,6 +988,10 @@ func _run_effect_self_test() -> void:
 	print("EFFECT_TEST_START")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+	# This regression test deliberately exercises the archived non-competitive
+	# affix runtime. Standard Arena keeps the same code disabled through the
+	# authoritative ArenaEquipmentResolver and has separate fairness coverage.
+	player.standard_arena_ruleset = false
 	bot.set_physics_process(false)
 	player.set_physics_process(false)
 	hud.set_process(false)
@@ -1721,7 +1724,7 @@ func _run_self_test() -> void:
 	var center_hit := get_world_3d().direct_space_state.intersect_ray(center_ray)
 	sniper.request_primary()
 	await get_tree().physics_frame
-	if not is_equal_approx(bot.health.current_health, 40.0):
+	if not is_equal_approx(bot.health.current_health, 42.0):
 		var body_collider := "none"
 		var body_hit_position := Vector3.ZERO
 		if not body_test_hit.is_empty():
@@ -1754,13 +1757,16 @@ func _run_self_test() -> void:
 	sniper.request_primary()
 	sniper.secondary_released()
 	await get_tree().physics_frame
-	if not bot.health.is_dead or player_kills != 1:
+	if bot.health.is_dead or not is_equal_approx(bot.health.current_health, 10.0):
 		var collider_name := "none"
 		var hit_position := Vector3.ZERO
 		if not test_hit.is_empty():
 			collider_name = str((test_hit.get("collider") as Node).name)
 			hit_position = test_hit.get("position", Vector3.ZERO)
-		failures.append("ADS headshot hitscan failed (bot HP %.1f, collider %s at %s, aim %s)" % [bot.health.current_health, collider_name, str(hit_position), str(player.get_aim_direction())])
+		failures.append("Normalized sniper headshot should leave a full-health target at 10 HP (bot HP %.1f, collider %s at %s, aim %s)" % [bot.health.current_health, collider_name, str(hit_position), str(player.get_aim_direction())])
+	bot.receive_damage(DamageInfo.new(20.0, player, &"test_follow_up"))
+	if not bot.health.is_dead or player_kills != 1:
+		failures.append("Follow-up damage after a sniper headshot did not complete the elimination")
 	await get_tree().create_timer(0.1).timeout
 	if bot.health.is_dead or not is_equal_approx(bot.health.current_health, 100.0):
 		failures.append("Bot did not respawn at full health")

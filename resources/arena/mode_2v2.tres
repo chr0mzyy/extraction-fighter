@@ -10,4 +10,4 @@ team_size = 2
 rounds_to_win = 3
 max_rounds = 5
 round_time_limit = 120.0
-max_reward_exchanges = 2
+max_reward_exchanges = 0

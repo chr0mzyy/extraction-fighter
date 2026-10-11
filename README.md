@@ -1,171 +1,102 @@
-# Extraction Fighter — MVP 0.5.2
+# Extraction Fighter — MVP 0.6.0 Arena Reborn
 
-Jednoosobowa gra FPS tworzona w Godot 4.7.2. Zawiera stały profil gracza, rozbudowany ekwipunek, arenę przeciw botom, tryb extraction oraz osobną mapę do treningu movementu.
+Lokalna gra Movement Arena Fighter w Godot 4.7.2: szybki movement, broń palna i biała, dwie aktywne umiejętności oraz krótkie mecze rundowe przeciw botom. Poziom konta, mastery i kosmetyki nie zwiększają siły postaci.
 
-## Instalacja
+## Instalacja i uruchomienie
 
-Gra jest obecnie wersją deweloperską uruchamianą z projektu Godot — repozytorium nie zawiera jeszcze gotowego instalatora ani pliku wykonywalnego. Potrzebujesz standardowej wersji **Godot 4.7.2** (bez .NET/Mono).
-
-### CachyOS / Linux
-
-1. Pobierz i rozpakuj Godot 4.7.2 ze strony [Godot Engine](https://godotengine.org/download/archive/).
-2. Pobierz projekt przez **Code > Download ZIP** na GitHubie i rozpakuj go albo sklonuj repozytorium:
+Projekt nie wymaga wtyczek ani dodatkowych bibliotek. Potrzebna jest standardowa wersja Godot 4.7.2 (bez .NET/Mono).
 
 ```bash
 git clone https://github.com/chr0mzyy/extraction-fighter.git
 cd extraction-fighter
-```
-
-3. W Godot wybierz **Import**, wskaż plik `project.godot` i potwierdź import projektu.
-
-Jeśli używasz pobranego pliku wykonywalnego Godot zamiast pakietu systemowego, przy pierwszym uruchomieniu nadaj mu uprawnienie do wykonywania:
-
-```bash
-chmod +x Godot_v4.7.2-stable_linux.x86_64
-```
-
-### Windows
-
-1. Pobierz standardową wersję Godot 4.7.2 i rozpakuj archiwum.
-2. Pobierz projekt przez **Code > Download ZIP** i rozpakuj go albo użyj polecenia `git clone` podanego wyżej.
-3. Uruchom Godot, wybierz **Import** i wskaż plik `project.godot` z katalogu gry.
-
-Projekt nie wymaga dodatkowych bibliotek ani instalowania wtyczek.
-
-## Uruchomienie
-
-Najprościej otworzyć zaimportowany projekt w Godot i nacisnąć przycisk **Run Project** lub klawisz `F5`.
-
-Możesz też uruchomić grę bezpośrednio z terminala w katalogu projektu:
-
-```bash
 godot --path .
 ```
 
-Na Windows, jeśli Godot nie znajduje się w zmiennej `PATH`, użyj pełnej ścieżki:
-
-```powershell
-& 'C:\sciezka\do\Godot_v4.7.2-stable_win64.exe' --path .
-```
-
-Gra uruchamia się w lobby. Dostępne tryby:
-
-- **PLAY > ARENA** — rundowe 1v1 lub 2v2 przeciw lokalnym botom; zwycięstwo otwiera nieutrwalaną symulację wymiany nagród.
-- **PLAY > THE ARMORY** — 15-minutowa wyprawa extraction; łup zachowujesz wyłącznie po udanej ewakuacji.
-- **PLAY > MOVEMENT TRAINING** — trasa treningowa z 10 mechanikami, checkpointami i pomiarem najlepszego czasu.
+Jeśli Godot nie jest w `PATH`, użyj pełnej ścieżki do pliku wykonywalnego. Możesz też zaimportować `project.godot` w Project Managerze i nacisnąć `F5`. Na CachyOS/Arch pobrany plik może wymagać `chmod +x Godot_v4.7.2-stable_linux.x86_64`.
 
 ## Sterowanie
 
 | Klawisz | Działanie |
 | --- | --- |
-| `Mysz` | Rozglądanie i kierowanie postacią |
-| `W` `A` `S` `D` | Ruch po ziemi |
-| `Spacja` | Skok; przytrzymaj, aby automatycznie wykonywać bunny hopy |
+| `W` `A` `S` `D` | Ruch na ziemi |
+| `Mysz` | Widok; z `A`/`D` steruje torem bunny hopu |
+| `Spacja` | Skok; przytrzymanie łączy bunny hopy |
 | `Shift`, `C` lub `Ctrl` | Kucanie / momentum slide |
-| `Spacja` + `A`/`D` + ruch myszy | Sterowanie torem bunny hopu w lewo/prawo |
-| `1` / `2` | Wybór pierwszej/drugiej broni |
+| `1` / `2` | Broń 1 / broń 2 |
 | `LPM` | Strzał / lekki atak |
-| `PPM` | Celowanie przez przyrządy (ADS) / blok |
+| `PPM` | ADS / blok |
 | `F` | Ciężki atak bronią białą |
-| `R` | Przeładowanie / gotowa akcja broni Mythic |
-| `Q` / `E` | Umiejętność w pierwszym/drugim slocie |
-| `3` / `4` | Wychylenie w lewo/prawo (peek) |
-| `V` | Przełączenie widoku FPP/TPP |
-| `X` | Interakcja, otwieranie skrzyń i przytrzymanie ewakuacji |
-| `Tab` | Ekwipunek podczas wyprawy The Armory |
-| `Esc` | Menu pauzy |
-| `F3` | Panel diagnostyczny |
+| `R` | Przeładowanie; restart trasy w Movement Training |
+| `Q` / `E` | Umiejętność w slocie Q / E |
+| `3` / `4` | Wychylenie w lewo / prawo |
+| `V` | Przełączenie FPP / TPP w Casual |
+| `Esc` | Pauza |
+| `F3` | Diagnostyka |
 
-Własne bindy ustawisz w **SETTINGS > KEYBINDS**. Klawisze `Esc`, `Tab` i `F3` pozostają stałe. Double Jump jest wyjątkiem kontekstowym: zajmuje slot umiejętności, ale aktywuje się drugim naciśnięciem `Spacji` w powietrzu. Na mapie Movement Training klawisz `R` rozpoczyna trasę od początku.
+Bindy można zmienić w **SETTINGS > KEYBINDS**. Double Jump zajmuje slot umiejętności, ale uruchamia się drugim naciśnięciem `Spacji` w powietrzu. W locie puszczenie `W` nie kasuje pędu; air-strafe/bhop wymaga trzymanej `Spacji`, zgodnego `A`/`D` i ruchu myszy.
 
-## Aktualny zakres gry
+## Główna pętla
 
-New profiles receive only a starter kit: Rusty Katana, Worn Assault Rifle, Dash, Double Jump, common training gear and 120 Gold, all in a valid auto-equipped loadout. The full 30-weapon, 10-skill and 27-gear catalog is available only through explicit development flags. Skill combinations above 200 Power are rejected.
+**LOBBY → BUILD → ARENA → RESULTS → XP / MASTERY / COSMETICS → NEXT MATCH**
 
-Items are stored as persistent instances separate from their reusable definitions. Weapon and gear instances carry current/max durability plus zero to three compatible, non-duplicated affixes with Tier I-III rolls. Durability wear is active in the Armory only; Arena combat never consumes durability. Broken weapons remain equipped but cannot attack until repaired from the Stash.
+- **PLAY:** Casual 1v1 (pierwszy do 4) albo Casual 2v2 (pierwszy do 3). To wyłącznie lokalna gra z botami; matchmaking i multiplayer nie są zaimplementowane.
+- **LOADOUT:** dwie rodziny broni, dwa skille i maksymalnie 200 Skill Power. Wszystkie 10 rodzin oraz wszystkie 10 działających skilli są dostępne od początku.
+- **CUSTOMIZATION:** wybór skórki niezależny od broni gameplayowej. Common/Rare/Mythic opisuje wyłącznie kosmetyk.
+- **PROFILE:** poziom konta, XP, Style Tokens, statystyki i mastery każdej rodziny.
+- **TRAINING:** 10-mechanikowa trasa movementu z checkpointami, restartem i personal best; nie daje trwałego mastery ani waluty.
 
-Armory runs generate exactly six normal extraction sites and two discreet hidden key sites across eligible rooms. A run has a 42% chance to place one source-exclusive Extraction Key. Hidden extraction consumes it, finishes faster and grants one secure-vault cache plus Gold. Defeating the Warden drops three guaranteed Rare-or-better rolls and extra Gold but does not end the run. Successful extraction banks exact item instances and run Gold, while death or timeout clears the run pack. A full 200-slot stash routes exact instances to persistent Extraction Overflow instead of destroying them; an unopened remainder also stays inside its chest when the run pack is full.
+Ranked pozostaje widocznym, wyłączonym placeholderem **COMING SOON**. Jego gotowa polityka kamery wymusza FPP; Casual pozwala płynnie zmieniać FPP/TPP.
 
-Loot is generated by source-aware data tables for wooden, reinforced, elite, vault, boss and secure-vault sources. The ordinary rarity baseline is Common 55%, Uncommon 25%, Rare 13%, Epic 5%, Legendary 1.5% and Mythic 0.5%; Unique items use explicit source rules. Room category bias and future enemy-tier/depth parameters feed the same affix-compatible roller.
+## Arsenał i umiejętności
 
-Loadout and Stash use reusable rarity-accented item slots with icons, selected/equipped/broken/new states, drag previews, compatible-target highlighting, safe invalid-drop rejection, double-click quick equip and relevant right-click context actions. The 24-slot inventory, loadout and stash exchange exact item instances atomically; a failed move never removes the source item. Stash browsing supports category/subcategory filters, name/type/affix search and identity-safe sorting.
+Rodziny gameplayowe: Katana, Nodachi, Sniper Rifle, Assault Rifle, Burst Rifle, Battle Rifle, Knight Sword, Magic Wand, Glock i Akimbo Glock. Każda ma własną rolę i jedną autorytatywną konfigurację statystyk. Rusty/Ronin/Phantom i pozostałe warianty są skórkami tej samej rodziny: nie zmieniają obrażeń, tempa, odrzutu, amunicji, zasięgu, hitboxu ani efektów.
 
-Hover any owned or equipped item in Loadout, Stash, Overflow, or a populated Main Inventory slot to inspect its reusable rarity-colored tooltip. Tooltips show the exact instance's affixes, durability, sell value and Scrap yield. Stash items can be sold for Gold or dismantled for Scrap; equipped items are protected and destructive actions require confirmation. Gold from extraction/selling/junk and Scrap now form the economy foundation, while repairs remain a real Gold sink.
+Skille: Dash 60, Double Jump 70, Wallrun 70, Smoke Veil 70, Air Dash 80, Launch 85, Grapple 90, Ground Slam 90, Blink 110 i Invisibility 120. Suma slotów Q+E nie może przekroczyć 200. Invisibility kończy się przy ataku, Blink sprawdza kolizję, Grapple zachowuje pęd, a Wallrun wymaga kontaktu ze ścianą.
 
-During an Armory run, `Tab` opens the lighter run inventory. Items can be inspected, compared, consumed or dropped. Dropping creates a world pickup that retains the exact `ItemInstance`, including affixes, variant and durability, and can be recovered if space remains.
+Pełne wartości broni, role i założenia TTK są w [docs/arena_reborn_balance.md](docs/arena_reborn_balance.md).
 
-Arena is a configurable round match: 1v1 is first to 4, while 2v2 is first to 3. A full-match victory opens a dedicated three-column reward screen. Every selected item from a losing 24-slot main inventory requires one eligible item from the winner's main inventory; exact instance IDs, affixes and durability move together, both item counts remain unchanged, and equipped/skill/key/protected items are rejected. Limits are three swaps in 1v1 and two per winning player in 2v2.
+## Uczciwość i progresja kosmetyczna
 
-Current opponents are local bots, not remote accounts. Their reward inventories are explicitly labeled synthetic previews, limited to Common–Rare items and never saved. They cannot take persistent player items. The genuine `ArenaRewardService` operates on separate owner ledgers, validates the authoritative result and individual 2v2 ownership, commits both sides atomically, records transaction/result IDs for idempotency, and rolls back on persistence failure; it is ready for a future authoritative PvP persistence adapter, but networking and matchmaking do not exist yet.
+Standardowa Arena zawsze używa 100 HP i `ArenaEquipmentResolver`. Affixy, efekty Mythic, statystyki rarity, durability, pancerz z gearu i poziom konta są odłączone od obliczeń walki. Sniper zadaje 90 w głowę, więc pełne 100 HP nie ginie od jednego standardowego trafienia.
 
-## Kour-style movement baseline
+Po ukończonym meczu prawdziwe statystyki wydarzeń naliczają jeden raz:
 
-The previous player locomotion was removed and replaced by an original controller based on Kour.io's public movement characteristics. This is a starting point for playtesting, not extracted Kour.io code or a claim of identical internal values.
+- Account XP za ukończenie, wynik i aktywną grę,
+- mastery XP tylko rodzinom faktycznie użytym w walce,
+- Style Tokens na kosmetyki.
 
-- Constant arena run speed with CS-style acceleration, responsive counter-strafing and normalized diagonals. There is no separate sprint mode.
-- Hold Space to chain ground jumps without consuming an equipped Double Jump. Release and press again for the airborne skill.
-- Airborne `W/S` and unsynchronized `A/D` do nothing, preserving launch momentum. Bhop steering requires held `Space` plus mouse-left+`A` or mouse-right+`D`.
-- Ctrl at speed starts a slide; Space carries its momentum into a jump. Dash/launch speed above the normal movement cap survives slide entry and slide jumps.
-- Crouch still checks ceiling clearance. Coyote time, jump buffering, loadout skills, movement/jump/air-control buffs, and slide affixes remain integrated.
+Identyfikator wyniku zapobiega ponownemu odebraniu nagrody po rematchu lub ponownym otwarciu ekranu. Mastery 5 i 15 może odblokować kolejne istniejące skórki; żaden poziom nie zmienia gameplayu. Poprzednia wymiana/przejmowanie przedmiotów po Arenie jest nieaktywna.
 
-Tune `Player > MovementController` in the Godot Inspector (`scripts/characters/player_movement_controller.gd`). Defaults: run **10.5 m/s**, ground acceleration **85 m/s²**, jump velocity **7.4 m/s**, gravity **20 m/s²**, air acceleration **24 m/s²**, camera follow **11.5**, bunny-hop cap **22 m/s**. `auto_bunny_hop` can be disabled; jump/landing windows, camera-relative air control, crouch and slide values are exported separately. Bots retain their existing movement profile.
+## Zapis i migracja
 
-The `--self-test` suite additionally checks diagonal speed, stopping, held-jump chains, skill cooldown ownership, loadouts without Dash/Double Jump, and preservation of above-cap slide momentum.
+Profil v7 pozostaje w `user://player_profile.json` i korzysta z zapisu tymczasowego, weryfikacji oraz backupu. Migracja z v6:
 
-Profiles are stored as version-6 JSON at `user://player_profile.json`. Saves are written to a verified temporary file, the last valid primary is preserved as a backup, and loading follows primary → backup → fresh starter profile. Version-1/2/3/4/5 profiles migrate without injecting the development catalog and preserve valid instances, affixes, durability, inventory and equipped slots. Version 6 adds bounded Arena transaction/result history used to prevent duplicate reward processing. Scrap, Extraction Overflow and the movement-training personal best are persistent.
+- zachowuje stare item instances, stash, affixy, durability, Gold, Scrap i historię extraction,
+- mapuje tylko zweryfikowane posiadane warianty broni na kosmetyki,
+- dodaje domyślne skórki, Arena loadout, account XP, mastery, Style Tokens i statystyki,
+- jest idempotentna i nie przelicza starego majątku na przewagę ani walutę kosmetyczną.
 
-Movement Training is isolated from normal progression: it applies a temporary skill set, never wears durability, never awards loot or Gold, resets falls to the latest checkpoint, supports `R` restart, and stores only the best completion time.
+Legacy Dungeon/Extraction nie jest dostępny w głównym menu. Kod pozostaje zachowany dla kompatybilności i można odzyskać stan sprzed migracji z referencji Git `backup/pre-arena-reborn` (commit `19404239cb5414f154892d26bf2443135d4148aa`).
 
-Explicit development flags are temporary and cannot overwrite the normal profile: `--dev-unlock-all`, `--dev-gold=<amount>`, `--dev-give-key`, `--dev-loot=<source>` and `--dev-rarity=<rarity>`.
+## Testy na Linuxie
 
-Video, graphics, gameplay, and audio preferences are stored independently at `user://game_settings.json`. The lobby and gameplay pause menus apply supported settings live, including FOV, sensitivity, camera effects, damage numbers, crosshair visibility, resolution, rendering scale, and volume buses.
-
-## Combat feel foundation
-
-All ten weapon families use centralized presentation profiles for configurable FPP hip, ADS and sprint poses plus bounded TPP offsets. The same profiles drive procedural idle/movement sway, firing kick, recovery, reload motion, swap motion, muzzle timing, tracer duration and family-specific crosshair behavior, so future Blender models can be retuned without spreading transforms through gameplay scripts.
-
-Combat feedback distinguishes normal, headshot, armor, blocked, parry/deflect, critical/proc, damage-over-time and kill results. Damage numbers use a fixed reusable pool, impacts use a fixed 3D pool, enemy reactions are visual rather than repeated stun, and strong melee connections use a short 42 ms hit-stop. Damage numbers, camera shake, hit-effect intensity and crosshair visibility are persisted in Settings.
-
-## Validation
-
-Na Linuxie, z katalogu projektu:
+Najważniejsze testy można uruchomić z katalogu repozytorium:
 
 ```bash
 /sciezka/do/godot --headless --editor --path . --quit
-/sciezka/do/godot --headless --path . -- --arena-reward-test
+/sciezka/do/godot --headless --path . -- --arena-reborn-test
 /sciezka/do/godot --headless --path . -- --arena-round-test
+/sciezka/do/godot --headless --path . -- --arena-mode=2v2 --arena-round-test
+/sciezka/do/godot --headless --path . -- --arena-reward-test
+/sciezka/do/godot --headless --path . -- --loadout-integration-test
+/sciezka/do/godot --headless --path . -- --self-test
+/sciezka/do/godot --headless --path . -- --training-self-test
+/sciezka/do/godot --headless --path . -- --lobby-layout-test
+/sciezka/do/godot --headless --path . -- --pause-flow-test
 ```
 
-`--arena-reward-test` korzysta wyłącznie z izolowanych profili testowych. Sprawdza transfer obu stron, pełne inwentarze, ochronę wyposażenia/skillów, limity, zachowanie affiksów i durability, idempotencję, rollback, zapis/restart, izolację symulacji bota, abandonment, własność 2v2 oraz wolny kursor UI.
+`--arena-reborn-test` sprawdza dostęp nowego profilu, identyczne statystyki wszystkich skórek w rodzinie, brak przecieków affix/Mythic, limit 200 Power, bezpieczną migrację v6→v7, jednorazowe XP/mastery/Style Tokens, odblokowanie kosmetyki i politykę kamery. `--arena-reward-test` potwierdza, że stary item swap jest wyłączony i ekran wyników pokazuje progresję. Testy używają izolowanych profili; zwykłe uruchomienie korzysta z normalnego profilu użytkownika.
 
-```powershell
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --editor --path . --quit
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --ai-soak-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --hud-layout-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --loot-statistics-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --training-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --inventory-ui-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --content-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --tooltip-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --affix-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --effect-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --content-arena-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --loadout-integration-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --lobby-layout-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --pause-flow-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --scene-flow-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-restart-write-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --profile-restart-read-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --dungeon-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --extraction-flow-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --durability-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --dungeon-soak-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --dungeon-scene-flow-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --settings-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --polish-self-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --combat-feel-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --arena-round-test
-& 'C:\Users\megap\Desktop\Godot_v4.7.2-stable_win64_console.exe' --headless --path . -- --arena-reward-test
-```
+## Stan projektu
+
+MVP 0.6.0 jest grywalnym lokalnym vertical slice’em Arena Reborn. Zachowano zaawansowany movement, melee/parry, 10 skilli, AI, rundy, FPP/TPP, audio, HUD, ustawienia, pauzę i trening. Nie ma jeszcze sieci, Ranked, nowych modeli postaci, bannerów/emote ani pełnego zestawu nagród mastery 10/20. Dungeon i jego ekonomia istnieją wyłącznie jako nieaktywna warstwa legacy.

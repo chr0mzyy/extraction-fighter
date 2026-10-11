@@ -142,6 +142,9 @@ func report_death(actor: Node, info: DamageInfo = null) -> void:
 		var killer := participant_for_actor(info.attacker)
 		if killer != null and killer.team_id != victim.team_id:
 			killer.kills += 1
+			var kill_family := String(info.weapon_family)
+			if not kill_family.is_empty():
+				killer.weapon_kills_by_family[kill_family] = int(killer.weapon_kills_by_family.get(kill_family, 0)) + 1
 	stats_changed.emit()
 	if victim.is_local_player:
 		var teammates := living_participants(victim.team_id)
@@ -163,6 +166,10 @@ func record_damage(info: DamageInfo, applied_amount: float) -> void:
 		return
 	attacker.damage_dealt += applied_amount
 	attacker.round_damage += applied_amount
+	var family := String(info.weapon_family)
+	if not family.is_empty():
+		attacker.weapon_damage_by_family[family] = float(attacker.weapon_damage_by_family.get(family, 0.0)) + applied_amount
+		attacker.weapon_hits_by_family[family] = int(attacker.weapon_hits_by_family.get(family, 0)) + 1
 	if info.headshot:
 		attacker.headshots += 1
 	stats_changed.emit()

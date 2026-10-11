@@ -44,6 +44,7 @@ var keybind_feedback: Label
 var operative_preview: Node3D
 var preview_time: float = 0.0
 var arena_bot_difficulty: StringName = &"NORMAL"
+var selected_customization_family: StringName = &"katana"
 
 const RESTART_TEST_PATH := "user://extraction_fighter_restart_test.json"
 
@@ -84,14 +85,18 @@ func _ready() -> void:
 			_configure_content_loadout()
 		elif _needs_legacy_arena_test_loadout(args):
 			PlayerProfile.create_development_profile()
-			PlayerProfile.equip_weapon(0, "ronin_katana", false)
-			PlayerProfile.equip_weapon(1, "huntsman_rifle", false)
+			PlayerProfile.equip_arena_weapon(0, &"katana", false)
+			PlayerProfile.equip_arena_weapon(1, &"sniper", false)
+			PlayerProfile.select_weapon_cosmetic(&"katana", &"ronin_katana", false)
+			PlayerProfile.select_weapon_cosmetic(&"sniper", &"huntsman_rifle", false)
 		else:
 			PlayerProfile.reset_to_defaults(false)
 		_route_to_arena.call_deferred()
 		return
 	_show_main()
-	if "--profile-self-test" in args:
+	if "--arena-reborn-test" in args:
+		_run_arena_reborn_test.call_deferred()
+	elif "--profile-self-test" in args:
 		_run_profile_self_test.call_deferred()
 	elif "--profile-restart-write-test" in args:
 		_run_profile_restart_write.call_deferred()
@@ -172,10 +177,12 @@ func _route_to_arena() -> void:
 
 
 func _route_to_dungeon() -> void:
+	ArenaSessionRequest.standard_rules_enabled = false
 	get_tree().change_scene_to_file("res://scenes/dungeon/armory_dungeon.tscn")
 
 
 func _route_to_training() -> void:
+	ArenaSessionRequest.standard_rules_enabled = true
 	get_tree().change_scene_to_file("res://scenes/training/movement_training.tscn")
 
 
@@ -223,7 +230,7 @@ func _handle_scene_flow_test() -> void:
 		var failure := String(PlayerProfile.get_meta("scene_flow_failure", ""))
 		PlayerProfile.remove_meta("scene_flow_stage")
 		PlayerProfile.remove_meta("scene_flow_failure")
-		if failure.is_empty() and PlayerProfile.weapon_slots == ["ronin_katana", "huntsman_rifle"]:
+		if failure.is_empty() and PlayerProfile.arena_weapon_families == ["katana", "sniper"] and PlayerProfile.get_arena_weapon_skin_id(0) == "ronin_katana" and PlayerProfile.get_arena_weapon_skin_id(1) == "huntsman_rifle":
 			print("SCENE_FLOW_OK: Lobby -> Arena -> Lobby retained the selected loadout")
 			get_tree().quit(0)
 		else:
@@ -231,8 +238,10 @@ func _handle_scene_flow_test() -> void:
 			get_tree().quit(1)
 		return
 	PlayerProfile.create_development_profile()
-	PlayerProfile.equip_weapon(0, "ronin_katana", false)
-	PlayerProfile.equip_weapon(1, "huntsman_rifle", false)
+	PlayerProfile.equip_arena_weapon(0, &"katana", false)
+	PlayerProfile.equip_arena_weapon(1, &"sniper", false)
+	PlayerProfile.select_weapon_cosmetic(&"katana", &"ronin_katana", false)
+	PlayerProfile.select_weapon_cosmetic(&"sniper", &"huntsman_rifle", false)
 	PlayerProfile.set_meta("scene_flow_stage", "arena")
 	_route_to_arena.call_deferred()
 
@@ -285,10 +294,10 @@ func _build_shell() -> void:
 	brand_mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	var title := _label(title_row, " EXTRACTION FIGHTER", 38, COLOR_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var milestone := _label(title_row, "MVP 0.4.3  //  LOCAL\nCORE LOOP ONLINE", 11, COLOR_ACCENT)
+	var milestone := _label(title_row, "MVP 0.6.0  //  ARENA REBORN\nFAIR POWER • COSMETIC PROGRESSION", 11, COLOR_ACCENT)
 	milestone.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	milestone.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	top_gold_label = _label(title_row, "%d GOLD  •  %d SCRAP" % [PlayerProfile.gold, PlayerProfile.scrap], 13, COLOR_YELLOW)
+	top_gold_label = _label(title_row, "LEVEL %d  •  %d STYLE" % [PlayerProfile.account_level, PlayerProfile.style_tokens], 13, COLOR_YELLOW)
 	top_gold_label.custom_minimum_size.x = 120
 	top_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top_gold_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -311,7 +320,7 @@ func _build_shell() -> void:
 	screen_host.offset_bottom = -42
 	add_child(screen_host)
 
-	footer_label = _label(self, "[ESC] BACK   //   LOCAL COMBAT PROFILE   //   SAVE VERSION 5", 11, COLOR_YELLOW)
+	footer_label = _label(self, "[ESC] BACK   //   LOCAL BOT BUILD   //   ARENA PROFILE V7", 11, COLOR_YELLOW)
 	footer_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	footer_label.offset_left = 30
 	footer_label.offset_right = -30
@@ -397,7 +406,7 @@ func _clear_screen() -> void:
 	comparison_details = null
 	feedback_label = null
 	if top_gold_label != null:
-		top_gold_label.text = "%d GOLD  •  %d SCRAP" % [PlayerProfile.gold, PlayerProfile.scrap]
+		top_gold_label.text = "LEVEL %d  •  %d STYLE" % [PlayerProfile.account_level, PlayerProfile.style_tokens]
 	if screen_tween != null and screen_tween.is_valid():
 		screen_tween.kill()
 	screen_host.modulate.a = 0.15
@@ -432,7 +441,7 @@ func _show_main() -> void:
 	right_column.custom_minimum_size.x = 500
 	right_column.add_theme_constant_override("separation", 12)
 	row.add_child(right_column)
-	_label(right_column, "// DEPLOYMENT TERMINAL", 13, COLOR_YELLOW)
+	_label(right_column, "// MOVEMENT ARENA TERMINAL", 13, COLOR_YELLOW)
 	var menu_panel := _panel(right_column)
 	menu_panel.name = "MainMenuPanel"
 	menu_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -440,11 +449,12 @@ func _show_main() -> void:
 	var menu := VBoxContainer.new()
 	menu.add_theme_constant_override("separation", 7)
 	menu_margin.add_child(menu)
-	_label(menu, "SELECT OPERATION", 11, COLOR_MUTED)
+	_label(menu, "FAST COMBAT  //  BUILD YOUR PLAYSTYLE", 11, COLOR_MUTED)
 	_add_menu_button(menu, "PLAY", _show_play)
 	_add_menu_button(menu, "LOADOUT", _show_loadout)
-	_add_menu_button(menu, "STASH", _show_stash)
 	_add_menu_button(menu, "CUSTOMIZATION", _show_customization)
+	_add_menu_button(menu, "TRAINING", _launch_training)
+	_add_menu_button(menu, "PROFILE", _show_profile)
 	_add_menu_button(menu, "SETTINGS", _show_settings)
 	_add_menu_button(menu, "QUIT", _quit_game, true)
 
@@ -459,7 +469,9 @@ func _show_main() -> void:
 	var current_build := _label(summary_header, "ACTIVE KIT", 11, COLOR_ACCENT)
 	current_build.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_label(summary_header, "%03d/%03d POWER" % [PlayerProfile.get_skill_power(), PlayerProfile.POWER_LIMIT], 11, COLOR_READY)
-	_label(summary, "%s  //  %s" % [_definition_name(PlayerProfile.weapon_slots[0]).to_upper(), _definition_name(PlayerProfile.weapon_slots[1]).to_upper()], 15, COLOR_TEXT)
+	var weapon_one := PlayerProfile.get_arena_weapon_definition(0)
+	var weapon_two := PlayerProfile.get_arena_weapon_definition(1)
+	_label(summary, "%s  //  %s" % [weapon_one.display_name.to_upper() if weapon_one != null else "EMPTY", weapon_two.display_name.to_upper() if weapon_two != null else "EMPTY"], 15, COLOR_TEXT)
 	var skills: Array[String] = []
 	for item_id: String in PlayerProfile.skill_slots:
 		skills.append(_definition_name(item_id).to_upper())
@@ -468,19 +480,21 @@ func _show_main() -> void:
 
 func _show_play() -> void:
 	current_screen = "play"
-	var content := _show_simple_screen("SELECT ACTIVITY", "Choose a deployment route.")
+	var content := _show_simple_screen("PLAY", "Short local Arena matches. Equal gameplay power for every profile.")
+	_label(content, "CASUAL  //  FPP ↔ TPP  //  LOCAL BOTS  //  NO ONLINE MATCHMAKING", 12, COLOR_YELLOW)
 	var cards := HBoxContainer.new()
 	cards.name = "ActivityCards"
 	cards.add_theme_constant_override("separation", 18)
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(cards)
-	var arena := _activity_card(cards, "ARENA", "Round-based local combat\n1v1 and 2v2 bot matches", true)
-	arena.pressed.connect(_show_arena_modes)
-	var dungeon := _activity_card(cards, "THE ARMORY", "15 minute extraction run\nLoot is lost on death", true)
-	dungeon.pressed.connect(_launch_dungeon)
-	var training := _activity_card(cards, "MOVEMENT TRAINING", "10-mechanic timed course\nCheckpoints • personal best • no item wear", true)
-	training.name = "MovementTrainingCard"
-	training.pressed.connect(_launch_training)
+	var duel := _activity_card(cards, "CASUAL 1V1", "First to 4\n90-second rounds\nPlayer vs bot", true)
+	duel.name = "Casual1v1Card"
+	duel.pressed.connect(_launch_arena.bind(&"1v1"))
+	var clash := _activity_card(cards, "CASUAL 2V2", "First to 3\n120-second rounds\nPlayer + ally bot", true)
+	clash.name = "Casual2v2Card"
+	clash.pressed.connect(_launch_arena.bind(&"2v2"))
+	var ranked := _activity_card(cards, "RANKED", "COMING SOON\nFuture FPP-only policy\nNo fake queue or ELO", false)
+	ranked.name = "RankedComingSoon"
 	_add_back_button(content)
 
 
@@ -516,6 +530,8 @@ func _select_arena_difficulty(difficulty: StringName) -> void:
 
 
 func _show_loadout() -> void:
+	_show_arena_loadout()
+	return
 	_clear_screen()
 	current_screen = "loadout"
 	var margin := _margin(screen_host, 22, 16, 22, 16)
@@ -619,6 +635,108 @@ func _show_loadout() -> void:
 	var help := _label(details, "RIGHT CLICK  context menu\nDOUBLE CLICK  quick equip\nDRAG  move / equip", 10, COLOR_MUTED)
 	help.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_add_back_button(root)
+
+
+func _show_arena_loadout() -> void:
+	_clear_screen()
+	current_screen = "loadout"
+	var margin := _margin(screen_host, 26, 16, 26, 16)
+	margin.name = "ArenaLoadoutMargin"
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	margin.add_child(root)
+	var header := HBoxContainer.new()
+	root.add_child(header)
+	var title := _label(header, "ARENA LOADOUT", 25, COLOR_TEXT)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(header, "ALL GAMEPLAY OPTIONS UNLOCKED", 12, COLOR_ACCENT)
+	var power := PlayerProfile.get_skill_power()
+	_label(header, "POWER  %d / %d" % [power, PlayerProfile.POWER_LIMIT], 19, COLOR_READY if power <= PlayerProfile.POWER_LIMIT else COLOR_WARNING)
+	var slots := HBoxContainer.new()
+	slots.add_theme_constant_override("separation", 8)
+	root.add_child(slots)
+	for index: int in 2:
+		var weapon := PlayerProfile.get_arena_weapon_definition(index)
+		var weapon_button := _button(slots, "WEAPON %d\n%s\n%s" % [index + 1, weapon.display_name.to_upper() if weapon != null else "EMPTY", String(PlayerProfile.arena_weapon_families[index]).replace("_", " ").to_upper()], false)
+		weapon_button.name = "ArenaWeaponSlot%d" % index
+		weapon_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		weapon_button.custom_minimum_size.y = 74
+		weapon_button.pressed.connect(_select_arena_loadout_slot.bind("weapon", index))
+	for index: int in 2:
+		var skill := PlayerProfile.get_definition(PlayerProfile.skill_slots[index])
+		var skill_button := _button(slots, "SKILL %s\n%s\n%d POWER" % [GameSettings.get_binding_text(&"skill_slot_1" if index == 0 else &"skill_slot_2"), skill.display_name.to_upper() if skill != null else "EMPTY", skill.power_cost if skill != null else 0], false)
+		skill_button.name = "ArenaSkillSlot%d" % index
+		skill_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		skill_button.custom_minimum_size.y = 74
+		skill_button.pressed.connect(_select_arena_loadout_slot.bind("skill", index))
+	var panel := _panel(root)
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var panel_margin := _margin(panel, 14, 12, 14, 12)
+	var panel_root := VBoxContainer.new()
+	panel_root.add_theme_constant_override("separation", 8)
+	panel_margin.add_child(panel_root)
+	_label(panel_root, "ARSENAL  //  SELECT %s SLOT %d" % [selected_kind.to_upper(), selected_slot + 1], 13, COLOR_YELLOW)
+	var scroll := ScrollContainer.new()
+	scroll.name = "ArenaArsenalScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel_root.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.name = "ArenaArsenalGrid"
+	grid.columns = 2
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	scroll.add_child(grid)
+	if selected_kind == "skill":
+		for skill_id: String in ArenaEquipmentResolver.all_skill_ids():
+			var skill := PlayerProfile.get_definition(skill_id)
+			var selected := PlayerProfile.skill_slots[selected_slot] == skill_id
+			var skill_button := _button(grid, "%s%s\n%d POWER  •  %.1fs\n%s" % ["✓  " if selected else "", skill.display_name.to_upper(), skill.power_cost, skill.cooldown, skill.description], false)
+			skill_button.custom_minimum_size = Vector2(500, 76)
+			skill_button.clip_text = true
+			skill_button.pressed.connect(_equip_arena_skill.bind(skill_id))
+			if selected:
+				skill_button.add_theme_stylebox_override("normal", _style(Color(0.04, 0.16, 0.17), COLOR_ACCENT, 2, 4))
+	else:
+		for family: StringName in ArenaEquipmentResolver.FAMILY_ORDER:
+			var gameplay := ArenaEquipmentResolver.gameplay_definition(family)
+			var selected := PlayerProfile.arena_weapon_families[selected_slot] == String(family)
+			var stats := "DMG %.0f" % gameplay.damage
+			if gameplay.headshot_damage > 0.0:
+				stats += "  •  HEAD %.0f" % gameplay.headshot_damage
+			if gameplay.fire_rate > 0.0:
+				stats += "  •  %.1f/s" % gameplay.fire_rate
+			var weapon_button := _button(grid, "%s%s\n%s\n%s  //  WEAKNESS: %s" % ["✓  " if selected else "", gameplay.display_name.to_upper(), stats, gameplay.role, gameplay.weakness], false)
+			weapon_button.custom_minimum_size = Vector2(500, 86)
+			weapon_button.clip_text = true
+			weapon_button.pressed.connect(_equip_arena_family.bind(family))
+			if selected:
+				weapon_button.add_theme_stylebox_override("normal", _style(Color(0.04, 0.16, 0.17), COLOR_ACCENT, 2, 4))
+	var note := _label(root, "No durability, rarity bonus, affix, gear armor or extraction requirement applies in standard Arena.", 11, COLOR_MUTED)
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	feedback_label = _label(root, "", 11, COLOR_WARNING)
+	_add_back_button(root)
+
+
+func _select_arena_loadout_slot(kind: String, slot: int) -> void:
+	selected_kind = kind
+	selected_slot = slot
+	_show_arena_loadout()
+
+
+func _equip_arena_family(family: StringName) -> void:
+	if PlayerProfile.equip_arena_weapon(selected_slot, family):
+		_show_arena_loadout()
+	elif feedback_label != null:
+		feedback_label.text = PlayerProfile.last_error
+
+
+func _equip_arena_skill(skill_id: String) -> void:
+	if PlayerProfile.equip_arena_skill(selected_slot, skill_id):
+		_show_arena_loadout()
+	elif feedback_label != null:
+		feedback_label.text = PlayerProfile.last_error
 
 
 func _show_stash() -> void:
@@ -766,7 +884,135 @@ func _show_stash() -> void:
 
 
 func _show_customization() -> void:
-	_show_placeholder("CUSTOMIZATION", "COMING SOON", "Cosmetics and character presentation are outside MVP 0.4.3.")
+	_clear_screen()
+	current_screen = "customization"
+	var margin := _margin(screen_host, 28, 18, 28, 18)
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	margin.add_child(root)
+	var header := HBoxContainer.new()
+	root.add_child(header)
+	var title := _label(header, "CUSTOMIZATION", 25, COLOR_TEXT)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(header, "%d STYLE TOKENS" % PlayerProfile.style_tokens, 16, COLOR_YELLOW)
+	_label(root, "Weapon skins change appearance only. Gameplay stats, hitboxes, recoil and effects remain normalized by family.", 12, COLOR_MUTED)
+	var families := HBoxContainer.new()
+	families.add_theme_constant_override("separation", 5)
+	root.add_child(families)
+	for family: StringName in ArenaEquipmentResolver.FAMILY_ORDER:
+		var gameplay := ArenaEquipmentResolver.gameplay_definition(family)
+		var family_button := _button(families, gameplay.display_name.to_upper(), false)
+		family_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		family_button.custom_minimum_size.y = 40
+		family_button.add_theme_font_size_override("font_size", 11)
+		family_button.pressed.connect(_select_customization_family.bind(family))
+		if family == selected_customization_family:
+			family_button.add_theme_stylebox_override("normal", _style(Color(0.04, 0.16, 0.17), COLOR_ACCENT, 2, 3))
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 12)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
+	var skin_panel := _panel(body)
+	skin_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var skin_margin := _margin(skin_panel, 14, 12, 14, 12)
+	var skin_root := VBoxContainer.new()
+	skin_root.add_theme_constant_override("separation", 8)
+	skin_margin.add_child(skin_root)
+	_label(skin_root, "%s SKINS" % ArenaEquipmentResolver.gameplay_definition(selected_customization_family).display_name.to_upper(), 13, COLOR_ACCENT)
+	var skin_grid := GridContainer.new()
+	skin_grid.name = "WeaponCosmeticGrid"
+	skin_grid.columns = 2
+	skin_grid.add_theme_constant_override("h_separation", 8)
+	skin_grid.add_theme_constant_override("v_separation", 8)
+	skin_root.add_child(skin_grid)
+	for cosmetic: WeaponCosmeticDefinition in ArenaEquipmentResolver.cosmetics_for_family(selected_customization_family):
+		var unlocked := PlayerProfile.unlocked_cosmetic_ids.has(String(cosmetic.skin_id))
+		var selected := String(PlayerProfile.selected_weapon_cosmetics.get(String(selected_customization_family), "")) == String(cosmetic.skin_id)
+		var cost := _cosmetic_token_cost(cosmetic.cosmetic_rarity)
+		var state := "EQUIPPED" if selected else ("OWNED" if unlocked else "%d STYLE" % cost)
+		var skin_button := _button(skin_grid, "%s%s\n%s  //  COSMETIC %s\n%s" % ["✓  " if selected else "", cosmetic.display_name.to_upper(), ItemDefinition.Rarity.keys()[cosmetic.cosmetic_rarity], state, cosmetic.flavor_text], false)
+		skin_button.custom_minimum_size = Vector2(370, 102)
+		skin_button.clip_text = true
+		skin_button.add_theme_color_override("font_color", _rarity_color(cosmetic.cosmetic_rarity))
+		if unlocked:
+			skin_button.pressed.connect(_equip_cosmetic.bind(selected_customization_family, cosmetic.skin_id))
+		else:
+			skin_button.pressed.connect(_buy_cosmetic.bind(cosmetic.skin_id, cost))
+	var gear_panel := _panel(body, Vector2(300, 0))
+	var gear_margin := _margin(gear_panel, 14, 12, 14, 12)
+	var gear_root := VBoxContainer.new()
+	gear_root.add_theme_constant_override("separation", 7)
+	gear_margin.add_child(gear_root)
+	_label(gear_root, "CHARACTER COSMETICS", 13, COLOR_ACCENT)
+	_label(gear_root, "Foundation slots — no armor or movement bonuses", 11, COLOR_MUTED)
+	for key: String in PlayerProfile.GEAR_KEYS:
+		var slot := _button(gear_root, "%s  //  VISUAL ONLY" % key.replace("_", " ").to_upper(), false)
+		slot.disabled = true
+	feedback_label = _label(root, "", 12, COLOR_WARNING)
+	_add_back_button(root)
+
+
+func _select_customization_family(family: StringName) -> void:
+	selected_customization_family = family
+	_show_customization()
+
+
+func _equip_cosmetic(family: StringName, skin_id: StringName) -> void:
+	if PlayerProfile.select_weapon_cosmetic(family, skin_id):
+		_show_customization()
+	elif feedback_label != null:
+		feedback_label.text = PlayerProfile.last_error
+
+
+func _buy_cosmetic(skin_id: StringName, cost: int) -> void:
+	if PlayerProfile.unlock_weapon_cosmetic(skin_id, cost):
+		var cosmetic := ArenaEquipmentResolver.cosmetic_definition(skin_id)
+		if cosmetic != null:
+			PlayerProfile.select_weapon_cosmetic(cosmetic.weapon_family, skin_id)
+		_show_customization()
+	elif feedback_label != null:
+		feedback_label.text = PlayerProfile.last_error
+
+
+func _show_profile() -> void:
+	current_screen = "profile"
+	var content := _show_simple_screen("PROFILE", "Cosmetic progression only — no combat stat bonuses.")
+	var xp_target := ArenaProgressionService.xp_required_for_level(PlayerProfile.account_level + 1)
+	_label(content, "ACCOUNT LEVEL  %d     //     %d / %d XP     //     %d STYLE TOKENS" % [PlayerProfile.account_level, PlayerProfile.account_xp, xp_target, PlayerProfile.style_tokens], 18, COLOR_YELLOW)
+	var stats := PlayerProfile.statistics
+	_label(content, "MATCHES  %d     WINS  %d     KILLS  %d     DEATHS  %d     DAMAGE  %d" % [int(stats.get("matches_completed", 0)), int(stats.get("matches_won", 0)), int(stats.get("kills", 0)), int(stats.get("deaths", 0)), int(stats.get("damage", 0.0))], 14, COLOR_TEXT)
+	var mastery_panel := _panel(content)
+	mastery_panel.name = "MasteryPanel"
+	mastery_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var mastery_margin := _margin(mastery_panel, 16, 14, 16, 14)
+	var mastery_grid := GridContainer.new()
+	mastery_grid.columns = 2
+	mastery_grid.add_theme_constant_override("h_separation", 18)
+	mastery_grid.add_theme_constant_override("v_separation", 10)
+	mastery_margin.add_child(mastery_grid)
+	for family: StringName in ArenaEquipmentResolver.FAMILY_ORDER:
+		var family_xp := int(PlayerProfile.weapon_mastery_xp.get(String(family), 0))
+		var family_level := ArenaProgressionService.mastery_level_for_xp(family_xp)
+		var row := VBoxContainer.new()
+		row.custom_minimum_size = Vector2(480, 50)
+		mastery_grid.add_child(row)
+		_label(row, "%s MASTERY  %d / 20" % [ArenaEquipmentResolver.gameplay_definition(family).display_name.to_upper(), family_level], 13, COLOR_ACCENT)
+		var bar := ProgressBar.new()
+		bar.show_percentage = false
+		bar.max_value = 400
+		bar.value = ArenaProgressionService.mastery_xp_in_level(family_xp)
+		bar.tooltip_text = "%d total mastery XP" % family_xp
+		row.add_child(bar)
+	_add_back_button(content)
+
+
+func _cosmetic_token_cost(rarity: ItemDefinition.Rarity) -> int:
+	return [0, 80, 140, 240, 380, 600, 800][clampi(rarity, 0, 6)]
+
+
+func _rarity_color(rarity: ItemDefinition.Rarity) -> Color:
+	var colors: Array[Color] = [Color(0.76, 0.78, 0.79), Color(0.43, 0.78, 0.51), Color(0.38, 0.64, 0.95), Color(0.68, 0.45, 0.92), Color(0.93, 0.69, 0.27), Color(0.91, 0.31, 0.62), Color(0.32, 0.86, 0.86)]
+	return colors[clampi(rarity, 0, colors.size() - 1)]
 
 
 func _request_repair_instance(instance_id: String) -> void:
@@ -1452,7 +1698,7 @@ func _definition_fits_selected_gear(definition: ItemDefinition) -> bool:
 
 
 func _launch_arena(mode_id: StringName = &"1v1") -> void:
-	var validation := PlayerProfile.validate_loadout()
+	var validation := PlayerProfile.validate_arena_loadout()
 	if not bool(validation.valid):
 		footer_label.text = "LOADOUT INVALID  •  " + "; ".join(validation.errors)
 		footer_label.add_theme_color_override("font_color", COLOR_WARNING)
@@ -1473,17 +1719,26 @@ func _launch_dungeon() -> void:
 
 
 func _configure_integration_loadout() -> void:
+	# Keep the recoverable legacy inventory/loadout ledger coherent for migration tests.
 	PlayerProfile.equip_weapon(0, "vanguard_rifle", false)
 	PlayerProfile.equip_weapon(1, "knight_sword", false)
-	PlayerProfile.equip_skill(0, "grapple", false)
-	PlayerProfile.equip_skill(1, "blink", false)
+	PlayerProfile.equip_arena_weapon(0, &"assault_rifle", false)
+	PlayerProfile.equip_arena_weapon(1, &"sword", false)
+	PlayerProfile.select_weapon_cosmetic(&"assault_rifle", &"vanguard_rifle", false)
+	PlayerProfile.select_weapon_cosmetic(&"sword", &"knight_sword", false)
+	PlayerProfile.equip_arena_skill(0, "grapple", false)
+	PlayerProfile.equip_arena_skill(1, "blink", false)
 
 
 func _configure_content_loadout() -> void:
 	PlayerProfile.equip_weapon(0, "war_nodachi", false)
 	PlayerProfile.equip_weapon(1, "arcane_wand", false)
-	PlayerProfile.equip_skill(0, "wallrun", false)
-	PlayerProfile.equip_skill(1, "smoke_veil", false)
+	PlayerProfile.equip_arena_weapon(0, &"nodachi", false)
+	PlayerProfile.equip_arena_weapon(1, &"magic", false)
+	PlayerProfile.select_weapon_cosmetic(&"nodachi", &"war_nodachi", false)
+	PlayerProfile.select_weapon_cosmetic(&"magic", &"arcane_wand", false)
+	PlayerProfile.equip_arena_skill(0, "wallrun", false)
+	PlayerProfile.equip_arena_skill(1, "smoke_veil", false)
 
 
 func _set_stash_filter(filter_value: int) -> void:
@@ -1696,6 +1951,17 @@ func _build_character_placeholder(parent: Control) -> Control:
 	status.offset_bottom = -14
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	return stage
+
+
+func _run_arena_reborn_test() -> void:
+	var failures := ArenaRebornTestSuite.new().run()
+	if failures.is_empty():
+		print("ARENA_REBORN_OK: 10-family normalization, universal skills, cosmetic separation, v6 migration, idempotent XP/mastery/Style rewards, persistence and camera policy passed")
+		get_tree().quit(0)
+		return
+	for failure: String in failures:
+		push_error("ARENA_REBORN_FAILURE: " + failure)
+	get_tree().quit(1)
 
 
 func _run_profile_self_test() -> void:
@@ -2321,11 +2587,15 @@ func _run_lobby_layout_test() -> void:
 		_show_loadout()
 		await get_tree().process_frame
 		await get_tree().process_frame
-		_validate_controls_in_view(["EquippedPanel", "ChoicesPanel", "DetailsPanel", "PowerLabel"], test_size, failures)
-		_show_stash()
+		_validate_controls_in_view(["ArenaArsenalScroll", "ArenaWeaponSlot0", "ArenaSkillSlot0"], test_size, failures)
+		_show_customization()
 		await get_tree().process_frame
 		await get_tree().process_frame
-		_validate_controls_in_view(["StashPanel", "InventoryPanel"], test_size, failures)
+		_validate_controls_in_view(["WeaponCosmeticGrid"], test_size, failures)
+		_show_profile()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_validate_controls_in_view(["MasteryPanel"], test_size, failures)
 		_show_settings()
 		await get_tree().process_frame
 		await get_tree().process_frame
@@ -2341,21 +2611,16 @@ func _run_lobby_layout_test() -> void:
 		var activity_cards := find_child("ActivityCards", true, false) as HBoxContainer
 		if activity_cards == null or activity_cards.get_child_count() != 3:
 			failures.append("%dx%d play screen did not contain three activity cards" % [test_size.x, test_size.y])
-		var training_card := find_child("MovementTrainingCard", true, false) as Button
-		if training_card == null:
-			failures.append("%dx%d movement training card is missing" % [test_size.x, test_size.y])
-		elif training_card.disabled or not training_card.pressed.has_connections():
-			failures.append("%dx%d movement training card is disabled or cannot launch the course" % [test_size.x, test_size.y])
-		_show_arena_modes()
-		await get_tree().process_frame
-		await get_tree().process_frame
-		_validate_controls_in_view(["Arena1v1Card", "Arena2v2Card"], test_size, failures)
-		var duel_card := find_child("Arena1v1Card", true, false) as Button
-		var squad_card := find_child("Arena2v2Card", true, false) as Button
+		_validate_controls_in_view(["Casual1v1Card", "Casual2v2Card", "RankedComingSoon"], test_size, failures)
+		var duel_card := find_child("Casual1v1Card", true, false) as Button
+		var squad_card := find_child("Casual2v2Card", true, false) as Button
+		var ranked_card := find_child("RankedComingSoon", true, false) as Button
 		if duel_card == null or squad_card == null or not duel_card.pressed.has_connections() or not squad_card.pressed.has_connections():
-			failures.append("%dx%d arena 1v1/2v2 mode selection is incomplete" % [test_size.x, test_size.y])
+			failures.append("%dx%d casual 1v1/2v2 selection is incomplete" % [test_size.x, test_size.y])
+		if ranked_card == null or not ranked_card.disabled:
+			failures.append("%dx%d Ranked is not a disabled Coming Soon placeholder" % [test_size.x, test_size.y])
 	if failures.is_empty():
-		print("LOBBY_LAYOUT_OK: lobby, loadout, stash, settings, keybinds, activities and Arena 1v1/2v2 selection fit 1280x720, 1920x1080 and 2560x1440")
+		print("LOBBY_LAYOUT_OK: Arena-first lobby, arsenal, cosmetics, profile, settings and Casual/Ranked cards fit 1280x720, 1920x1080 and 2560x1440")
 		get_tree().quit(0)
 	else:
 		for failure: String in failures:

@@ -4,7 +4,7 @@ signal profile_changed
 signal loadout_changed
 signal validation_failed(message: String)
 
-const SAVE_VERSION := 6
+const SAVE_VERSION := 7
 const SAVE_PATH := "user://player_profile.json"
 const BACKUP_SAVE_PATH := "user://player_profile.backup.json"
 const INVENTORY_SIZE := 24
@@ -43,6 +43,16 @@ var training_best_time_ms: int = 0
 var new_instance_ids: Dictionary = {}
 var arena_completed_transaction_ids: Array[String] = []
 var arena_processed_result_ids: Array[String] = []
+var arena_weapon_families: Array[String] = ["katana", "pistol"]
+var selected_weapon_cosmetics: Dictionary = {}
+var unlocked_cosmetic_ids: Array[String] = []
+var cosmetic_gear_slots: Dictionary = {}
+var account_xp: int = 0
+var account_level: int = 1
+var style_tokens: int = 0
+var weapon_mastery_xp: Dictionary = {}
+var arena_progression_result_ids: Array[String] = []
+var statistics: Dictionary = {}
 
 
 func _ready() -> void:
@@ -93,6 +103,7 @@ func reset_to_defaults(save_after: bool = true) -> void:
 	training_best_time_ms = 0
 	arena_completed_transaction_ids.clear()
 	arena_processed_result_ids.clear()
+	_reset_arena_reborn_data()
 	development_session = false
 	last_load_used_defaults = true
 	catalog_migrated_last_load = false
@@ -232,6 +243,116 @@ func get_skill_power() -> int:
 		if definition != null and definition.item_type == ItemDefinition.ItemType.SKILL:
 			total += definition.power_cost
 	return total
+
+
+func get_arena_weapon_definition(slot: int) -> ItemDefinition:
+	if slot < 0 or slot >= arena_weapon_families.size():
+		return null
+	var family := StringName(arena_weapon_families[slot])
+	var skin_id := StringName(String(selected_weapon_cosmetics.get(String(family), ArenaEquipmentResolver.default_skin_for_family(family))))
+	return ArenaEquipmentResolver.resolve_item(family, skin_id)
+
+
+func get_arena_weapon_skin_id(slot: int) -> String:
+	if slot < 0 or slot >= arena_weapon_families.size():
+		return ""
+	var family := StringName(arena_weapon_families[slot])
+	return String(selected_weapon_cosmetics.get(String(family), ArenaEquipmentResolver.default_skin_for_family(family)))
+
+
+func equip_arena_weapon(slot: int, family: StringName, save_after: bool = true) -> bool:
+	if slot < 0 or slot >= 2 or family not in ArenaEquipmentResolver.FAMILY_ORDER:
+		return _fail("Invalid Arena weapon family")
+	var other_slot := 1 - slot
+	if arena_weapon_families[other_slot] == String(family):
+		return _fail("A weapon family cannot occupy both slots")
+	arena_weapon_families[slot] = String(family)
+	if not ArenaEquipmentResolver.is_valid_skin_for_family(StringName(String(selected_weapon_cosmetics.get(String(family), ""))), family):
+		selected_weapon_cosmetics[String(family)] = String(ArenaEquipmentResolver.default_skin_for_family(family))
+	_commit_loadout_change(save_after)
+	return true
+
+
+func equip_arena_skill(slot: int, item_id: String, save_after: bool = true) -> bool:
+	if slot < 0 or slot >= 2:
+		return _fail("Invalid skill slot")
+	var definition := get_definition(item_id)
+	if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or definition.gameplay_scene == null:
+		return _fail("Unknown Arena skill")
+	var candidate := skill_slots.duplicate()
+	candidate[slot] = item_id
+	if candidate[1 - slot] == item_id:
+		return _fail("A skill cannot occupy both slots")
+	var costs: Array[int] = []
+	for candidate_id: String in candidate:
+		var candidate_definition := get_definition(candidate_id)
+		if candidate_definition != null:
+			costs.append(candidate_definition.power_cost)
+	if not can_afford_skill_costs(costs):
+		return _fail("POWER LIMIT EXCEEDED")
+	skill_slots = candidate
+	_commit_loadout_change(save_after)
+	return true
+
+
+func select_weapon_cosmetic(family: StringName, skin_id: StringName, save_after: bool = true) -> bool:
+	if not unlocked_cosmetic_ids.has(String(skin_id)):
+		return _fail("That cosmetic is locked")
+	if not ArenaEquipmentResolver.is_valid_skin_for_family(skin_id, family):
+		return _fail("That skin does not match the weapon family")
+	selected_weapon_cosmetics[String(family)] = String(skin_id)
+	profile_changed.emit()
+	if save_after:
+		save_profile()
+	return true
+
+
+func unlock_weapon_cosmetic(skin_id: StringName, token_cost: int, save_after: bool = true) -> bool:
+	if ArenaEquipmentResolver.cosmetic_definition(skin_id) == null:
+		return _fail("Unknown cosmetic")
+	if unlocked_cosmetic_ids.has(String(skin_id)):
+		return true
+	var cost := maxi(0, token_cost)
+	if style_tokens < cost:
+		return _fail("Not enough Style Tokens")
+	style_tokens -= cost
+	unlocked_cosmetic_ids.append(String(skin_id))
+	profile_changed.emit()
+	if save_after:
+		save_profile()
+	return true
+
+
+func validate_arena_loadout() -> Dictionary:
+	var errors: Array[String] = []
+	if arena_weapon_families.size() != 2:
+		errors.append("Arena requires two weapon slots")
+	else:
+		for family: String in arena_weapon_families:
+			if StringName(family) not in ArenaEquipmentResolver.FAMILY_ORDER:
+				errors.append("Unknown Arena weapon family")
+		if arena_weapon_families[0] == arena_weapon_families[1]:
+			errors.append("Weapon families must be different")
+	if skill_slots.size() != 2:
+		errors.append("Arena requires two skill slots")
+	else:
+		for skill_id: String in skill_slots:
+			var definition := get_definition(skill_id)
+			if definition == null or definition.item_type != ItemDefinition.ItemType.SKILL or definition.gameplay_scene == null:
+				errors.append("Both skill slots must contain valid skills")
+		if skill_slots[0] == skill_slots[1]:
+			errors.append("Skills must be different")
+	if get_skill_power() > POWER_LIMIT:
+		errors.append("Skill Power exceeds %d" % POWER_LIMIT)
+	return {"valid": errors.is_empty(), "errors": errors, "power": get_skill_power()}
+
+
+func record_arena_progression_result(result_id: String) -> void:
+	if result_id.is_empty() or arena_progression_result_ids.has(result_id):
+		return
+	arena_progression_result_ids.append(result_id)
+	while arena_progression_result_ids.size() > 128:
+		arena_progression_result_ids.pop_front()
 
 
 func can_afford_skill_costs(costs: Array[int]) -> bool:
@@ -529,12 +650,22 @@ func to_save_data() -> Dictionary:
 		"training_best_time_ms": training_best_time_ms,
 		"arena_completed_transaction_ids": arena_completed_transaction_ids.duplicate(),
 		"arena_processed_result_ids": arena_processed_result_ids.duplicate(),
+		"arena_weapon_families": arena_weapon_families.duplicate(),
+		"selected_weapon_cosmetics": selected_weapon_cosmetics.duplicate(true),
+		"unlocked_cosmetic_ids": unlocked_cosmetic_ids.duplicate(),
+		"cosmetic_gear_slots": cosmetic_gear_slots.duplicate(true),
+		"account_xp": account_xp,
+		"account_level": account_level,
+		"style_tokens": style_tokens,
+		"weapon_mastery_xp": weapon_mastery_xp.duplicate(true),
+		"arena_progression_result_ids": arena_progression_result_ids.duplicate(),
+		"statistics": statistics.duplicate(true),
 	}
 
 
 func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 	var incoming_version := int(data.get("save_version", -1))
-	if incoming_version not in [1, 2, 3, 4, 5, SAVE_VERSION]:
+	if incoming_version not in [1, 2, 3, 4, 5, 6, SAVE_VERSION]:
 		last_error = "Unsupported save version"
 		return false
 	var incoming_owned := _string_array(data.get("owned_item_ids", []))
@@ -571,6 +702,20 @@ func apply_save_data(data: Dictionary, emit_signals: bool = true) -> bool:
 	if incoming_version < 6:
 		arena_completed_transaction_ids.clear()
 		arena_processed_result_ids.clear()
+	if incoming_version >= 7:
+		arena_weapon_families = _string_array(data.get("arena_weapon_families", ["katana", "pistol"]))
+		selected_weapon_cosmetics = (data.get("selected_weapon_cosmetics", {}) as Dictionary).duplicate(true) if data.get("selected_weapon_cosmetics", {}) is Dictionary else {}
+		unlocked_cosmetic_ids = _string_array(data.get("unlocked_cosmetic_ids", []))
+		cosmetic_gear_slots = (data.get("cosmetic_gear_slots", {}) as Dictionary).duplicate(true) if data.get("cosmetic_gear_slots", {}) is Dictionary else {}
+		account_xp = maxi(0, int(data.get("account_xp", 0)))
+		account_level = ArenaProgressionService.level_for_xp(account_xp)
+		style_tokens = maxi(0, int(data.get("style_tokens", 0)))
+		weapon_mastery_xp = (data.get("weapon_mastery_xp", {}) as Dictionary).duplicate(true) if data.get("weapon_mastery_xp", {}) is Dictionary else {}
+		arena_progression_result_ids = _string_array(data.get("arena_progression_result_ids", []))
+		statistics = (data.get("statistics", {}) as Dictionary).duplicate(true) if data.get("statistics", {}) is Dictionary else {}
+		_validate_arena_reborn_data()
+	else:
+		_migrate_legacy_to_arena_reborn()
 	equipped_gear = (incoming_gear as Dictionary).duplicate(true)
 	equipped_gear_instances = (data.get("equipped_gear_instances", {}) as Dictionary).duplicate(true) if data.get("equipped_gear_instances", {}) is Dictionary else {}
 	var used_gear_instances: Dictionary = {}
@@ -725,6 +870,92 @@ func _string_array(value: Variant) -> Array[String]:
 	return result
 
 
+func _reset_arena_reborn_data() -> void:
+	arena_weapon_families = ["katana", "pistol"]
+	selected_weapon_cosmetics.clear()
+	unlocked_cosmetic_ids.clear()
+	cosmetic_gear_slots.clear()
+	weapon_mastery_xp.clear()
+	arena_progression_result_ids.clear()
+	statistics = {
+		"matches_completed": 0,
+		"matches_won": 0,
+		"kills": 0,
+		"deaths": 0,
+		"damage": 0.0,
+	}
+	for family: StringName in ArenaEquipmentResolver.FAMILY_ORDER:
+		var default_skin := String(ArenaEquipmentResolver.default_skin_for_family(family))
+		selected_weapon_cosmetics[String(family)] = default_skin
+		if not unlocked_cosmetic_ids.has(default_skin):
+			unlocked_cosmetic_ids.append(default_skin)
+		weapon_mastery_xp[String(family)] = 0
+	for key: String in GEAR_KEYS:
+		cosmetic_gear_slots[key] = ""
+	account_xp = 0
+	account_level = 1
+	style_tokens = 0
+
+
+func _migrate_legacy_to_arena_reborn() -> void:
+	_reset_arena_reborn_data()
+	var migrated_families: Array[String] = []
+	for legacy_weapon_id: String in weapon_slots:
+		var definition := get_definition(legacy_weapon_id)
+		if definition == null or definition.item_type != ItemDefinition.ItemType.WEAPON:
+			continue
+		var family := String(definition.weapon_family)
+		if StringName(family) not in ArenaEquipmentResolver.FAMILY_ORDER or migrated_families.has(family):
+			continue
+		migrated_families.append(family)
+		selected_weapon_cosmetics[family] = legacy_weapon_id
+	if migrated_families.size() == 2:
+		arena_weapon_families = migrated_families
+	for legacy_id: String in owned_item_ids:
+		var cosmetic := ArenaEquipmentResolver.cosmetic_definition(StringName(legacy_id))
+		if cosmetic != null and not unlocked_cosmetic_ids.has(legacy_id):
+			unlocked_cosmetic_ids.append(legacy_id)
+	_validate_arena_reborn_data()
+
+
+func _validate_arena_reborn_data() -> void:
+	if arena_weapon_families.size() != 2:
+		arena_weapon_families = ["katana", "pistol"]
+	var used_families: Dictionary = {}
+	for slot: int in 2:
+		var family := StringName(arena_weapon_families[slot])
+		if family not in ArenaEquipmentResolver.FAMILY_ORDER or used_families.has(family):
+			family = &"katana" if slot == 0 else &"pistol"
+		arena_weapon_families[slot] = String(family)
+		used_families[family] = true
+	for family: StringName in ArenaEquipmentResolver.FAMILY_ORDER:
+		var family_id := String(family)
+		var default_skin := String(ArenaEquipmentResolver.default_skin_for_family(family))
+		if not unlocked_cosmetic_ids.has(default_skin):
+			unlocked_cosmetic_ids.append(default_skin)
+		var selected := StringName(String(selected_weapon_cosmetics.get(family_id, default_skin)))
+		if not unlocked_cosmetic_ids.has(String(selected)) or not ArenaEquipmentResolver.is_valid_skin_for_family(selected, family):
+			selected = StringName(default_skin)
+		selected_weapon_cosmetics[family_id] = String(selected)
+		weapon_mastery_xp[family_id] = clampi(int(weapon_mastery_xp.get(family_id, 0)), 0, 1000000000)
+	for owned_id: String in owned_item_ids:
+		if ArenaEquipmentResolver.cosmetic_definition(StringName(owned_id)) != null and not unlocked_cosmetic_ids.has(owned_id):
+			unlocked_cosmetic_ids.append(owned_id)
+	for key: String in GEAR_KEYS:
+		cosmetic_gear_slots[key] = String(cosmetic_gear_slots.get(key, ""))
+	account_xp = clampi(account_xp, 0, 1000000000)
+	account_level = ArenaProgressionService.level_for_xp(account_xp)
+	style_tokens = clampi(style_tokens, 0, 1000000000)
+	var unique_results: Array[String] = []
+	for result_id: String in arena_progression_result_ids:
+		if not result_id.is_empty() and not unique_results.has(result_id):
+			unique_results.append(result_id)
+	arena_progression_result_ids = unique_results.slice(maxi(0, unique_results.size() - 128))
+	for key: String in ["matches_completed", "matches_won", "kills", "deaths"]:
+		statistics[key] = maxi(0, int(statistics.get(key, 0)))
+	statistics["damage"] = maxf(0.0, float(statistics.get("damage", 0.0)))
+
+
 func _find_unreferenced_instance_for_definition(definition_id: String, excluded: Dictionary) -> ItemInstance:
 	for instance: ItemInstance in owned_item_instances:
 		if String(instance.definition_id) == definition_id and not excluded.has(instance.instance_id):
@@ -764,7 +995,7 @@ func _validate_save_payload(data: Dictionary) -> Dictionary:
 	if data.is_empty():
 		return {"valid": false, "error": "missing data"}
 	var version := int(data.get("save_version", -1))
-	if version not in [1, 2, 3, 4, 5, SAVE_VERSION]:
+	if version not in [1, 2, 3, 4, 5, 6, SAVE_VERSION]:
 		return {"valid": false, "error": "unsupported version"}
 	var owned_ids := _string_array(data.get("owned_item_ids", []))
 	var weapons := _string_array(data.get("weapon_slots", []))
@@ -823,6 +1054,39 @@ func _validate_save_payload(data: Dictionary) -> Dictionary:
 				if not value is String or String(value).is_empty() or seen_history.has(String(value)):
 					return {"valid": false, "error": "invalid arena transaction history entry"}
 				seen_history[String(value)] = true
+	if version >= 7:
+		var arena_families := _string_array(data.get("arena_weapon_families", []))
+		if arena_families.size() != 2 or arena_families[0] == arena_families[1]:
+			return {"valid": false, "error": "invalid Arena weapon slots"}
+		for family: String in arena_families:
+			if StringName(family) not in ArenaEquipmentResolver.FAMILY_ORDER:
+				return {"valid": false, "error": "unknown Arena weapon family"}
+		for dictionary_key: String in ["selected_weapon_cosmetics", "cosmetic_gear_slots", "weapon_mastery_xp", "statistics"]:
+			if not data.get(dictionary_key, {}) is Dictionary:
+				return {"valid": false, "error": "invalid %s" % dictionary_key}
+		var unlocked := _string_array(data.get("unlocked_cosmetic_ids", []))
+		var seen_cosmetics: Dictionary = {}
+		for skin_id: String in unlocked:
+			if ArenaEquipmentResolver.cosmetic_definition(StringName(skin_id)) == null or seen_cosmetics.has(skin_id):
+				return {"valid": false, "error": "invalid cosmetic unlock"}
+			seen_cosmetics[skin_id] = true
+		var selected_cosmetics := data.get("selected_weapon_cosmetics", {}) as Dictionary
+		for family: StringName in ArenaEquipmentResolver.FAMILY_ORDER:
+			var skin_id := StringName(String(selected_cosmetics.get(String(family), "")))
+			if not ArenaEquipmentResolver.is_valid_skin_for_family(skin_id, family) or not seen_cosmetics.has(String(skin_id)):
+				return {"valid": false, "error": "invalid selected weapon cosmetic"}
+		for numeric_key: String in ["account_xp", "account_level", "style_tokens"]:
+			var numeric_value: Variant = data.get(numeric_key, 0)
+			if not (numeric_value is int or numeric_value is float) or int(numeric_value) < 0 or int(numeric_value) > 1000000000:
+				return {"valid": false, "error": "invalid %s" % numeric_key}
+		var progression_history: Variant = data.get("arena_progression_result_ids", [])
+		if not progression_history is Array or (progression_history as Array).size() > 128:
+			return {"valid": false, "error": "invalid Arena progression history"}
+		var seen_progression: Dictionary = {}
+		for raw_result: Variant in progression_history:
+			if not raw_result is String or String(raw_result).is_empty() or seen_progression.has(String(raw_result)):
+				return {"valid": false, "error": "invalid Arena progression result"}
+			seen_progression[String(raw_result)] = true
 	var seen_instances: Dictionary = {}
 	var owned_instance_ids: Dictionary = {}
 	var instance_groups: Array = [data.get("owned_item_instances", [])]
@@ -896,6 +1160,7 @@ func create_development_profile() -> void:
 	gold = 999999
 	scrap = 9999
 	_rebuild_instance_indexes()
+	_validate_arena_reborn_data()
 	profile_changed.emit()
 	loadout_changed.emit()
 

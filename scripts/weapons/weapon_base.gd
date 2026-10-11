@@ -24,16 +24,21 @@ func setup(actor: CharacterBody3D) -> void:
 
 
 func configure_from_item(definition: ItemDefinition, instance: ItemInstance) -> void:
-	item_definition = definition
-	item_instance = instance
-	weapon_display_name = definition.display_name
-	presentation_profile = WeaponPresentationLibrary.for_family(definition.weapon_family)
-	_apply_definition_stats(definition)
-	effects.configure(self, wielder, definition, instance)
+	var cosmetic_definition := definition
+	var normalized := definition
+	var standard_rules := is_instance_valid(wielder) and wielder.has_method("uses_standard_arena_rules") and bool(wielder.uses_standard_arena_rules())
+	if standard_rules:
+		normalized = ArenaEquipmentResolver.resolve_item(definition.weapon_family, definition.id)
+	item_definition = normalized
+	item_instance = null if standard_rules else instance
+	weapon_display_name = cosmetic_definition.display_name
+	presentation_profile = WeaponPresentationLibrary.for_family(normalized.weapon_family)
+	_apply_definition_stats(normalized)
+	effects.configure(self, wielder, normalized, null if standard_rules else instance)
 	effects.apply_static_stats()
 	for child: Node in get_children():
 		if child.has_method("configure_variant"):
-			child.configure_variant(definition)
+			child.configure_variant(cosmetic_definition)
 
 
 func equip() -> void:
@@ -202,6 +207,7 @@ func get_query_exclusions() -> Array[RID]:
 func make_damage_info(base_damage: float, target: Node, damage_type: StringName, headshot: bool, melee: bool, hit_position: Vector3, knockback: Vector3) -> DamageInfo:
 	var final_damage := effects.modify_damage(base_damage, target, headshot, melee)
 	var info := DamageInfo.new(final_damage, wielder, damage_type, headshot, melee, hit_position, knockback)
+	info.weapon_family = presentation_profile.family
 	info.armor_penetration = effects.armor_penetration()
 	if is_instance_valid(wielder) and wielder.has_method("consume_phase_penetration"):
 		info.armor_penetration = maxf(info.armor_penetration, float(wielder.consume_phase_penetration()))

@@ -105,9 +105,13 @@ var weapon_swap_total: float = 0.18
 var weapon_sway_time: float = 0.0
 var hit_stop_until_msec: int = 0
 var hit_stop_active: bool = false
+var standard_arena_ruleset: bool = true
+var camera_fpp_only: bool = false
 
 
 func _ready() -> void:
+	standard_arena_ruleset = ArenaSessionRequest.standard_rules_enabled
+	camera_fpp_only = ArenaSessionRequest.camera_policy == &"FPP_ONLY"
 	add_to_group("player")
 	add_to_group("damageable")
 	spawn_transform = global_transform
@@ -168,7 +172,8 @@ func _input(event: InputEvent) -> void:
 	if is_dead:
 		return
 	if event.is_action_pressed("toggle_camera"):
-		set_camera_mode(not is_first_person)
+		if not camera_fpp_only:
+			set_camera_mode(not is_first_person)
 	elif event.is_action_pressed("weapon_1"):
 		equip_weapon(0)
 	elif event.is_action_pressed("weapon_2"):
@@ -451,6 +456,8 @@ func equip_weapon(index: int) -> void:
 
 
 func set_camera_mode(first_person: bool, animate: bool = true) -> void:
+	if camera_fpp_only:
+		first_person = true
 	if animate and camera_view_initialized:
 		camera_transition_from = view_camera.global_transform
 		camera_transition_remaining = camera_transition_duration
@@ -988,6 +995,8 @@ func get_incoming_affix_multiplier() -> float:
 
 
 func get_total_armor() -> float:
+	if standard_arena_ruleset:
+		return 0.0
 	var total := 0.0
 	for key: String in PlayerProfile.GEAR_KEYS:
 		var definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
@@ -998,6 +1007,8 @@ func get_total_armor() -> float:
 
 func _build_gear_effects() -> void:
 	gear_effects.clear()
+	if standard_arena_ruleset:
+		return
 	for key: String in PlayerProfile.GEAR_KEYS:
 		var instance := PlayerProfile.get_gear_instance(key)
 		var definition := PlayerProfile.get_definition(String(PlayerProfile.equipped_gear.get(key, "")))
@@ -1009,7 +1020,10 @@ func _build_gear_effects() -> void:
 
 
 func _active_effects() -> Array[WeaponEffectRuntime]:
-	var result: Array[WeaponEffectRuntime] = gear_effects.duplicate()
+	var result: Array[WeaponEffectRuntime] = []
+	if not standard_arena_ruleset:
+		for runtime: WeaponEffectRuntime in gear_effects:
+			result.append(runtime)
 	if current_weapon != null:
 		result.append(current_weapon.effects)
 	return result
@@ -1070,7 +1084,18 @@ func _reset_affix_state() -> void:
 func configure_arena(team_id: int, friendly_fire: bool = false) -> void:
 	arena_team_id = team_id
 	arena_friendly_fire_enabled = friendly_fire
+	standard_arena_ruleset = true
+	camera_fpp_only = ArenaSessionRequest.camera_policy == &"FPP_ONLY"
+	health.max_health = 100.0
+	health.current_health = minf(health.current_health, health.max_health)
+	gear_effects.clear()
+	if camera_fpp_only:
+		set_camera_mode(true, false)
 	add_to_group("arena_participant")
+
+
+func uses_standard_arena_rules() -> bool:
+	return standard_arena_ruleset
 
 
 func get_arena_team_id() -> int:
@@ -1115,10 +1140,12 @@ func _update_spectator_camera(delta: float) -> void:
 func _instantiate_profile_loadout() -> void:
 	weapons.clear()
 	equipped_skills.clear()
-	weapon_definition_ids = PlayerProfile.weapon_slots.duplicate()
+	weapon_definition_ids.clear()
+	for slot: int in 2:
+		weapon_definition_ids.append(PlayerProfile.get_arena_weapon_skin_id(slot))
 	skill_definition_ids = PlayerProfile.skill_slots.duplicate()
-	for item_id: String in weapon_definition_ids:
-		var definition := PlayerProfile.get_definition(item_id)
+	for slot: int in weapon_definition_ids.size():
+		var definition := PlayerProfile.get_arena_weapon_definition(slot)
 		if definition == null or definition.gameplay_scene == null:
 			continue
 		var weapon := definition.gameplay_scene.instantiate() as WeaponBase

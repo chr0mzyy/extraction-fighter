@@ -14,6 +14,7 @@ var participants: Array[Dictionary] = []
 var max_reward_exchanges: int = 0
 var rewards_processed: bool = false
 var reward_transactions: Array[Dictionary] = []
+var progression_grant: Dictionary = {}
 
 
 func configure(
