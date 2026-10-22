@@ -12,6 +12,7 @@ const COLOR_YELLOW := Color(1.0, 0.78, 0.08)
 const COLOR_READY := Color(0.35, 0.92, 0.64)
 const COLOR_WARNING := Color(0.94, 0.22, 0.18)
 const HUMANOID_VISUAL_SCRIPT := preload("res://scripts/visuals/humanoid_placeholder.gd")
+const ARENA_WEAPON_ICONS := preload("res://resources/ui/arena_weapon_icons.svg")
 
 var screen_host: Control
 var footer_label: Label
@@ -60,6 +61,9 @@ func _ready() -> void:
 	MouseModeService.enter_lobby()
 	AudioManager.play_music(&"lobby")
 	var args := OS.get_cmdline_user_args()
+	if "--arena-visual-test" in args and not get_tree().root.has_node("ArenaVisualValidation"):
+		_start_visual_validation.call_deferred()
+		return
 	_apply_development_flags(args)
 	if _should_use_development_test_profile(args):
 		PlayerProfile.create_development_profile()
@@ -149,7 +153,16 @@ func _input(event: InputEvent) -> void:
 		_accept_rebind(event)
 
 
+func _start_visual_validation() -> void:
+	var runner := load("res://scripts/arena/arena_visual_test.gd").new() as Node
+	runner.name = "ArenaVisualValidation"
+	get_tree().root.add_child(runner)
+	queue_free()
+
+
 func _should_route_to_arena(args: PackedStringArray) -> bool:
+	if "--arena-acceptance-test" in args:
+		return true
 	for flag in ["--self-test", "--ai-soak-test", "--hud-layout-test", "--capture-frame", "--capture-tpp", "--capture-pause", "--capture-ads", "--loadout-integration-test", "--content-arena-test", "--effect-self-test", "--pause-flow-test", "--polish-self-test", "--combat-feel-test", "--arena-round-test", "--arena-reward-test"]:
 		if flag in args:
 			return true
@@ -658,6 +671,7 @@ func _show_arena_loadout() -> void:
 	for index: int in 2:
 		var weapon := PlayerProfile.get_arena_weapon_definition(index)
 		var weapon_button := _button(slots, "WEAPON %d\n%s\n%s" % [index + 1, weapon.display_name.to_upper() if weapon != null else "EMPTY", String(PlayerProfile.arena_weapon_families[index]).replace("_", " ").to_upper()], false)
+		_set_arsenal_weapon_icon(weapon_button, StringName(PlayerProfile.arena_weapon_families[index]))
 		weapon_button.name = "ArenaWeaponSlot%d" % index
 		weapon_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		weapon_button.custom_minimum_size.y = 74
@@ -695,6 +709,7 @@ func _show_arena_loadout() -> void:
 			var skill_button := _button(grid, "%s%s\n%d POWER  •  %.1fs\n%s" % ["✓  " if selected else "", skill.display_name.to_upper(), skill.power_cost, skill.cooldown, skill.description], false)
 			skill_button.custom_minimum_size = Vector2(500, 76)
 			skill_button.clip_text = true
+			skill_button.tooltip_text = "%s\n%d POWER  •  %.1fs\n%s\n%s" % [skill.display_name, skill.power_cost, skill.cooldown, skill.description, skill.activation_method]
 			skill_button.pressed.connect(_equip_arena_skill.bind(skill_id))
 			if selected:
 				skill_button.add_theme_stylebox_override("normal", _style(Color(0.04, 0.16, 0.17), COLOR_ACCENT, 2, 4))
@@ -707,9 +722,11 @@ func _show_arena_loadout() -> void:
 				stats += "  •  HEAD %.0f" % gameplay.headshot_damage
 			if gameplay.fire_rate > 0.0:
 				stats += "  •  %.1f/s" % gameplay.fire_rate
-			var weapon_button := _button(grid, "%s%s\n%s\n%s  //  WEAKNESS: %s" % ["✓  " if selected else "", gameplay.display_name.to_upper(), stats, gameplay.role, gameplay.weakness], false)
-			weapon_button.custom_minimum_size = Vector2(500, 86)
+			var weapon_button := _button(grid, "%s%s\n%s\n%s\nWEAKNESS: %s" % ["✓  " if selected else "", gameplay.display_name.to_upper(), stats, gameplay.role, gameplay.weakness], false)
+			weapon_button.custom_minimum_size = Vector2(500, 102)
 			weapon_button.clip_text = true
+			_set_arsenal_weapon_icon(weapon_button, family)
+			weapon_button.tooltip_text = "%s\n%s\n%s\nWeakness: %s\nMagazine: %d  Reload: %.2fs" % [gameplay.display_name, stats, gameplay.role, gameplay.weakness, gameplay.magazine_size, gameplay.reload_time]
 			weapon_button.pressed.connect(_equip_arena_family.bind(family))
 			if selected:
 				weapon_button.add_theme_stylebox_override("normal", _style(Color(0.04, 0.16, 0.17), COLOR_ACCENT, 2, 4))
@@ -717,6 +734,18 @@ func _show_arena_loadout() -> void:
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	feedback_label = _label(root, "", 11, COLOR_WARNING)
 	_add_back_button(root)
+
+
+func _set_arsenal_weapon_icon(button: Button, family: StringName) -> void:
+	var index := ArenaEquipmentResolver.FAMILY_ORDER.find(family)
+	if index < 0:
+		return
+	var icon := AtlasTexture.new()
+	icon.atlas = ARENA_WEAPON_ICONS
+	icon.region = Rect2(index * 64, 0, 64, 48)
+	button.icon = icon
+	button.add_theme_constant_override("icon_max_width", 56)
+	button.add_theme_constant_override("h_separation", 10)
 
 
 func _select_arena_loadout_slot(kind: String, slot: int) -> void:
@@ -940,9 +969,15 @@ func _show_customization() -> void:
 			skin_button.pressed.connect(_buy_cosmetic.bind(cosmetic.skin_id, cost))
 	var gear_panel := _panel(body, Vector2(300, 0))
 	var gear_margin := _margin(gear_panel, 14, 12, 14, 12)
+	var gear_scroll := ScrollContainer.new()
+	gear_scroll.name = "CosmeticGearScroll"
+	gear_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	gear_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	gear_margin.add_child(gear_scroll)
 	var gear_root := VBoxContainer.new()
+	gear_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gear_root.add_theme_constant_override("separation", 7)
-	gear_margin.add_child(gear_root)
+	gear_scroll.add_child(gear_root)
 	_label(gear_root, "CHARACTER COSMETICS", 13, COLOR_ACCENT)
 	_label(gear_root, "Foundation slots — no armor or movement bonuses", 11, COLOR_MUTED)
 	for key: String in PlayerProfile.GEAR_KEYS:
@@ -1856,6 +1891,7 @@ func _add_back_button(parent: Control, callback: Callable = Callable()) -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
 	var back := _button(row, "BACK", false)
+	back.name = "BackButton"
 	back.set_meta("audio_event", &"ui_back")
 	back.custom_minimum_size = Vector2(150, 42)
 	back.pressed.connect(callback if callback.is_valid() else _show_main)
@@ -2582,7 +2618,7 @@ func _run_lobby_layout_test() -> void:
 		await get_tree().process_frame
 		_validate_controls_in_view(["MainMenuPanel", "BuildSummaryPanel"], test_size, failures)
 		var operative_model := find_child("OperativePreviewModel", true, false)
-		if operative_model == null or operative_model.get_child_count() < 30:
+		if operative_model == null or not operative_model.has_method("get_visual_detail_count") or int(operative_model.call("get_visual_detail_count")) < 30:
 			failures.append("%dx%d main menu operative model is missing or lacks detail" % [test_size.x, test_size.y])
 		_show_loadout()
 		await get_tree().process_frame
@@ -2591,7 +2627,7 @@ func _run_lobby_layout_test() -> void:
 		_show_customization()
 		await get_tree().process_frame
 		await get_tree().process_frame
-		_validate_controls_in_view(["WeaponCosmeticGrid"], test_size, failures)
+		_validate_controls_in_view(["WeaponCosmeticGrid", "CosmeticGearScroll", "BackButton"], test_size, failures)
 		_show_profile()
 		await get_tree().process_frame
 		await get_tree().process_frame

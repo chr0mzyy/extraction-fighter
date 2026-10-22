@@ -26,6 +26,8 @@ signal spectator_cycle_requested(direction: int)
 @export var peek_roll_degrees: float = 13.0
 @export var peek_speed: float = 11.5
 @export var peek_collision_margin: float = 0.08
+@export var peek_upper_body_roll_degrees: float = 10.0
+@export var peek_upper_body_shift: float = 0.08
 
 @onready var health: HealthComponent = $HealthComponent
 @onready var body_collision: CollisionShape3D = $CollisionShape3D
@@ -93,6 +95,9 @@ var camera_transition_remaining: float = 0.0
 var camera_transition_from: Transform3D
 var camera_view_initialized: bool = false
 var peek_amount: float = 0.0
+var upper_body_pivot: Node3D
+var upper_body_base_position: Vector3
+var upper_body_base_rotation: Vector3
 var first_person_camera_base_position: Vector3
 var weapon_mount_base_position: Vector3
 var weapon_mount_base_rotation: Vector3
@@ -119,6 +124,10 @@ func _ready() -> void:
 	weapon_mount_base_position = weapon_mount.position
 	weapon_mount_base_rotation = weapon_mount.rotation
 	spring_arm_base_position = spring_arm.position
+	upper_body_pivot = visual_body.get_node_or_null("UpperBodyPivot") as Node3D
+	if upper_body_pivot != null:
+		upper_body_base_position = upper_body_pivot.position
+		upper_body_base_rotation = upper_body_pivot.rotation
 	_instantiate_profile_loadout()
 	for index: int in weapon_mount.get_child_count():
 		var child := weapon_mount.get_child(index)
@@ -212,6 +221,7 @@ func _process(delta: float) -> void:
 	var movement_speed := movement.get_horizontal_speed() if movement.actor != null else 0.0
 	weapon_sway_time += delta * (2.1 + clampf(movement_speed, 0.0, 12.0) * 0.34)
 	_update_peek(delta)
+	_update_upper_body_peek(delta)
 	var sprinting := movement.movement_state == "SPRINT"
 	var desired_fpp_fov := first_person_fov + (sprint_fov_bonus if sprinting else 0.0) + camera_fov_impulse
 	var desired_tpp_fov := third_person_fov + (sprint_fov_bonus * 0.7 if sprinting else 0.0) + camera_fov_impulse * 0.7
@@ -318,6 +328,25 @@ func _update_peek(delta: float) -> void:
 		peek_amount = 0.0
 
 
+func _update_upper_body_peek(delta: float) -> void:
+	if upper_body_pivot == null:
+		return
+	var target_position := upper_body_base_position + Vector3(peek_amount * peek_upper_body_shift, 0.0, 0.0)
+	var target_roll := upper_body_base_rotation.z - deg_to_rad(peek_upper_body_roll_degrees) * peek_amount
+	var alpha := 1.0 - exp(-peek_speed * delta)
+	upper_body_pivot.position = upper_body_pivot.position.lerp(target_position, alpha)
+	upper_body_pivot.rotation.x = lerp_angle(upper_body_pivot.rotation.x, upper_body_base_rotation.x, alpha)
+	upper_body_pivot.rotation.y = lerp_angle(upper_body_pivot.rotation.y, upper_body_base_rotation.y, alpha)
+	upper_body_pivot.rotation.z = lerp_angle(upper_body_pivot.rotation.z, target_roll, alpha)
+
+
+func _reset_upper_body_peek() -> void:
+	if upper_body_pivot == null:
+		return
+	upper_body_pivot.position = upper_body_base_position
+	upper_body_pivot.rotation = upper_body_base_rotation
+
+
 func _collision_safe_peek(requested: float) -> float:
 	if is_zero_approx(requested) or not is_inside_tree():
 		return 0.0
@@ -336,6 +365,10 @@ func _collision_safe_peek(requested: float) -> float:
 
 func get_peek_amount() -> float:
 	return peek_amount
+
+
+func get_upper_body_peek_roll() -> float:
+	return upper_body_pivot.rotation.z if upper_body_pivot != null else 0.0
 
 
 func _apply_gameplay_settings() -> void:
@@ -733,6 +766,7 @@ func _on_health_died(info: DamageInfo) -> void:
 		hit_stop_active = false
 		Engine.time_scale = 1.0
 	peek_amount = 0.0
+	_reset_upper_body_peek()
 	velocity = Vector3.ZERO
 	collision_layer = 0
 	collision_mask = 0
@@ -752,6 +786,7 @@ func respawn() -> void:
 	is_dead = false
 	spectator_target = null
 	peek_amount = 0.0
+	_reset_upper_body_peek()
 	stagger_remaining = 0.0
 	damage_immunity_remaining = 0.0
 	invisibility_sources.clear()

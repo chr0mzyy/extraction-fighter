@@ -25,16 +25,12 @@ static func calculate(result: ArenaMatchResult) -> Dictionary:
 	var used_families: Array[String] = []
 	for raw_family: Variant in family_damage.keys():
 		var family := String(raw_family)
-		if not family.is_empty() and float(family_damage.get(raw_family, 0.0)) > 0.0 and not used_families.has(family):
+		if StringName(family) in ArenaEquipmentResolver.FAMILY_ORDER and float(family_damage.get(raw_family, 0.0)) > 0.0 and not used_families.has(family):
 			used_families.append(family)
 	for raw_family: Variant in family_hits.keys():
 		var family := String(raw_family)
-		if not family.is_empty() and int(family_hits.get(raw_family, 0)) > 0 and not used_families.has(family):
+		if StringName(family) in ArenaEquipmentResolver.FAMILY_ORDER and int(family_hits.get(raw_family, 0)) > 0 and not used_families.has(family):
 			used_families.append(family)
-	if used_families.is_empty():
-		for family: StringName in ArenaEquipmentResolver.FAMILY_ORDER:
-			if PlayerProfile.arena_weapon_families.has(String(family)):
-				used_families.append(String(family))
 	for family: String in used_families:
 		var mastery_xp := 20
 		mastery_xp += mini(120, floori(float(family_damage.get(family, 0.0)) / 20.0))
@@ -49,6 +45,19 @@ static func calculate(result: ArenaMatchResult) -> Dictionary:
 		"style_tokens": style_tokens,
 		"mastery": mastery,
 	}
+
+
+static func grant_and_save(result: ArenaMatchResult, path: String = PlayerProfile.SAVE_PATH) -> Dictionary:
+	var snapshot := PlayerProfile.to_save_data()
+	var grant := grant_once(result)
+	if not bool(grant.get("granted", false)):
+		return grant
+	if PlayerProfile.save_profile(path):
+		return grant
+	var save_error := PlayerProfile.last_error
+	PlayerProfile.apply_save_data(snapshot)
+	return {"granted": false, "save_failed": true, "reason": save_error,
+		"account_xp": 0, "style_tokens": 0, "mastery": {}}
 
 
 static func grant_once(result: ArenaMatchResult) -> Dictionary:

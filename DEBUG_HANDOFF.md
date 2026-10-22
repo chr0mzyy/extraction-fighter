@@ -2,6 +2,17 @@
 
 ## MVP 0.6.0 focus
 
+2026-10-22 confirmed defects and resolutions:
+
+- Apparent missing peek fix: the desktop shortcut pointed at the old `project` folder. It now launches `repo-work`; old project contents remain untouched. Upper-body pivot changes are retained.
+- Idle mastery: removed fallback to equipped families; only recorded hit/damage families earn mastery.
+- Inflated damage/rewards: `HealthComponent` now limits resolved damage to remaining HP. Live acceptance tests expect 400 damage in a clean 4-round 1v1 sweep, not 4000 from test overkill.
+- Reward persistence failure: `ArenaProgressionService.grant_and_save()` restores the pre-grant snapshot. Results expose retry and disable rematch until save succeeds.
+- Repeated block could restart perfect parry every press: standard melee tuning adds 0.6 s rearm; normal block remains possible.
+- 720p CUSTOMIZATION hid BACK: gear slots now have a scroll container; layout regression includes BACK bounds.
+
+Do not use `--script` for the visual suite: early global-class parsing bypasses this project's autoload registration order. Use normal project startup with `-- --arena-visual-test`.
+
 The competitive boundary is `ArenaEquipmentResolver` plus `PlayerController.standard_arena_ruleset`. If an Arena skin changes combat, first inspect `ArenaWeaponGameplayDefinition.apply_to()` and `WeaponBase.configure_from_item()`. Do not restore affix/Mythic behavior to standard Arena to make a legacy test pass; `--effect-self-test` explicitly switches only its test player to the preserved non-competitive runtime.
 
 ## Runtime commands (Linux)
@@ -17,6 +28,8 @@ XDG_DATA_HOME=/tmp/extraction-fighter-test /home/pawel/Games/ExtractionFighter/r
 ```
 
 Success markers: `ARENA_REBORN_OK`, `ARENA_REWARD_OK`, and `ARENA_ROUND_OK`.
+
+Additional checks: `--arena-acceptance-test` and `--arena-mode=2v2 --arena-acceptance-test` must print `ARENA_ACCEPTANCE_OK`. For graphical checks run normally with `-- --arena-visual-test`; captures go to `user://arena_visual_validation`. Always isolate `XDG_DATA_HOME`, including for visual tests.
 
 ## Failure triage
 

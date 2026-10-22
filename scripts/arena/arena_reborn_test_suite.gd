@@ -11,6 +11,7 @@ func run() -> Array[String]:
 	_test_new_profile_access(failures)
 	_test_legacy_migration(failures)
 	_test_progression_and_persistence(failures)
+	_test_reward_save_failure(failures)
 	_test_camera_policy(failures)
 	if not PlayerProfile.apply_save_data(snapshot, false):
 		failures.append("Test cleanup could not restore the starting profile snapshot")
@@ -141,6 +142,37 @@ func _test_camera_policy(failures: Array[String]) -> void:
 	if ArenaSessionRequest.allows_camera_switch() or ArenaSessionRequest.can_launch_ranked():
 		failures.append("Future Ranked policy is not FPP-only and disabled")
 	ArenaSessionRequest.configure(&"1v1", &"NORMAL", &"CASUAL")
+
+
+func _test_reward_save_failure(failures: Array[String]) -> void:
+	PlayerProfile.reset_to_defaults(false)
+	var mode := load("res://resources/arena/mode_1v1.tres") as ArenaModeDefinition
+	var local := ArenaParticipantState.new(&"local", "YOU", 0, 0, null, true)
+	var enemy := ArenaParticipantState.new(&"enemy", "BOT", 1, 0, null, false)
+	var participants: Array[ArenaParticipantState] = [local, enemy]
+	var result := ArenaMatchResult.new().configure(mode, 1, 0, 4, 4, participants, false, "arena:test:save-failure")
+	var idle_grant := ArenaProgressionService.calculate(result)
+	if not (idle_grant.mastery as Dictionary).is_empty():
+		failures.append("Unused loadout weapons received idle mastery XP")
+	local.weapon_damage_by_family["pistol"] = 150.0
+	local.weapon_hits_by_family["pistol"] = 6
+	local.damage_dealt = 150.0
+	result.configure(mode, 1, 0, 4, 4, participants, false, "arena:test:save-failure")
+	var before := PlayerProfile.to_save_data()
+	var failed := ArenaProgressionService.grant_and_save(result, "user://missing-arena-test-directory/profile.json")
+	if not bool(failed.get("save_failed", false)) or bool(failed.get("granted", false)) or PlayerProfile.to_save_data() != before:
+		failures.append("Failed reward save did not roll back currency, mastery and grant history")
+	var retried := ArenaProgressionService.grant_and_save(result, TEST_PATH)
+	if not bool(retried.get("granted", false)) or (retried.mastery as Dictionary).has("katana"):
+		failures.append("Reward save retry failed or awarded an unused family")
+	if not PlayerProfile.load_profile(TEST_PATH, false):
+		failures.append("Retried reward could not be reloaded")
+	var duplicate := ArenaProgressionService.grant_and_save(result, TEST_PATH)
+	if not bool(duplicate.get("duplicate", false)):
+		failures.append("Reload/retry granted the same match twice")
+	result.abandoned = true
+	if bool(ArenaProgressionService.calculate(result).get("eligible", false)):
+		failures.append("Abandoned match was eligible for progression")
 
 
 func _remove_test_files() -> void:

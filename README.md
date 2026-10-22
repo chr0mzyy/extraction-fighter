@@ -67,6 +67,10 @@ Po ukończonym meczu prawdziwe statystyki wydarzeń naliczają jeden raz:
 
 Identyfikator wyniku zapobiega ponownemu odebraniu nagrody po rematchu lub ponownym otwarciu ekranu. Mastery 5 i 15 może odblokować kolejne istniejące skórki; żaden poziom nie zmienia gameplayu. Poprzednia wymiana/przejmowanie przedmiotów po Arenie jest nieaktywna.
 
+Damage liczy wyłącznie faktycznie odebrane HP, bez obrażeń ponad pozostałe zdrowie celu. Bezczynne bronie nie zdobywają mastery. Jeśli zapis nagrody zawiedzie, profil jest przywracany do wcześniejszego stanu, a wyniki pokazują **RETRY REWARD SAVE**. Ponowienie nie duplikuje nagrody; wyjście do lobby przed udanym zapisem oznacza rezygnację z nagrody za ten mecz.
+
+Perfect parry Katany wymaga 0,6 s przed ponownym otwarciem okna; zwykły blok działa także w tym czasie. Peek animuje górną część sylwetki i zachowuje stabilne nogi.
+
 ## Zapis i migracja
 
 Profil v7 pozostaje w `user://player_profile.json` i korzysta z zapisu tymczasowego, weryfikacji oraz backupu. Migracja z v6:
@@ -87,6 +91,8 @@ Najważniejsze testy można uruchomić z katalogu repozytorium:
 /sciezka/do/godot --headless --path . -- --arena-reborn-test
 /sciezka/do/godot --headless --path . -- --arena-round-test
 /sciezka/do/godot --headless --path . -- --arena-mode=2v2 --arena-round-test
+/sciezka/do/godot --headless --path . -- --arena-acceptance-test
+/sciezka/do/godot --headless --path . -- --arena-mode=2v2 --arena-acceptance-test
 /sciezka/do/godot --headless --path . -- --arena-reward-test
 /sciezka/do/godot --headless --path . -- --loadout-integration-test
 /sciezka/do/godot --headless --path . -- --self-test
@@ -96,6 +102,17 @@ Najważniejsze testy można uruchomić z katalogu repozytorium:
 ```
 
 `--arena-reborn-test` sprawdza dostęp nowego profilu, identyczne statystyki wszystkich skórek w rodzinie, brak przecieków affix/Mythic, limit 200 Power, bezpieczną migrację v6→v7, jednorazowe XP/mastery/Style Tokens, odblokowanie kosmetyki i politykę kamery. `--arena-reward-test` potwierdza, że stary item swap jest wyłączony i ekran wyników pokazuje progresję. Testy używają izolowanych profili; zwykłe uruchomienie korzysta z normalnego profilu użytkownika.
+
+## Powtarzalna weryfikacja
+
+Przy uruchamianiu testów ustaw osobny katalog `XDG_DATA_HOME`, aby startowe ładowanie profilu nie dotykało Twoich normalnych danych:
+
+```bash
+XDG_DATA_HOME=/tmp/extraction-fighter-tests godot --headless --path . -- --arena-acceptance-test
+XDG_DATA_HOME=/tmp/extraction-fighter-visual godot --path . --rendering-method gl_compatibility -- --arena-visual-test
+```
+
+Test akceptacyjny prowadzi faktyczne postacie przez countdown, eliminacje, reset rund, wyniki, zapis/reload nagród i rematch. Test graficzny wymaga wyświetlacza i zapisuje 27 obrazów do `user://arena_visual_validation`: lobby, loadout, kosmetyki, profil, FPP, TPP, pauza, wyniki i błąd zapisu w 1280×720, 1920×1080 oraz 2560×1440. Szczegóły w [raporcie weryfikacji](docs/arena_reborn_validation.md).
 
 ## Stan projektu
 

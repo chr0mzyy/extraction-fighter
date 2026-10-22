@@ -36,6 +36,7 @@ const WEAPON_SKIN_IDS: Array[String] = [
 
 static var _gameplay: Dictionary = {}
 static var _cosmetics: Dictionary = {}
+static var _source_items: Dictionary = {}
 
 
 static func gameplay_definition(family: StringName) -> ArenaWeaponGameplayDefinition:
@@ -83,7 +84,7 @@ static func resolve_item(family: StringName, skin_id: StringName) -> ItemDefinit
 		cosmetic = cosmetic_definition(default_skin_for_family(family))
 	if gameplay_definition_value == null or cosmetic == null:
 		return null
-	var source := _item_index().get(String(cosmetic.source_definition_id)) as ItemDefinition
+	var source := _source_items.get(String(cosmetic.source_definition_id)) as ItemDefinition
 	return gameplay_definition_value.apply_to(source)
 
 
@@ -112,19 +113,21 @@ static func _ensure_catalogs() -> void:
 		return
 	_gameplay.clear()
 	_cosmetics.clear()
-	_add_gameplay(&"katana", "Katana", "Fast deflect blade", "Short reach", 28.0, 45.0, 0.0, 0, 0.0, 0.0, 0.70, 0.18, "Short", "Fast", {"light_recovery": 0.48, "heavy_recovery": 0.92})
+	_source_items.clear()
+	_add_gameplay(&"katana", "Katana", "Fast deflect blade", "Short reach", 28.0, 45.0, 0.0, 0, 0.0, 0.0, 0.70, 0.18, "Short", "Fast", {"light_recovery": 0.48, "heavy_recovery": 0.92, "parry_rearm_time": 0.6})
 	_add_gameplay(&"nodachi", "Nodachi", "Reach and heavy pressure", "Slow recovery", 38.0, 58.0, 0.0, 0, 0.0, 0.0, 0.55, 0.0, "Long Melee", "Slow", {"light_recovery": 0.72, "heavy_recovery": 1.24, "light_lunge": 4.2, "heavy_lunge": 7.0})
 	_add_gameplay(&"sniper", "Sniper Rifle", "Precision burst damage", "Misses expose a long recovery", 58.0, 0.0, 1.05, 4, 1.8, 90.0, 0.0, 0.0, "Extreme", "", {"hipfire_spread_degrees": 1.15})
 	_add_gameplay(&"assault_rifle", "Assault Rifle", "Versatile automatic pressure", "Average at every range", 17.0, 0.0, 8.5, 30, 2.05, 26.0, 0.0, 0.0, "Medium", "", {"hipfire_spread_degrees": 1.0, "ads_spread_degrees": 0.22})
 	_add_gameplay(&"burst_rifle", "Burst Rifle", "Accurate burst rhythm", "Punished between bursts", 18.0, 0.0, 6.25, 24, 1.95, 29.0, 0.0, 0.0, "Medium–Long", "", {"burst_delay": 0.58, "hipfire_spread_degrees": 1.0, "ads_spread_degrees": 0.2})
 	_add_gameplay(&"battle_rifle", "Battle Rifle", "High damage per controlled shot", "Heavy recoil and small magazine", 34.0, 0.0, 2.7, 14, 2.3, 52.0, 0.0, 0.0, "Long", "", {"hipfire_spread_degrees": 1.45, "ads_spread_degrees": 0.25})
-	_add_gameplay(&"sword", "Knight Sword", "Defensive guard and parry", "Limited chase reach", 32.0, 50.0, 0.0, 0, 0.0, 0.0, 0.78, 0.15, "Short", "Measured", {"light_recovery": 0.58, "heavy_recovery": 1.15, "heavy_windup": 0.30})
+	_add_gameplay(&"sword", "Knight Sword", "Defensive guard and parry", "Limited chase reach", 32.0, 50.0, 0.0, 0, 0.0, 0.0, 0.78, 0.15, "Short", "Measured", {"light_recovery": 0.58, "heavy_recovery": 1.15, "heavy_windup": 0.30, "parry_rearm_time": 0.6})
 	_add_gameplay(&"magic", "Magic Wand", "Visible prediction projectile", "Projectile can be dodged", 30.0, 0.0, 2.0, 0, 0.0, 0.0, 0.0, 0.0, "Medium", "Moderate", {"projectile_speed": 31.0})
 	_add_gameplay(&"pistol", "Glock", "Mobile responsive sidearm", "Low burst at long range", 20.0, 0.0, 6.25, 17, 1.35, 30.0, 0.0, 0.0, "Close–Medium", "", {"hipfire_spread_degrees": 0.9})
 	_add_gameplay(&"akimbo_pistols", "Akimbo Glock", "Close-range pressure", "Wide spread and no ADS", 14.0, 0.0, 9.2, 34, 2.3, 21.0, 0.0, 0.0, "Close", "", {"hipfire_spread_degrees": 1.85})
 	for skin_id: String in WEAPON_SKIN_IDS:
 		var definition := load("res://resources/items/%s.tres" % skin_id) as ItemDefinition
 		if definition != null and definition.item_type == ItemDefinition.ItemType.WEAPON and definition.weapon_family in FAMILY_ORDER:
+			_source_items[skin_id] = definition
 			_cosmetics[definition.id] = WeaponCosmeticDefinition.from_legacy_item(definition)
 
 
@@ -152,12 +155,3 @@ static func _add_gameplay(
 	definition.attack_speed_label = speed_label
 	definition.tuning = tuning.duplicate(true)
 	_gameplay[family] = definition
-
-
-static func _item_index() -> Dictionary:
-	var result: Dictionary = {}
-	for skin_id: String in WEAPON_SKIN_IDS:
-		var definition := load("res://resources/items/%s.tres" % skin_id) as ItemDefinition
-		if definition != null:
-			result[skin_id] = definition
-	return result

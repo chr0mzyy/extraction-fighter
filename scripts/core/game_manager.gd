@@ -31,6 +31,7 @@ var arena_bots: Array[BotController] = []
 var legacy_test_mode: bool = false
 var abandon_dialog: ConfirmationDialog
 var target_refresh_remaining: float = 0.0
+var progression_save_path: String = PlayerProfile.SAVE_PATH
 
 
 func _ready() -> void:
@@ -46,7 +47,9 @@ func _ready() -> void:
 	hud.bind(player, bot, self)
 	score_changed.emit(player_kills, bot_kills)
 	_build_pause_menu()
-	if "--arena-round-test" in args:
+	if "--arena-acceptance-test" in args:
+		_run_arena_acceptance_test.call_deferred()
+	elif "--arena-round-test" in args:
 		_run_arena_round_test.call_deferred()
 	elif "--arena-reward-test" in args:
 		_run_arena_reward_test.call_deferred()
@@ -450,6 +453,7 @@ func _setup_arena_match() -> void:
 	add_child(arena_ui)
 	arena_ui.bind(arena_match, arena_participants[0])
 	arena_ui.play_again_requested.connect(_on_play_again)
+	arena_ui.retry_progression_requested.connect(_retry_arena_progression)
 	arena_ui.return_to_lobby_requested.connect(_return_to_lobby_immediate)
 	arena_match.begin_match(false)
 
@@ -554,10 +558,82 @@ func _on_arena_results_ready(result: ArenaMatchResult) -> void:
 	MouseModeService.enter_pause(player)
 	if arena_ui == null:
 		return
-	result.progression_grant = ArenaProgressionService.grant_once(result)
-	if bool(result.progression_grant.get("granted", false)):
-		PlayerProfile.save_profile()
+	result.progression_grant = ArenaProgressionService.grant_and_save(result, progression_save_path)
 	arena_ui.present_results(result, result.progression_grant)
+
+
+func _retry_arena_progression() -> void:
+	if arena_match != null and arena_match.latest_result != null:
+		_on_arena_results_ready(arena_match.latest_result)
+
+
+func _run_arena_acceptance_test() -> void:
+	# Drive actual health/death/signals/results, with an isolated reward file.
+	progression_save_path = "user://arena_acceptance_test.json"
+	player.set_physics_process(false)
+	for actor: BotController in arena_bots:
+		actor.set_physics_process(false)
+	var failures: Array[String] = []
+	var inventory_before: Array = PlayerProfile.to_save_data().owned_item_instances
+	var cosmetics_before := PlayerProfile.selected_weapon_cosmetics.duplicate(true)
+	var xp_before := PlayerProfile.account_xp
+	var tokens_before := PlayerProfile.style_tokens
+	var starting_result_id := arena_match.match_result_id
+	var expected_actors := 2 if ArenaSessionRequest.mode_id == &"1v1" else 4
+	if arena_participants.size() != expected_actors:
+		failures.append("Wrong live participant count")
+	for round_index: int in arena_match.mode.rounds_to_win:
+		if arena_match.state != ArenaMatchManager.STATE_ROUND_INTRO or player.arena_combat_enabled:
+			failures.append("Countdown failed to lock combat")
+		if player.health.current_health != 100.0 or player.get_total_armor() != 0.0:
+			failures.append("Round reset did not restore fair 100 HP")
+		for skill: SkillBase in player.equipped_skills:
+			if skill.cooldown_remaining > 0.0:
+				failures.append("Round reset retained an active cooldown")
+			skill.cooldown_remaining = 3.0
+		arena_match.advance(ArenaMatchManager.INTRO_DURATION + 0.01)
+		if not player.arena_combat_enabled:
+			failures.append("Countdown did not unlock combat")
+		for actor: BotController in arena_bots:
+			if actor.arena_team_id == ArenaMatchManager.TEAM_B:
+				actor.current_weapon.cancel_combat()
+				var info := DamageInfo.new(1000.0, player, &"acceptance_test")
+				info.weapon_family = &"katana"
+				actor.receive_damage(info)
+		if arena_match.state != ArenaMatchManager.STATE_ROUND_END:
+			failures.append("Live team elimination did not end the round")
+		arena_match.finish_transition_now()
+	arena_match.finish_transition_now()
+	if arena_match.state != ArenaMatchManager.STATE_RESULTS or not arena_ui.results_panel.visible:
+		failures.append("Completed match did not open results")
+	var expected_damage := float(arena_match.mode.rounds_to_win * arena_match.mode.team_size * 100)
+	if not is_equal_approx(float(arena_match.latest_result.local_player_stats().get("damage_dealt", 0.0)), expected_damage):
+		failures.append("Overkill damage inflated live match statistics")
+	if not bool(arena_match.latest_result.progression_grant.get("granted", false)):
+		failures.append("Completed match did not persist cosmetic rewards")
+	var xp_after := PlayerProfile.account_xp
+	var tokens_after := PlayerProfile.style_tokens
+	if xp_after <= xp_before or tokens_after <= tokens_before:
+		failures.append("Live match did not increase XP and Style Tokens")
+	if PlayerProfile.to_save_data().owned_item_instances != inventory_before or PlayerProfile.selected_weapon_cosmetics != cosmetics_before:
+		failures.append("Arena changed legacy inventory/durability or cosmetic selections")
+	_on_arena_results_ready(arena_match.latest_result)
+	if PlayerProfile.account_xp != xp_after or PlayerProfile.style_tokens != tokens_after:
+		failures.append("Reopening live results duplicated rewards")
+	if not PlayerProfile.load_profile(progression_save_path, false) or PlayerProfile.account_xp != xp_after:
+		failures.append("Live match rewards failed persistence reload")
+	_on_play_again()
+	if arena_match.state != ArenaMatchManager.STATE_ROUND_INTRO or arena_match.match_result_id == starting_result_id:
+		failures.append("Rematch did not start a clean match")
+	for path: String in [progression_save_path, progression_save_path + ".backup", progression_save_path + ".tmp"]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	if failures.is_empty():
+		print("ARENA_ACCEPTANCE_OK: %s live countdown, elimination, reset, results, persistent rewards, replay guard and rematch passed" % String(ArenaSessionRequest.mode_id))
+	else:
+		for failure: String in failures:
+			push_error("ARENA_ACCEPTANCE_FAILURE: " + failure)
+	get_tree().quit(0 if failures.is_empty() else 1)
 
 
 func _assign_bot_targets() -> void:
@@ -715,16 +791,21 @@ func _run_arena_reward_test() -> void:
 	var ui_loser := ArenaParticipantState.new(&"ui_loser", "UI BOT", 1, 0, bot, false)
 	ui_loser.inventory_owner_id = "ui_loser"
 	ui_participants.append(ui_loser)
-	var ui_result := ArenaMatchResult.new().configure(MODE_1V1, 0, 4, 1, 5, ui_participants, false, "result:ui")
 	ui_winner.kills = 4
 	ui_winner.damage_dealt = 520.0
 	ui_winner.weapon_damage_by_family["katana"] = 520.0
+	var ui_result := ArenaMatchResult.new().configure(MODE_1V1, 0, 4, 1, 5, ui_participants, false, "result:ui")
 	var test_ui := ArenaMatchUI.new()
 	add_child(test_ui)
 	var calculated := ArenaProgressionService.calculate(ui_result)
 	test_ui.present_results(ui_result, calculated)
 	if not test_ui.results_panel.visible or test_ui.result_continue_button.text != "RETURN TO LOBBY":
 		failures.append("Progression results controls were not usable")
+	if not test_ui.result_stats.text.contains("520") or not test_ui.progression_text.text.contains("KATANA"):
+		failures.append("Results did not present real match damage and family mastery")
+	test_ui.present_results(ui_result, {"save_failed": true})
+	if not test_ui.rematch_button.disabled or not test_ui.retry_progression_button.visible:
+		failures.append("Failed reward save did not expose retry and protect rematch")
 	var original_size: Vector2i = get_viewport().size
 	for test_size: Vector2i in [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440)]:
 		get_viewport().size = test_size
@@ -1166,7 +1247,7 @@ func _run_pause_flow_test() -> void:
 
 func _run_polish_self_test() -> void:
 	var failures: Array[String] = []
-	if player.visual_body.get_child_count() < 30 or bot.visual_body.get_child_count() < 30:
+	if not player.visual_body.has_method("get_visual_detail_count") or not bot.visual_body.has_method("get_visual_detail_count") or int(player.visual_body.call("get_visual_detail_count")) < 30 or int(bot.visual_body.call("get_visual_detail_count")) < 30:
 		failures.append("Tactical character models did not generate their detail layers")
 	var settings_snapshot := GameSettings.to_dictionary()
 	GameSettings.set_value(&"base_fov", 101.0, false)
@@ -1229,6 +1310,7 @@ func _run_combat_feel_test() -> void:
 	if profile_signatures.size() != families.size():
 		failures.append("Weapon family presentation profiles are not distinct")
 	var configured_families: Dictionary = {}
+	var family_runtime_stats: Dictionary = {}
 	for definition: ItemDefinition in ItemDatabase.DEFINITIONS:
 		if definition.item_type != ItemDefinition.ItemType.WEAPON:
 			continue
@@ -1236,9 +1318,27 @@ func _run_combat_feel_test() -> void:
 		if weapon == null:
 			failures.append("Weapon scene failed to instantiate for combat feel: %s" % definition.id)
 			continue
+		player.weapon_mount.add_child(weapon)
 		weapon.setup(player)
 		weapon.configure_from_item(definition, ItemInstance.create(definition, "combat-feel:%s" % definition.id))
-		configured_families[weapon.get_presentation_profile().family] = true
+		var family := weapon.get_presentation_profile().family
+		configured_families[family] = true
+		var runtime_stats: Dictionary = {}
+		for property: Dictionary in weapon.get_property_list():
+			if int(property.usage) & PROPERTY_USAGE_SCRIPT_VARIABLE and int(property.usage) & PROPERTY_USAGE_EDITOR and String(property.name) != "weapon_display_name":
+				runtime_stats[property.name] = weapon.get(property.name)
+		if family_runtime_stats.has(family) and family_runtime_stats[family] != runtime_stats:
+			failures.append("Cosmetic changed live combat properties: %s" % definition.id)
+		family_runtime_stats[family] = runtime_stats
+		if weapon.item_instance != null or not weapon.item_definition.affix_ids.is_empty() or weapon.item_definition.special_effect_id != &"":
+			failures.append("Legacy item effects leaked into live Arena weapon: %s" % definition.id)
+		if family == &"katana":
+			weapon.equip()
+			weapon.secondary_pressed()
+			weapon.secondary_released()
+			weapon.secondary_pressed()
+			if float(weapon.get("deflect_remaining")) > 0.0:
+				failures.append("Repeated block press refreshed perfect parry without recovery")
 		weapon.free()
 	for family: StringName in families:
 		if not configured_families.has(family):
@@ -1417,6 +1517,8 @@ func _run_self_test() -> void:
 	Input.action_release("peek_right")
 	if player.get_peek_amount() < 0.45:
 		failures.append("Right peek did not shift and roll the camera")
+	if player.get_upper_body_peek_roll() > deg_to_rad(-4.0) or not is_zero_approx(player.visual_body.rotation.z):
+		failures.append("Right peek did not lean only the upper-body visual")
 	for frame: int in range(24):
 		await get_tree().process_frame
 	Input.action_press("peek_left")
@@ -1425,6 +1527,8 @@ func _run_self_test() -> void:
 	Input.action_release("peek_left")
 	if player.get_peek_amount() > -0.35:
 		failures.append("Left peek did not shift and roll the camera")
+	if player.get_upper_body_peek_roll() < deg_to_rad(3.0) or not is_zero_approx(player.visual_body.rotation.z):
+		failures.append("Left peek did not lean only the upper-body visual")
 	for frame: int in range(24):
 		await get_tree().process_frame
 
@@ -1687,6 +1791,7 @@ func _run_self_test() -> void:
 	if not is_equal_approx(player.health.current_health, 100.0) or bot.stagger_remaining <= 0.0:
 		failures.append("Perfect melee deflect did not negate damage and stagger attacker")
 	katana.secondary_released()
+	await get_tree().create_timer(katana.parry_rearm_time + 0.05).timeout
 	katana.secondary_pressed()
 	player.receive_damage(DamageInfo.new(20.0, bot, &"sniper", false, false))
 	if not is_equal_approx(player.health.current_health, 100.0) or not is_equal_approx(bot.health.current_health, 80.0):

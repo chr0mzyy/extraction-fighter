@@ -13,9 +13,11 @@ extends WeaponBase
 @export_group("Defense")
 @export_range(0.0, 1.0) var blocked_damage_multiplier: float = 0.3
 @export var perfect_deflect_duration: float = 0.18
+@export var parry_rearm_time: float = 0.0
 
 var recovery_remaining: float = 0.0
 var deflect_remaining: float = 0.0
+var parry_rearm_remaining: float = 0.0
 var is_blocking: bool = false
 var attack_serial: int = 0
 var base_rotation: Vector3
@@ -35,6 +37,7 @@ func _process(delta: float) -> void:
 	effects.tick(delta)
 	recovery_remaining = maxf(0.0, recovery_remaining - delta)
 	deflect_remaining = maxf(0.0, deflect_remaining - delta)
+	parry_rearm_remaining = maxf(0.0, parry_rearm_remaining - delta)
 	swing_remaining = maxf(0.0, swing_remaining - delta)
 	windup_remaining = maxf(0.0, windup_remaining - delta)
 	var swing_offset := 0.0
@@ -95,7 +98,11 @@ func secondary_pressed() -> void:
 		return
 	if not is_blocking:
 		is_blocking = true
-		deflect_remaining = perfect_deflect_duration
+		if parry_rearm_remaining <= 0.0:
+			deflect_remaining = perfect_deflect_duration
+			parry_rearm_remaining = parry_rearm_time
+		else:
+			deflect_remaining = 0.0
 		if wielder.has_method("on_block_started"):
 			wielder.on_block_started()
 		state_changed.emit()
@@ -184,6 +191,7 @@ func unequip() -> void:
 
 func reset_weapon() -> void:
 	attack_serial += 1
+	parry_rearm_remaining = 0.0
 	recovery_remaining = 0.0
 	swing_remaining = 0.0
 	windup_remaining = 0.0

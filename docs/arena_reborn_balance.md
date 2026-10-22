@@ -38,6 +38,8 @@ Maksymalna suma dwóch slotów wynosi 200 Power. Power jest kosztem konstrukcji 
 
 ## Progresja
 
+Damage w statystykach i nagrodach to rzeczywiście utracone HP. Nadmiarowy damage ciosu kończącego nie zwiększa wyników, XP ani mastery. Broń bez trafień nie dostaje mastery. Zapis nagród jest transakcją: nieudany zapis przywraca stan profilu i pozostawia wynik do ponowienia.
+
 - Account XP: 90 za ukończenie, 50 za zwycięstwo, do 120 za kille, do 180 za damage i do 50 za headshoty.
 - Style Tokens: 12 za ukończenie, 8 za zwycięstwo i do 20 za kille.
 - Mastery rodziny: bazowo 20 po użyciu w ukończonym meczu, następnie ograniczone bonusy za real damage, hity i kille tej rodziny.
@@ -53,3 +55,4 @@ Każdy wynik ma unikatowy `result_id`. Nagroda może zostać zatwierdzona tylko 
 3. Standardowa Arena czyści gameplayowe efekty gearu i ustawia 100 HP.
 4. Casual pozwala na FPP/TPP; przyszłe Ranked jest FPP-only i pozostaje wyłączone do powstania prawdziwej infrastruktury sieciowej.
 5. Legacy affix/Mythic runtime pozostaje testowalny poza standardową Areną, ale nie może zostać włączony przez kosmetyk.
+6. Ponowne otwarcie perfect parry wymaga 0,6 s. Szybkie przełączanie bloku nie odświeża okna; zwykły blok pozostaje dostępny.

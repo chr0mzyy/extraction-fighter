@@ -3,6 +3,7 @@ extends CanvasLayer
 
 signal play_again_requested
 signal return_to_lobby_requested
+signal retry_progression_requested
 
 const ACCENT := Color(0.02, 0.74, 0.90)
 const GOLD := Color(1.0, 0.78, 0.08)
@@ -22,6 +23,7 @@ var progression_text: Label
 var account_progress: ProgressBar
 var result_continue_button: Button
 var rematch_button: Button
+var retry_progression_button: Button
 var current_result: ArenaMatchResult
 var current_grant: Dictionary = {}
 
@@ -106,6 +108,10 @@ func _build_results_panel() -> void:
 	account_progress.show_percentage = false
 	account_progress.custom_minimum_size.y = 18
 	column.add_child(account_progress)
+	retry_progression_button = _action_button("RETRY REWARD SAVE")
+	retry_progression_button.visible = false
+	retry_progression_button.pressed.connect(func() -> void: retry_progression_requested.emit())
+	column.add_child(retry_progression_button)
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	actions.add_theme_constant_override("separation", 14)
@@ -122,12 +128,21 @@ func _show_results() -> void:
 	if current_result == null:
 		return
 	var won := current_result.local_player_won()
+	intro_label.text = ""
+	cue_label.text = ""
+	spectator_label.visible = false
+	var save_failed := bool(current_grant.get("save_failed", false))
+	rematch_button.disabled = save_failed
+	retry_progression_button.visible = save_failed
 	result_title.text = "VICTORY" if won else "DEFEAT"
 	result_title.add_theme_color_override("font_color", ACCENT if won else Color(0.95, 0.25, 0.20))
 	result_score.text = "BLUE  %d  —  %d  RED" % [current_result.team_a_score, current_result.team_b_score]
 	var stats := current_result.local_player_stats()
 	result_stats.text = "%s  //  CASUAL LOCAL\n\nKILLS  %d     DEATHS  %d\nDAMAGE  %d     HEADSHOTS  %d\nBEST ROUND DAMAGE  %d     ROUNDS  %d" % [String(current_result.mode_display_name), int(stats.get("kills", 0)), int(stats.get("deaths", 0)), int(stats.get("damage_dealt", 0)), int(stats.get("headshots", 0)), int(stats.get("highest_damage_round", 0)), current_result.rounds_played]
-	if current_result.abandoned:
+	if save_failed:
+		progression_text.text = "REWARDS COULD NOT BE SAVED\nFree disk space or restore write access, then retry.\nLeaving now forfeits these match rewards."
+		account_progress.visible = false
+	elif current_result.abandoned:
 		progression_text.text = "MATCH ABANDONED\nNo account XP, mastery or Style Tokens awarded."
 		account_progress.visible = false
 	else:

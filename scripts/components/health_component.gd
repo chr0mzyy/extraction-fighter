@@ -42,7 +42,7 @@ func apply_damage(info: DamageInfo) -> Dictionary:
 		return {"applied": 0.0, "negated": true, "deflected": true, "blocked": false}
 
 	var multiplier := float(response.get("damage_multiplier", 1.0))
-	var applied := maxf(0.0, info.amount * multiplier)
+	var applied := minf(current_health, maxf(0.0, info.amount * multiplier))
 	current_health = maxf(0.0, current_health - applied)
 	if is_instance_valid(info.attacker):
 		last_attacker = info.attacker
